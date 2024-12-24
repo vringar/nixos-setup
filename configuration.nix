@@ -8,6 +8,23 @@ in {
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
+
+  (let
+        module = fetchTarball {
+          name = "source";
+          url = "https://git.lix.systems/lix-project/nixos-module/archive/2.91.1-2.tar.gz";
+          sha256 = "sha256-DN5/166jhiiAW0Uw6nueXaGTueVxhfZISAkoxasmz/g=";
+        };
+        lixSrc = fetchTarball {
+          name = "source";
+          url = "https://git.lix.systems/lix-project/lix/archive/2.91.1.tar.gz";
+          sha256 = "sha256-hiGtfzxFkDc9TSYsb96Whg0vnqBVV7CUxyscZNhed0U=";
+        };
+        # This is the core of the code you need; it is an exercise to the
+        # reader to write the sources in a nicer way, or by using npins or
+        # similar pinning tools.
+        in import "${module}/module.nix" { lix = lixSrc; }
+      )
     ];
   # We need the flakes experimental feature to do the NIX_PATH thing cleanly
   # below. Given that this is literally the default config for flake-based
@@ -100,6 +117,8 @@ in {
     packages = with pkgs; [
       kdePackages.kate
       thunderbird
+      keepassxc
+      tailscale
     ];
   };
 
@@ -122,7 +141,7 @@ in {
   #  wget
   npins
   git
-
+  cifs-utils
   ];
 
   # Some programs need SUID wrappers, can be configured further or are

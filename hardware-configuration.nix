@@ -26,7 +26,16 @@
       fsType = "vfat";
       options = [ "fmask=0077" "dmask=0077" ];
     };
+  fileSystems."/run/media/stefan/fritzbox" =
+  { device = "//192.168.178.1/FRITZ.NAS";
+    fsType = "cifs";
+    options = let
+      # this line prevents hanging on network split
+      automount_opts = "x-systemd.automount,noauto,x-systemd.idle-timeout=60,x-systemd.device-timeout=5s,x-systemd.mount-timeout=5s";
 
+    in ["${automount_opts}" "credentials=/etc/nixos/smb-secrets" "uid=1000" "noserverino" ];
+
+  };
   swapDevices =
     [ { device = "/dev/disk/by-uuid/3d4ee538-c764-41b9-be36-08b6546edf97"; }
     ];
