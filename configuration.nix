@@ -3,18 +3,26 @@
 # and in the NixOS manual (accessible by running ‘nixos-help’).
 
 { config, pkgs, ... }:
-
-{
+let sources = import ./npins;
+in {
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
     ];
+  # We need the flakes experimental feature to do the NIX_PATH thing cleanly
+  # below. Given that this is literally the default config for flake-based
+  # NixOS installations in the upcoming NixOS 24.05, future Nix/Lix releases
+  # will not get away with breaking it.
+  nix.settings = {
+    experimental-features = "nix-command flakes";
+  };
+  nixpkgs.flake.source = sources.nixpkgs;
 
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  networking.hostName = "nixos"; # Define your hostname.
+  networking.hostName = "sz3"; # Define your hostname.
   # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
 
   # Configure network proxy if necessary
@@ -44,10 +52,13 @@
 
   # Enable the X11 windowing system.
   # You can disable this if you're only using the Wayland session.
-  services.xserver.enable = true;
+  services.xserver.enable = false;
 
   # Enable the KDE Plasma Desktop Environment.
-  services.displayManager.sddm.enable = true;
+  services.displayManager.sddm = {
+    enable = true;
+    wayland.enable = true;
+  };
   services.desktopManager.plasma6.enable = true;
 
   # Configure keymap in X11
