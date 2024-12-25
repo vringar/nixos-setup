@@ -121,7 +121,6 @@ in {
       tailscale
     ];
   };
-
   # Install firefox.
   programs.firefox.enable = true;
   programs.neovim = {

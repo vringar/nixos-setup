@@ -1,5 +1,17 @@
 {
   "pins": {
+    "home-manager": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "nix-community",
+        "repo": "home-manager"
+      },
+      "branch": "master",
+      "revision": "35b98d20ca8f4ca1f6a2c30b8a2c8bb305a36d84",
+      "url": "https://github.com/nix-community/home-manager/archive/35b98d20ca8f4ca1f6a2c30b8a2c8bb305a36d84.tar.gz",
+      "hash": "0k12xs09rp0w80gc7kvwbidfr65kls2wjc7rpvy7sjylqq6v8vqs"
+    },
     "lix-module": {
       "type": "GitRelease",
       "repository": {
