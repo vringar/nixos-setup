@@ -21,10 +21,10 @@
       "pre_releases": false,
       "version_upper_bound": null,
       "release_prefix": null,
-      "version": "2.91.1",
-      "revision": "6478f624b2a00367e0e3d750a2c7a9f3afb72712",
+      "version": "2.91.1-2",
+      "revision": "96824d606a6656650bbe436366bc89d5ee3a6573",
       "url": null,
-      "hash": "1mq5741iwa10r93shg1y8q6cxa2zjppc2w10hsrv1gfac76p8nmj"
+      "hash": "sha256-DN5/166jhiiAW0Uw6nueXaGTueVxhfZISAkoxasmz/g="
     },
     "lix-src": {
       "type": "GitRelease",

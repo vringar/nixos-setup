@@ -11,4 +11,4 @@ nix_path="nixpkgs=${nixpkgs_pin}:nixos-config=${PWD}/configuration.nix"
 
 # without --fast, nixos-rebuild will compile nix and use the compiled nix to
 # evaluate the config, wasting several seconds
-sudo env NIX_PATH="${nix_path}" nixos-rebuild "$cmd" --fast "$@"
+sudo env NIX_PATH="${nix_path}" nixos-rebuild --show-trace "$cmd" --fast "$@"

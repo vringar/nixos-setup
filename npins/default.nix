@@ -57,6 +57,7 @@ let
         url = repository.url;
         rev = revision;
         inherit name;
+        allRefs = true;
         # hash = hash;
       };
 

@@ -10,16 +10,13 @@ in {
       ./hardware-configuration.nix
 
   (let
-        module = fetchTarball {
-          name = "source";
-          url = "https://git.lix.systems/lix-project/nixos-module/archive/2.91.1-2.tar.gz";
-          sha256 = "sha256-DN5/166jhiiAW0Uw6nueXaGTueVxhfZISAkoxasmz/g=";
-        };
-        lixSrc = fetchTarball {
-          name = "source";
-          url = "https://git.lix.systems/lix-project/lix/archive/2.91.1.tar.gz";
-          sha256 = "sha256-hiGtfzxFkDc9TSYsb96Whg0vnqBVV7CUxyscZNhed0U=";
-        };
+        module = sources.lix-module;
+#         module = fetchTarball {
+#           name = "source";
+#           url = "https://git.lix.systems/lix-project/nixos-module/archive/2.91.1-2.tar.gz";
+#           sha256 = "sha256-DN5/166jhiiAW0Uw6nueXaGTueVxhfZISAkoxasmz/g=";
+#         };
+        lixSrc = sources.lix-src;
         # This is the core of the code you need; it is an exercise to the
         # reader to write the sources in a nicer way, or by using npins or
         # similar pinning tools.
@@ -89,6 +86,7 @@ in {
 
   # Enable CUPS to print documents.
   services.printing.enable = true;
+  services.tailscale.enable = true;
 
   # Enable sound with pipewire.
   hardware.pulseaudio.enable = false;
@@ -110,17 +108,7 @@ in {
   # services.xserver.libinput.enable = true;
 
   # Define a user account. Don't forget to set a password with ‘passwd’.
-  users.users.vringar = {
-    isNormalUser = true;
-    description = "Stefan Zabka";
-    extraGroups = [ "networkmanager" "wheel" ];
-    packages = with pkgs; [
-      kdePackages.kate
-      thunderbird
-      keepassxc
-      tailscale
-    ];
-  };
+  users.users.vringar = import ./user {pkgs = pkgs;};
   # Install firefox.
   programs.firefox.enable = true;
   programs.neovim = {
@@ -129,7 +117,7 @@ in {
     viAlias = true;
     vimAlias = true;
   };
-
+  programs.zsh.enable = true;
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
 
@@ -140,7 +128,17 @@ in {
   #  wget
   npins
   git
+  git-lfs
   cifs-utils
+    (pkgs.vscode-with-extensions.override {
+    vscodeExtensions = with vscode-extensions; [
+      bbenoist.nix
+      ms-python.python
+      ms-azuretools.vscode-docker
+      ms-vscode-remote.remote-ssh
+      myriad-dreamin.tinymist
+    ];
+  })
   ];
 
   # Some programs need SUID wrappers, can be configured further or are
