@@ -9,19 +9,7 @@ in {
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
 
-  (let
-        module = sources.lix-module;
-#         module = fetchTarball {
-#           name = "source";
-#           url = "https://git.lix.systems/lix-project/nixos-module/archive/2.91.1-2.tar.gz";
-#           sha256 = "sha256-DN5/166jhiiAW0Uw6nueXaGTueVxhfZISAkoxasmz/g=";
-#         };
-        lixSrc = sources.lix-src;
-        # This is the core of the code you need; it is an exercise to the
-        # reader to write the sources in a nicer way, or by using npins or
-        # similar pinning tools.
-        in import "${module}/module.nix" { lix = lixSrc; }
-      )
+  (import "${sources.lix-module}/module.nix" { lix = sources.lix-src; })
     ];
   # We need the flakes experimental feature to do the NIX_PATH thing cleanly
   # below. Given that this is literally the default config for flake-based
