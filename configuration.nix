@@ -62,6 +62,16 @@ in {
     wayland.enable = true;
   };
   services.desktopManager.plasma6.enable = true;
+  fonts.packages = with pkgs; [
+    noto-fonts
+    noto-fonts-emoji
+    liberation_ttf
+    fira-code
+    fira-code-symbols
+    mplus-outline-fonts.githubRelease
+    dina-font
+  ];
+
 
   # Configure keymap in X11
   services.xserver.xkb = {
@@ -108,6 +118,9 @@ in {
   programs.zsh.enable = true;
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
+
+  hardware.bluetooth.enable = true; # enables support for Bluetooth
+  hardware.bluetooth.powerOnBoot = true; # powers up the default Bluetooth controller on boot
 
   # List packages installed in system profile. To search, run:
   # $ nix search wget
