@@ -10,6 +10,7 @@
       direnv
       element-desktop
       file
+      fzf
       kdePackages.kate
       keepassxc
       starship
