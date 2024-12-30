@@ -12,14 +12,17 @@
       file
       filezilla
       fzf
+      htop
       kdePackages.kate
       keepassxc
+      nil
       starship
       signal-desktop
       tailscale
       typst
       tmux
       thunderbird
-      nil
+      vlc
+      wget
     ];
 }
