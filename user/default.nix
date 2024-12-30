@@ -10,6 +10,7 @@
       direnv
       element-desktop
       file
+      filezilla
       fzf
       kdePackages.kate
       keepassxc
