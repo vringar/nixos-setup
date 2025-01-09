@@ -85,9 +85,13 @@ in {
   # Enable CUPS to print documents.
   services.printing.enable = true;
   services.tailscale.enable = true;
+  virtualisation.docker= {
+    enable = true;
+    storageDriver = "btrfs";
+  };
 
   # Enable sound with pipewire.
-  hardware.pulseaudio.enable = false;
+  services.pulseaudio.enable = false;
   security.rtkit.enable = true;
   services.pipewire = {
     enable = true;
