@@ -8,9 +8,9 @@
         "repo": "home-manager"
       },
       "branch": "master",
-      "revision": "10e99c43cdf4a0713b4e81d90691d22c6a58bdf2",
-      "url": "https://github.com/nix-community/home-manager/archive/10e99c43cdf4a0713b4e81d90691d22c6a58bdf2.tar.gz",
-      "hash": "1vklmr0vzhplcjcqg19v66c1swg3xcgw96ry90dyd4hl2cb9j80b"
+      "revision": "0c0b0ac8af6ca76b1fcb514483a9bd73c18f1e8c",
+      "url": "https://github.com/nix-community/home-manager/archive/0c0b0ac8af6ca76b1fcb514483a9bd73c18f1e8c.tar.gz",
+      "hash": "13i7203ksz9x87rxmw2cwx804x8pg0c4kiiwarx4h2kr68xvvq0l"
     },
     "lix-module": {
       "type": "GitRelease",
@@ -21,10 +21,10 @@
       "pre_releases": false,
       "version_upper_bound": null,
       "release_prefix": null,
-      "version": "2.91.1-2",
-      "revision": "96824d606a6656650bbe436366bc89d5ee3a6573",
+      "version": "2.92.0",
+      "revision": "b90bf629bbd835e61f1317b99e12f8c831017006",
       "url": null,
-      "hash": "sha256-DN5/166jhiiAW0Uw6nueXaGTueVxhfZISAkoxasmz/g="
+      "hash": "1gzrpdv2p74is4mjmi4kkmm4ycf74mpsm6ppmxwk9laz39qfphk0"
     },
     "lix-src": {
       "type": "GitRelease",
@@ -35,16 +35,16 @@
       "pre_releases": false,
       "version_upper_bound": null,
       "release_prefix": null,
-      "version": "2.91.1",
-      "revision": "ad9d06f7838a25beec425ff406fe68721fef73be",
+      "version": "2.92.0",
+      "revision": "2837da71ec1588c1187d2e554719b15904a46c8b",
       "url": null,
-      "hash": "0ibpbvc6871bqyab0msml2g2y3c6jvg6yb169lykg4257izss8c6"
+      "hash": "126vm9m517gwfqdy1c4zghzk3w3xfahhhjawkqmkjxrq9w08h8h8"
     },
     "nixpkgs": {
       "type": "Channel",
       "name": "nixos-unstable",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-25.05beta742084.9e4d5190a948/nixexprs.tar.xz",
-      "hash": "19vjyvnp0im02gmgnnp91jgc01b3wwpfaiqyhdamvkh3c4zy9a78"
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-25.05beta755230.73cf49b8ad83/nixexprs.tar.xz",
+      "hash": "1r5lzjffm92f0qx8jybldzqf6xs3qb7ms50sxv734vkvaw12za33"
     }
   },
   "version": 3
