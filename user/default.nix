@@ -15,7 +15,10 @@
       htop
       kdePackages.kate
       keepassxc
+      nextcloud-client
       nil
+      pdfpc
+      polylux2pdfpc
       starship
       signal-desktop
       tailscale

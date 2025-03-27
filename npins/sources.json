@@ -8,9 +8,10 @@
         "repo": "home-manager"
       },
       "branch": "master",
-      "revision": "0c0b0ac8af6ca76b1fcb514483a9bd73c18f1e8c",
-      "url": "https://github.com/nix-community/home-manager/archive/0c0b0ac8af6ca76b1fcb514483a9bd73c18f1e8c.tar.gz",
-      "hash": "13i7203ksz9x87rxmw2cwx804x8pg0c4kiiwarx4h2kr68xvvq0l"
+      "submodules": false,
+      "revision": "693840c01b9bef9e54100239cef937e53d4661bf",
+      "url": "https://github.com/nix-community/home-manager/archive/693840c01b9bef9e54100239cef937e53d4661bf.tar.gz",
+      "hash": "1072k9kwn6853iqkhwsahsk5ddgcxvqridvm1wd8mskanm660z5j"
     },
     "lix-module": {
       "type": "GitRelease",
@@ -21,10 +22,11 @@
       "pre_releases": false,
       "version_upper_bound": null,
       "release_prefix": null,
-      "version": "2.92.0",
-      "revision": "b90bf629bbd835e61f1317b99e12f8c831017006",
+      "submodules": false,
+      "version": "2.92.0-2",
+      "revision": "c40fe6e5c69fed5f5df4af92479046d86e2368ac",
       "url": null,
-      "hash": "1gzrpdv2p74is4mjmi4kkmm4ycf74mpsm6ppmxwk9laz39qfphk0"
+      "hash": "0vl2dpwfclyryb8clrcl7sk5qr3pkcajk1g06bgk8p2rqdnbwv7r"
     },
     "lix-src": {
       "type": "GitRelease",
@@ -35,6 +37,7 @@
       "pre_releases": false,
       "version_upper_bound": null,
       "release_prefix": null,
+      "submodules": false,
       "version": "2.92.0",
       "revision": "2837da71ec1588c1187d2e554719b15904a46c8b",
       "url": null,
@@ -43,9 +46,9 @@
     "nixpkgs": {
       "type": "Channel",
       "name": "nixos-unstable",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-25.05beta755230.73cf49b8ad83/nixexprs.tar.xz",
-      "hash": "1r5lzjffm92f0qx8jybldzqf6xs3qb7ms50sxv734vkvaw12za33"
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-25.05pre773904.698214a32beb/nixexprs.tar.xz",
+      "hash": "1x291i9s4a2ii5xadfvnx2x65r6cxnmyi16crbgijafvgbipb4vf"
     }
   },
-  "version": 3
+  "version": 5
 }
