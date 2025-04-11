@@ -17,6 +17,7 @@
       keepassxc
       nextcloud-client
       nil
+      nmap
       pdfpc
       polylux2pdfpc
       starship
