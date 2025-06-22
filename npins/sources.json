@@ -9,9 +9,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "693840c01b9bef9e54100239cef937e53d4661bf",
-      "url": "https://github.com/nix-community/home-manager/archive/693840c01b9bef9e54100239cef937e53d4661bf.tar.gz",
-      "hash": "1072k9kwn6853iqkhwsahsk5ddgcxvqridvm1wd8mskanm660z5j"
+      "revision": "7c35504839f915abec86a96435b881ead7eb6a2b",
+      "url": "https://github.com/nix-community/home-manager/archive/7c35504839f915abec86a96435b881ead7eb6a2b.tar.gz",
+      "hash": "0yzb4k9706svagqy3ql0dqv1jykjjhxbjldyxxmvzjss25lz8qg9"
     },
     "lix-module": {
       "type": "GitRelease",
@@ -23,10 +23,10 @@
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "2.92.0-2",
-      "revision": "c40fe6e5c69fed5f5df4af92479046d86e2368ac",
+      "version": "2.93.0",
+      "revision": "cd2a9c028df820a83ca2807dc6c6e7abc3dfa7fc",
       "url": null,
-      "hash": "0vl2dpwfclyryb8clrcl7sk5qr3pkcajk1g06bgk8p2rqdnbwv7r"
+      "hash": "1pz4j93rwgf3hv3za3q16300kp9b74aglb1mbr5qpiw0g0mphm6p"
     },
     "lix-src": {
       "type": "GitRelease",
@@ -38,16 +38,16 @@
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "2.92.0",
-      "revision": "2837da71ec1588c1187d2e554719b15904a46c8b",
+      "version": "2.93.0",
+      "revision": "47aad376c87e2e65967f17099277428e4b3f8e5a",
       "url": null,
-      "hash": "126vm9m517gwfqdy1c4zghzk3w3xfahhhjawkqmkjxrq9w08h8h8"
+      "hash": "0g17i8yz5j0i2v29c2fddksvnc5n8fc5ml2pz0jhxaia7ghmxhc6"
     },
     "nixpkgs": {
       "type": "Channel",
       "name": "nixos-unstable",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-25.05pre780821.c8cd81426f45/nixexprs.tar.xz",
-      "hash": "02xbm5wd706ili23n0cvydcvi02xpzk0q7zdacknml69dnva68sb"
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-25.11pre818804.08f22084e608/nixexprs.tar.xz",
+      "hash": "1nn4vnj0h9jykl0dpqmdly97p01c8l9j7cam2n37yiann47ibw9c"
     }
   },
   "version": 5
