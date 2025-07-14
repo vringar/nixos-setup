@@ -120,9 +120,10 @@ in {
     vimAlias = true;
   };
   programs.zsh.enable = true;
+
+  programs.steam.enable = true;
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
-
   hardware.bluetooth.enable = true; # enables support for Bluetooth
   hardware.bluetooth.powerOnBoot = true; # powers up the default Bluetooth controller on boot
 
