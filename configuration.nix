@@ -9,7 +9,7 @@ in {
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
 
-  (import "${sources.lix-module}/module.nix" { lix = sources.lix-src; })
+    (import "${sources.lix-module}/module.nix" { lix = sources.lix-src; })
     ];
   # We need the flakes experimental feature to do the NIX_PATH thing cleanly
   # below. Given that this is literally the default config for flake-based
