@@ -13,6 +13,7 @@
       filezilla
       fzf
       htop
+      jujutsu
       kdePackages.kate
       keepassxc
       nextcloud-client

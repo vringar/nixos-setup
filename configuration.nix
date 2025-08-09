@@ -145,6 +145,15 @@ in {
       ms-vscode-remote.remote-ssh
       myriad-dreamin.tinymist
       tamasfe.even-better-toml
+      # All the java nonsense
+      vscjava.vscode-java-pack
+      redhat.java
+      vscjava.vscode-java-debug
+      vscjava.vscode-java-test
+      vscjava.vscode-maven
+      vscjava.vscode-gradle
+      vscjava.vscode-java-dependency
+      visualstudioexptteam.vscodeintellicode
     ];
   })
   ];
