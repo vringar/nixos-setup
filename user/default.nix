@@ -5,6 +5,7 @@
   shell = pkgs.zsh;
   packages = with pkgs; [
     alacritty
+    alejandra
     bat
     delta
     direnv

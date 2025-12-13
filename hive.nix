@@ -38,6 +38,10 @@ in
       cifs-utils
     ];
 
+    imports = [
+      (import "${sources.lix-module}/module.nix" { lix = sources.lix-src; versionSuffix = sources.lix-src.revision; })
+    ];
+
     # By default, Colmena will replace unknown remote profile
     # (unknown means the profile isn't in the nix store on the
     # host running Colmena) during apply (with the default goal,
@@ -76,34 +80,42 @@ in
     };
     nixpkgs.flake.source = sources.nixpkgs;
     services.openssh.enable = true;
+
+    users.users.vringar = import ./user {pkgs = pkgs;};
   };
 
   sz1 = {name, lib, pkgs, ...}: {
     imports = [
-      (import "${sources.lix-module}/module.nix" { lix = sources.lix-src; versionSuffix = sources.lix-src.revision; })
-      # Include the results of the hardware scan.
-      ./hardware/sz3.nix
+      ./hardware/sz1.nix
       ./modules/bluetooth.nix
       ./modules/desktop.nix
     ]; 
     deployment.tags = [ "personal" ];
 
     networking.hostName = name;
+    networking.hostId = "cb8907f7";
 
-    boot.loader.grub.device = "/dev/sda";
-    fileSystems."/" = {
-      device = "/dev/sda1";
-      fsType = "ext4";
-    };
-    system.stateVersion = "26.05";
+    deployment.allowLocalDeployment = true;
+
+    system.stateVersion = "25.05";
+
+      boot.loader.efi.canTouchEfiVariables = true;
+  # Use the GRUB 2 boot loader.
+  boot.loader.grub = {
+          enable = true;
+          useOSProber = true;
+          efiSupport = true;
+          device = "nodev";
+          configurationLimit = 3;
+  };
+  boot.zfs.extraPools = [ "zpool" ];
+  boot.zfs.devNodes = "/dev/disk/by-uuid/15679710222853114018";
 
   };
 
   sz3 = {name, lib, pkgs, ...}: {
 
     imports = [
-      (import "${sources.lix-module}/module.nix" { lix = sources.lix-src; versionSuffix = sources.lix-src.revision; })
-      # Include the results of the hardware scan.
       ./hardware/sz3.nix
       ./modules/bluetooth.nix
       ./modules/desktop.nix
@@ -124,7 +136,6 @@ in
     deployment.tags = [ "personal" ];
     deployment.allowLocalDeployment = true;
 
-    users.users.vringar = import ./user {pkgs = pkgs;};
     virtualisation.docker= {
       enable = true;
       storageDriver = "btrfs";

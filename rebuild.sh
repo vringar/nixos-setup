@@ -11,6 +11,6 @@ if [ $# -ne 0 ]
 fi
 
 nixpkgs_pin=$(nix eval --raw -f npins/default.nix nixpkgs)
-nix_path="nixpkgs=${nixpkgs_pin}:nixos-config=${PWD}/configuration.nix"
+nix_path="nixpkgs=${nixpkgs_pin}"
 
 NIX_PATH="${nix_path}" colmena apply-local --show-trace --sudo 
