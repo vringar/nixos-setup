@@ -87,8 +87,7 @@ in
       ./modules/desktop.nix
     ]; 
     deployment.tags = [ "personal" ];
-    # The name and nodes parameters are supported in Colmena,
-    # allowing you to reference configurations in other nodes.
+
     networking.hostName = name;
 
     boot.loader.grub.device = "/dev/sda";
@@ -109,7 +108,7 @@ in
       ./modules/bluetooth.nix
       ./modules/desktop.nix
     ]; 
-
+    networking.hostName = name;
     # Bootloader.
     boot.loader.systemd-boot = {
       enable = true;
