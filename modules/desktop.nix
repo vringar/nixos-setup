@@ -24,6 +24,7 @@
     fira-code-symbols
     mplus-outline-fonts.githubRelease
     dina-font
+    nerd-fonts.jetbrains-mono
   ];
 
   # Configure keymap in X11

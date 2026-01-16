@@ -7,6 +7,7 @@
     alacritty
     alejandra
     bat
+    cheese
     delta
     discord
     direnv
@@ -21,6 +22,7 @@
     nextcloud-client
     nil
     nmap
+    obs-studio
     pdfpc
     polylux2pdfpc
     starship
