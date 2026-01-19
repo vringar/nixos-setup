@@ -8,12 +8,8 @@ in
     # - A path to a Nixpkgs checkout
     # - The Nixpkgs lambda (e.g., import <nixpkgs>)
     # - An initialized Nixpkgs attribute set
-    nixpkgs = <nixpkgs>;
+    nixpkgs = sources.nixpkgs;
 
-    # You can also override Nixpkgs by node!
-    nodeNixpkgs = {
-      node-b = ./another-nixos-checkout;
-    };
 
     # If your Colmena host has nix configured to allow for remote builds
     # (for nix-daemon, your user being included in trusted-users)
@@ -40,6 +36,7 @@ in
 
     imports = [
       (import "${sources.lix-module}/module.nix" { lix = sources.lix-src; versionSuffix = sources.lix-src.revision; })
+      ./modules/baseline.nix
     ];
 
     # By default, Colmena will replace unknown remote profile
@@ -71,7 +68,7 @@ in
       LC_TELEPHONE = "de_DE.UTF-8";
       LC_TIME = "de_DE.UTF-8";
     };
-        # We need the flakes experimental feature to do the NIX_PATH thing cleanly
+    # We need the flakes experimental feature to do the NIX_PATH thing cleanly
     # below. Given that this is literally the default config for flake-based
     # NixOS installations in the upcoming NixOS 24.05, future Nix/Lix releases
     # will not get away with breaking it.
