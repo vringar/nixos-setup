@@ -16,7 +16,6 @@
     htop
     jujutsu
     kdePackages.kate
-    kdePackages.partitionmanager
     keepassxc
     nextcloud-client
     nil
