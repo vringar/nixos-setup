@@ -55,7 +55,7 @@
     vimAlias = true;
   };
   programs.zsh.enable = true;
-
+  programs.partition-manager.enable = true;
   environment.systemPackages = with pkgs; [
     (pkgs.vscode-with-extensions.override {
       vscodeExtensions = with vscode-extensions; [
