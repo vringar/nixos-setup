@@ -56,7 +56,9 @@
   programs.zsh.enable = true;
   programs.partition-manager.enable = true;
   environment.systemPackages = with pkgs; [
-    (pkgs.vscode-with-extensions.override {
+    nextcloud-client
+    obsidian
+    (vscode-with-extensions.override {
       vscodeExtensions = with vscode-extensions; [
         bbenoist.nix
         github.vscode-github-actions

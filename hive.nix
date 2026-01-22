@@ -36,6 +36,7 @@ in
 
     imports = [
       (import "${sources.lix-module}/module.nix" { lix = sources.lix-src; versionSuffix = sources.lix-src.revision; })
+      (import "${sources.home-manager}/nixos")
       ./modules/baseline.nix
     ];
 

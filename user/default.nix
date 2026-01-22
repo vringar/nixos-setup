@@ -8,6 +8,7 @@
     alejandra
     bat
     delta
+    discord
     direnv
     element-desktop
     file
