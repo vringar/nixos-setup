@@ -1,4 +1,5 @@
 {
+  name,
   config,
   lib,
   pkgs,
@@ -8,6 +9,14 @@
   imports = [
     (modulesPath + "/installer/scan/not-detected.nix")
   ];
+
+  networking.hostName = name;
+  # Bootloader.
+  boot.loader.systemd-boot = {
+    enable = true;
+    configurationLimit = 10;
+  };
+  boot.loader.efi.canTouchEfiVariables = true;
 
   boot.initrd.availableKernelModules = ["xhci_pci" "thunderbolt" "nvme" "usb_storage" "sd_mod"];
   boot.initrd.kernelModules = [];

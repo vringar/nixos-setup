@@ -1,7 +1,7 @@
 # colmena config
-let sources = import ./npins;
-in
-{
+let
+  sources = import ./npins;
+in {
   meta = {
     # Override to pin the Nixpkgs version (recommended). This option
     # accepts one of the following:
@@ -9,7 +9,6 @@ in
     # - The Nixpkgs lambda (e.g., import <nixpkgs>)
     # - An initialized Nixpkgs attribute set
     nixpkgs = sources.nixpkgs;
-
 
     # If your Colmena host has nix configured to allow for remote builds
     # (for nix-daemon, your user being included in trusted-users)
@@ -21,21 +20,14 @@ in
     # machinesFile = ./machines.client-a;
   };
 
-  defaults = { pkgs, ... }: {
+  defaults = {pkgs, ...}: {
     nixpkgs.config.allowUnfree = true;
 
-    # This module will be imported by all hosts
-    environment.systemPackages = with pkgs; [
-      vim wget curl
-      npins
-      lixPackageSets.git.colmena
-      git
-      git-lfs
-      cifs-utils
-    ];
-
     imports = [
-      (import "${sources.lix-module}/module.nix" { lix = sources.lix-src; versionSuffix = sources.lix-src.revision; })
+      (import "${sources.lix-module}/module.nix" {
+        lix = sources.lix-src;
+        versionSuffix = sources.lix-src.revision;
+      })
       (import "${sources.home-manager}/nixos")
       ./modules/baseline.nix
     ];
@@ -49,7 +41,7 @@ in
     # you can accidentaly overwrite a remote profile so in those
     # scenarios you might want to change this default to false.
     deployment.replaceUnknownProfiles = true;
-      # Enable networking
+    # Enable networking
     networking.networkmanager.enable = true;
 
     # Set your time zone.
@@ -82,42 +74,35 @@ in
     users.users.vringar = import ./user {pkgs = pkgs;};
   };
 
-  sz1 = {name, lib, pkgs, ...}: {
+  sz1 = {
+    name,
+    lib,
+    pkgs,
+    ...
+  }: {
     imports = [
       ./hardware/sz1.nix
       ./modules/bluetooth.nix
       ./modules/desktop.nix
-    ]; 
-    deployment.tags = [ "personal" ];
-
-    networking.hostName = name;
-    networking.hostId = "cb8907f7";
+    ];
+    deployment.tags = ["personal"];
 
     deployment.allowLocalDeployment = true;
 
     system.stateVersion = "25.05";
-
-      boot.loader.efi.canTouchEfiVariables = true;
-  # Use the GRUB 2 boot loader.
-  boot.loader.grub = {
-          enable = true;
-          useOSProber = true;
-          efiSupport = true;
-          device = "nodev";
-          configurationLimit = 3;
-  };
-  boot.zfs.extraPools = [ "zpool" ];
-  boot.zfs.devNodes = "/dev/disk/by-uuid/15679710222853114018";
-
   };
 
-  sz3 = {name, lib, pkgs, ...}: {
-
+  sz3 = {
+    name,
+    lib,
+    pkgs,
+    ...
+  }: {
     imports = [
       ./hardware/sz3.nix
       ./modules/bluetooth.nix
       ./modules/desktop.nix
-    ]; 
+    ];
     networking.hostName = name;
     # Bootloader.
     boot.loader.systemd-boot = {
@@ -131,10 +116,10 @@ in
     #    colmena apply --on @web
     # You can use globs in tag matching as well:
     #    colmena apply --on '@infra-*'
-    deployment.tags = [ "personal" ];
+    deployment.tags = ["personal"];
     deployment.allowLocalDeployment = true;
 
-    virtualisation.docker= {
+    virtualisation.docker = {
       enable = true;
       storageDriver = "btrfs";
     };
