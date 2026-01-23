@@ -2,8 +2,12 @@
   pkgs,
   services,
   environment,
+  home-manager,
   ...
 }: {
+ imports = [
+      ../home-manager/baseline.nix
+  ];
   services.tailscale.enable = true;
   # This module will be imported by all hosts
   environment.systemPackages = with pkgs; [
@@ -17,4 +21,9 @@
     cifs-utils
     jujutsu
   ];
+
+  home-manager.useGlobalPkgs = true;
+  programs.zsh.ohMyZsh.enable = true;
+  programs.zsh.enable = true;
+
 }

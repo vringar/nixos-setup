@@ -3,6 +3,10 @@
   services,
   ...
 }: {
+
+  imports = [
+      ../home-manager/desktop.nix
+  ];
   # Enable the X11 windowing system.
   # You can disable this if you're only using the Wayland session.
   services.xserver.enable = false;
@@ -51,17 +55,10 @@
     #media-session.enable = true;
   };
   programs.firefox.enable = true;
-  programs.neovim = {
-    enable = true;
-    defaultEditor = true;
-    viAlias = true;
-    vimAlias = true;
-  };
-  programs.zsh.enable = true;
+
   programs.partition-manager.enable = true;
   environment.systemPackages = with pkgs; [
     nextcloud-client
-    obsidian
     (vscode-with-extensions.override {
       vscodeExtensions = with vscode-extensions; [
         bbenoist.nix
