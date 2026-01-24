@@ -103,13 +103,6 @@ in {
       ./modules/bluetooth.nix
       ./modules/desktop.nix
     ];
-    networking.hostName = name;
-    # Bootloader.
-    boot.loader.systemd-boot = {
-      enable = true;
-      configurationLimit = 10;
-    };
-    boot.loader.efi.canTouchEfiVariables = true;
 
     # You can filter hosts by tags with --on @tag-a,@tag-b.
     # In this example, you can deploy to hosts with the "web" tag using:

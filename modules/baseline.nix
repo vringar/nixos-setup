@@ -5,8 +5,8 @@
   home-manager,
   ...
 }: {
- imports = [
-      ../home-manager/baseline.nix
+  imports = [
+    ../home-manager/baseline.nix
   ];
   services.tailscale.enable = true;
   # This module will be imported by all hosts
@@ -25,5 +25,4 @@
   home-manager.useGlobalPkgs = true;
   programs.zsh.ohMyZsh.enable = true;
   programs.zsh.enable = true;
-
 }
