@@ -72,6 +72,8 @@ in {
     services.openssh.enable = true;
 
     users.users.vringar = import ./user {pkgs = pkgs;};
+
+    my.username = "vringar";
   };
 
   sz1 = {

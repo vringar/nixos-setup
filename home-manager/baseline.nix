@@ -1,14 +1,21 @@
 {
   lib,
+  config,
   home-manager,
   ...
-}: {
-  home-manager.users.vringar = {
+}:
+let
+  cfg = config.my;
+in
+{
+  imports = [./config.nix];
+
+  config.home-manager.users.${cfg.username} = {
     pkgs,
     config,
     ...
   }: {
-    home.packages = [pkgs.atool pkgs.httpie pkgs.git-cinnabar];
+    home.packages = [pkgs.claude-code pkgs.git-cinnabar];
     programs.bash.enable = true;
 
     programs.neovim = {
@@ -82,7 +89,43 @@
       };
     };
 
-    programs.starship.enable = true;
+    programs.starship = {
+      enable = true;
+      settings =
+        {
+          custom.jj = {
+            description = "The current jj status";
+            when = "jj --ignore-working-copy root";
+            symbol = "🥋 ";
+            command = ''
+              jj log --revisions @ --no-graph --ignore-working-copy --color always --limit 1 --template '
+              separate(" ",
+                  change_id.shortest(4),
+                  bookmarks,
+                  "|",
+                  concat(
+                  if(conflict, "💥"),
+                  if(divergent, "🚧"),
+                  if(hidden, "👻"),
+                  if(immutable, "🔒"),
+                  ),
+                  raw_escape_sequence("\x1b[1;32m") ++ if(empty, "(empty)"),
+                  raw_escape_sequence("\x1b[1;32m") ++ coalesce(
+                  truncate_end(29, description.first_line(), "…"),
+                  "(no description set)",
+                  ) ++ raw_escape_sequence("\x1b[0m"),
+              )
+              '
+            '';
+          };
+          git_status.disabled = true;
+          git_commit.disabled = true;
+          git_metrics.disabled = true;
+          git_branch.disabled = true;
+        }
+
+      ;
+    };
     programs.zellij.enable = true;
     # The state version is required and should stay at the version you
     # originally installed.
