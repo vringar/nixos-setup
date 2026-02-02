@@ -26,17 +26,76 @@ in
       viAlias = true;
       vimAlias = true;
     };
-    programs.zsh.enable = true;
+
+    programs.alacritty = {
+      enable = true;
+      settings = {
+        font.normal = {
+          family = "JetBrainsMono Nerd Font Mono";
+          style = "Regular";
+        };
+        colors = {
+          primary = {
+            background = "#1f1f1f";
+            foreground = "#e5e1d8";
+          };
+          normal = {
+            black = "#000000";
+            red = "#f7786d";
+            green = "#bde97c";
+            yellow = "#efdfac";
+            blue = "#6ebaf8";
+            magenta = "#ef88ff";
+            cyan = "#90fdf8";
+            white = "#e5e1d8";
+          };
+          bright = {
+            black = "#b4b4b4";
+            red = "#f99f92";
+            green = "#e3f7a1";
+            yellow = "#f2e9bf";
+            blue = "#b3d2ff";
+            magenta = "#e5bdff";
+            cyan = "#c2fefa";
+            white = "#ffffff";
+          };
+        };
+        window.opacity = 0.9;
+      };
+    };
+
+    programs.zsh = {
+      enable = true;
+      shellAliases = {
+        tmux = "tmux -u";
+        tf = "terraform";
+        dck = "docker compose";
+      };
+      sessionVariables = {
+        RUST_BACKTRACE = "1";
+      };
+      oh-my-zsh = {
+        enable = true;
+        plugins = [
+          "tmux"
+          "git"
+          "python"
+          "rust"
+          "nix-shell"
+          "nix-zsh-completions"
+        ];
+        extraConfig = ''
+          COMPLETION_WAITING_DOTS="true"
+          HIST_STAMPS="yyyy-mm-dd"
+        '';
+      };
+    };
     home.shell.enableZshIntegration = true;
-    programs.zsh.oh-my-zsh.enable = true;
-    programs.zsh.oh-my-zsh.plugins = [
-      "tmux"
-      "git"
-      "python"
-      "rust"
-      "nix-shell"
-      "nix-zsh-completions"
-    ];
+
+    programs.direnv = {
+      enable = true;
+      nix-direnv.enable = true;
+    };
     programs.delta = {
       enable = true;
       enableGitIntegration = true;
