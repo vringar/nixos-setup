@@ -15,7 +15,9 @@ in
     config,
     ...
   }: {
-    home.packages = [pkgs.claude-code pkgs.git-cinnabar];
+    imports = [./ai.nix];
+    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar];
+
     programs.bash.enable = true;
 
     programs.neovim = {
