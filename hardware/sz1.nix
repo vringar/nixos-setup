@@ -65,6 +65,37 @@
     {device = "/dev/disk/by-uuid/7a266111-38df-4c46-9303-d10f52ae4f95";}
   ];
 
+  # Additional drives - nofail so boot continues if not present
+  fileSystems."/mnt/Programme" = {
+    device = "/dev/disk/by-uuid/6E50E22D394B927D";
+    fsType = "ntfs3";
+    options = ["nofail" "x-systemd.device-timeout=5" "uid=1000" "gid=100"];
+  };
+
+  fileSystems."/mnt/Daten" = {
+    device = "/dev/disk/by-uuid/0A94B9F1635778A9";
+    fsType = "ntfs3";
+    options = ["nofail" "x-systemd.device-timeout=5" "uid=1000" "gid=100"];
+  };
+
+  fileSystems."/mnt/Backup" = {
+    device = "/dev/disk/by-uuid/02e400c2-1bdd-4d46-a0dd-044d6b4f3af4";
+    fsType = "ext4";
+    options = ["nofail" "x-systemd.device-timeout=5"];
+  };
+
+  fileSystems."/mnt/SourceCode" = {
+    device = "/dev/disk/by-uuid/ea4e895b-d179-40d9-afac-2389a6645dff";
+    fsType = "ext4";
+    options = ["nofail" "x-systemd.device-timeout=5"];
+  };
+
+  fileSystems."/mnt/WindowsNew" = {
+    device = "/dev/disk/by-uuid/20DDDC7E711F2C91";
+    fsType = "ntfs3";
+    options = ["nofail" "x-systemd.device-timeout=5" "uid=1000" "gid=100"];
+  };
+
   # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
   # (the default) this is the recommended approach. When using systemd-networkd it's
   # still possible to use this option, but it's recommended to use it in conjunction

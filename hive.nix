@@ -59,7 +59,7 @@ in {
       LC_NUMERIC = "de_DE.UTF-8";
       LC_PAPER = "de_DE.UTF-8";
       LC_TELEPHONE = "de_DE.UTF-8";
-      LC_TIME = "de_DE.UTF-8";
+      LC_TIME = "sv_SE.UTF-8"; # Swedish dates
     };
     # We need the flakes experimental feature to do the NIX_PATH thing cleanly
     # below. Given that this is literally the default config for flake-based
