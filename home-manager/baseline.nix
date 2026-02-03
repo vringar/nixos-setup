@@ -14,7 +14,7 @@ in {
     ...
   }: {
     imports = [./ai.nix];
-    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar pkgs.mergiraf];
+    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar pkgs.mergiraf pkgs.pre-commit pkgs.shellcheck];
 
     programs.bash.enable = true;
 

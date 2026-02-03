@@ -17,6 +17,15 @@ nixos-setup/
 └── npins/                # Pinned dependencies (DO NOT EDIT DIRECTLY)
 ```
 
+## Workflow
+
+This is a single-branch repo. Push working changes directly to `main`:
+
+```bash
+jj bookmark set main -r @
+jj push
+```
+
 ## Verification
 
 Run `colmena build` to verify changes compile before committing.

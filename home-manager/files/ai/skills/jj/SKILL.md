@@ -107,22 +107,7 @@ jj resolve --tool mergiraf <file>
 jj resolve --tool mergiraf
 ```
 
-If mergiraf can't fully resolve, it exits non-zero and leaves conflict markers for manual resolution.
-
-### Manual Resolution
-
-Edit conflict markers directly in the file. jj's default conflict format:
-```
-<<<<<<< Conflict 1 of 1
-%%%%%%% Changes from base to side #1
--old line
-+new line from side 1
-+++++++ Contents of side #2
-new line from side 2
->>>>>>> Conflict 1 of 1 ends
-```
-
-After editing, jj automatically detects resolved conflicts on next snapshot.
+If mergiraf can't fully resolve, it exits non-zero and asks the user for manual resolution.
 
 ### List Conflicts
 
