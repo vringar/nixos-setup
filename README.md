@@ -5,6 +5,10 @@ For my NixOS machines, this contains a colmena setup, that can hopefully describ
 However, for my non-nixos systems, I still want to have a ~ equivalent home setup, so I'm moving as much as possible
 into a home-manager configuration.
 
+## TODO
+
+- [ ] Add standalone home-manager deployment for non-NixOS machines
+
 ## Known Issues
 
 ### `'system' has been renamed to 'stdenv.hostPlatform.system'` warning

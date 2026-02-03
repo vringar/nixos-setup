@@ -20,6 +20,7 @@
     git-lfs
     cifs-utils
     jujutsu
+    pkgs.home-manager
   ];
 
   home-manager.useGlobalPkgs = true;

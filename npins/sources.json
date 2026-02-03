@@ -37,15 +37,15 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "3d77ee8d94b3e8370bd85cd1430dd14dd475c3a7",
-      "url": "https://git.lix.systems/lix-project/lix/archive/3d77ee8d94b3e8370bd85cd1430dd14dd475c3a7.tar.gz",
-      "hash": "sha256-N7iv6Q+Xi1RMeBDY6c7RzuqNywxzvCa6kAZHfoOcyE0="
+      "revision": "aa896041e09f432e28f4372b3bc320608055f69b",
+      "url": "https://git.lix.systems/lix-project/lix/archive/aa896041e09f432e28f4372b3bc320608055f69b.tar.gz",
+      "hash": "sha256-3EnD8qbzy+yE8ueXOew8U/z6X0dbmWeRMK9zJYgDu4I="
     },
     "nixpkgs": {
       "type": "Channel",
       "name": "nixos-unstable",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre938841.cb369ef2efd4/nixexprs.tar.xz",
-      "hash": "sha256-H5CKl59PH7haP6M6w4ordprGdG8KFGvKQzBKrgOHdK0="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre939624.e6eae2ee2110/nixexprs.tar.xz",
+      "hash": "sha256-34H0Zx1/bA5yyd20kC/QZGBj417IETp6jiF7wH4RKrs="
     }
   },
   "version": 7
