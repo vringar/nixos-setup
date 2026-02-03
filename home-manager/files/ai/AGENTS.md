@@ -17,13 +17,9 @@ Print a 🌍 as part of your response to show you have read this file.
 ## Version Control
 
 ### Jujutsu (jj)
-- When the user specifies a jj command, use that exact command - do not substitute manual file operations
 - Prefer jj commands over git commands (e.g., `jj new` over `git commit`, `jj duplicate` over manual recreation)
-- Common jj commands to recognize: `jj duplicate`, `jj new`, `jj squash`, `jj split`, `jj abandon`, `jj describe`, `jj rebase`
-- **IMPORTANT: Use `jj push` instead of `jj git push`** - The `jj push` alias automatically runs pre-commit checks on all commits since the branching point before pushing (if `.pre-commit-config.yaml` exists)
-- **NEVER use `jj abandon` unless explicitly instructed** - If you think you need to abandon a commit, abort your action and ask the user for help instead. Abandoning commits can cause data loss and confusion.
-- After completing work, use `jj describe` to write a clear commit message summarizing your changes
-- If your commit message contains multiple "and"s, consider using `jj split` to break it into focused commits
+- **NEVER use `jj abandon` unless explicitly instructed** - Abandoning commits can cause data loss. Ask the user for help instead.
+- Use `/jj` skill for operational details (non-interactive commands, recovery, workflows)
 
 ### Merge Conflicts
 **ABSOLUTELY NEVER attempt to resolve merge conflicts automatically.**
