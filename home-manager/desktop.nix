@@ -2,11 +2,9 @@
   config,
   home-manager,
   ...
-}:
-let
+}: let
   cfg = config.my;
-in
-{
+in {
   imports = [./config.nix];
 
   config.home-manager.users.${cfg.username} = {pkgs, ...}: {

@@ -3,11 +3,9 @@
   config,
   home-manager,
   ...
-}:
-let
+}: let
   cfg = config.my;
-in
-{
+in {
   imports = [./config.nix];
 
   config.home-manager.users.${cfg.username} = {
@@ -16,7 +14,7 @@ in
     ...
   }: {
     imports = [./ai.nix];
-    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar];
+    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar pkgs.mergiraf];
 
     programs.bash.enable = true;
 
@@ -152,42 +150,70 @@ in
 
     programs.starship = {
       enable = true;
-      settings =
-        {
-          custom.jj = {
-            description = "The current jj status";
-            when = "jj --ignore-working-copy root";
-            symbol = "🥋 ";
-            command = ''
-              jj log --revisions @ --no-graph --ignore-working-copy --color always --limit 1 --template '
-              separate(" ",
-                  change_id.shortest(4),
-                  bookmarks,
-                  "|",
-                  concat(
-                  if(conflict, "💥"),
-                  if(divergent, "🚧"),
-                  if(hidden, "👻"),
-                  if(immutable, "🔒"),
-                  ),
-                  raw_escape_sequence("\x1b[1;32m") ++ if(empty, "(empty)"),
-                  raw_escape_sequence("\x1b[1;32m") ++ coalesce(
-                  truncate_end(29, description.first_line(), "…"),
-                  "(no description set)",
-                  ) ++ raw_escape_sequence("\x1b[0m"),
-              )
-              '
-            '';
-          };
-          git_status.disabled = true;
-          git_commit.disabled = true;
-          git_metrics.disabled = true;
-          git_branch.disabled = true;
-        }
-
-      ;
+      settings = {
+        custom.jj = {
+          description = "The current jj status";
+          when = "jj --ignore-working-copy root";
+          symbol = "🥋 ";
+          command = ''
+            jj log --revisions @ --no-graph --ignore-working-copy --color always --limit 1 --template '
+            separate(" ",
+                change_id.shortest(4),
+                bookmarks,
+                "|",
+                concat(
+                if(conflict, "💥"),
+                if(divergent, "🚧"),
+                if(hidden, "👻"),
+                if(immutable, "🔒"),
+                ),
+                raw_escape_sequence("\x1b[1;32m") ++ if(empty, "(empty)"),
+                raw_escape_sequence("\x1b[1;32m") ++ coalesce(
+                truncate_end(29, description.first_line(), "…"),
+                "(no description set)",
+                ) ++ raw_escape_sequence("\x1b[0m"),
+            )
+            '
+          '';
+        };
+        git_status.disabled = true;
+        git_commit.disabled = true;
+        git_metrics.disabled = true;
+        git_branch.disabled = true;
+      };
     };
     programs.zellij.enable = true;
+
+    programs.jujutsu = {
+      enable = true;
+      settings = {
+        aliases = {
+          push = [
+            "util"
+            "exec"
+            "--"
+            "bash"
+            "-c"
+            ''
+              set -euo pipefail
+              if [[ ! -f .pre-commit-config.yaml ]]; then
+                exec jj git push "$@"
+              fi
+              commits=$(jj log -r 'trunk()..@-' --no-graph -T 'change_id ++ "\n"' 2>/dev/null || true)
+              if [[ -z "$commits" ]]; then
+                echo "No commits to push"
+                exit 0
+              fi
+              echo "Running pre-commit on commits since trunk..."
+              pre-commit run --all-files
+              echo "Pre-commit passed, pushing..."
+              exec jj git push "$@"
+            ''
+            ""
+          ];
+        };
+      };
+    };
     # The state version is required and should stay at the version you
     # originally installed.
     home.stateVersion = "25.11";
