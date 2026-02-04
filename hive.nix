@@ -69,9 +69,19 @@ in {
       experimental-features = "nix-command flakes";
     };
     nixpkgs.flake.source = sources.nixpkgs;
-    services.openssh.enable = true;
+    services.openssh = {
+      enable = true;
+      settings = {
+        PasswordAuthentication = false;
+        KbdInteractiveAuthentication = false;
+      };
+    };
 
-    users.users.vringar = import ./user {pkgs = pkgs;};
+    users.users.vringar = import ./user {pkgs = pkgs;} // {
+      openssh.authorizedKeys.keyFiles = [
+        ./home-manager/files/ssh/github_key.pub
+      ];
+    };
 
     my.username = "vringar";
   };
@@ -113,6 +123,7 @@ in {
     #    colmena apply --on '@infra-*'
     deployment.tags = ["personal"];
     deployment.allowLocalDeployment = true;
+    deployment.targetUser = "vringar";
 
     virtualisation.docker = {
       enable = true;

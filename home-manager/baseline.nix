@@ -184,6 +184,46 @@ in {
     };
     programs.zellij.enable = true;
 
+    programs.ssh = {
+      enable = true;
+      addKeysToAgent = "yes";
+      extraOptionOverrides = {
+        IdentityFile = "~/.ssh/github_key";
+      };
+      matchBlocks = {
+        "jannis-gogs" = {
+          hostname = "omniskop.de";
+          user = "gogs";
+        };
+        "hg.mozilla.org" = {
+          user = "szabka@mozilla.com";
+          identityFile = "~/.ssh/mozilla";
+        };
+        "b8" = {
+          hostname = "100.127.109.161";
+          user = "homeserver";
+        };
+        "tischtennis" = {
+          hostname = "tischtennis.einetollewebsite.de";
+          user = "ubuntu";
+          identityFile = "~/.ssh/github_key";
+        };
+        "sect" = {
+          hostname = "192.168.140.52";
+          user = "root";
+          identityFile = "~/.ssh/github_key";
+        };
+        "tompute" = {
+          hostname = "tompute.sect.tu-berlin.de";
+          user = "vringar";
+        };
+        "dmh" = {
+          hostname = "dmh-neu.tailbaace.ts.net";
+          user = "kleing";
+        };
+      };
+    };
+
     programs.jujutsu = {
       enable = true;
       settings = {
