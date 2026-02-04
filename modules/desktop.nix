@@ -1,8 +1,4 @@
-{
-  pkgs,
-  services,
-  ...
-}: {
+{pkgs, ...}: {
   imports = [
     ../home-manager/desktop.nix
   ];

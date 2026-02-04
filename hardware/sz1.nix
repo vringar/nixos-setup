@@ -5,7 +5,6 @@
   name,
   config,
   lib,
-  pkgs,
   modulesPath,
   ...
 }: {
