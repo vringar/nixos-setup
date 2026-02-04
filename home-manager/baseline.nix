@@ -186,9 +186,10 @@ in {
 
     programs.ssh = {
       enable = true;
-      addKeysToAgent = "yes";
+      enableDefaultConfig = false;
       extraOptionOverrides = {
         IdentityFile = "~/.ssh/github_key";
+        AddKeysToAgent = "yes";
       };
       matchBlocks = {
         "jannis-gogs" = {
