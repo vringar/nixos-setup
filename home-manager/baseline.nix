@@ -240,7 +240,7 @@ in {
               if [[ ! -f .pre-commit-config.yaml ]]; then
                 exec jj git push "$@"
               fi
-              commits=$(jj log -r 'trunk()..@-' --no-graph -T 'change_id ++ "\n"' 2>/dev/null || true)
+              commits=$(jj log -r 'trunk()..@' --no-graph -T 'change_id ++ "\n"' 2>/dev/null || true)
               if [[ -z "$commits" ]]; then
                 echo "No commits to push"
                 exit 0
