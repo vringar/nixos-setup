@@ -12,6 +12,7 @@
     wayland.enable = true;
   };
   services.desktopManager.plasma6.enable = true;
+  programs.kdeconnect.enable = true;
   fonts.packages = with pkgs; [
     noto-fonts
     noto-fonts-color-emoji
@@ -51,7 +52,6 @@
     #media-session.enable = true;
   };
   programs.firefox.enable = true;
-
   programs.partition-manager.enable = true;
   environment.systemPackages = with pkgs; [
     nextcloud-client
