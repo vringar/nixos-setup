@@ -11,6 +11,7 @@ in {
   config.home-manager.users.${cfg.username} = {
     pkgs,
     config,
+    lib,
     ...
   }: {
     imports = [./ai.nix];
@@ -224,6 +225,18 @@ in {
         };
       };
     };
+
+    # SSH config in Nix store is world-readable (444), but SSH requires 600.
+    # This activation script replaces the symlink with a copy that has proper permissions.
+    home.activation.fixSSHConfigPermissions = lib.hm.dag.entryAfter ["linkGeneration"] ''
+      sshConfig="${config.home.homeDirectory}/.ssh/config"
+      if [ -L "$sshConfig" ]; then
+        realSource=$(readlink -f "$sshConfig")
+        rm "$sshConfig"
+        cp "$realSource" "$sshConfig"
+        chmod 600 "$sshConfig"
+      fi
+    '';
 
     programs.jujutsu = {
       enable = true;
