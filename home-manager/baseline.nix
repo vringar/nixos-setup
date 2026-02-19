@@ -1,7 +1,5 @@
 {
-  lib,
   config,
-  home-manager,
   ...
 }: let
   cfg = config.my;
@@ -15,7 +13,7 @@ in {
     ...
   }: {
     imports = [./ai.nix];
-    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar pkgs.mergiraf pkgs.pre-commit pkgs.shellcheck];
+    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar pkgs.mergiraf pkgs.pre-commit pkgs.shellcheck pkgs.jetbrains.pycharm];
 
     programs.bash.enable = true;
 
