@@ -25,6 +25,7 @@ in {
       ./hardware/sz1.nix
       ./modules/bluetooth.nix
       ./modules/desktop.nix
+      ./home-manager/ghidra.nix
     ];
     deployment.tags = ["personal"];
     deployment.allowLocalDeployment = true;
