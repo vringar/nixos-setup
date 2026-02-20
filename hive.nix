@@ -26,6 +26,7 @@ in {
       ./modules/bluetooth.nix
       ./modules/desktop.nix
       ./home-manager/ghidra.nix
+      ./home-manager/zellij-resilient.nix
     ];
     deployment.tags = ["personal"];
     deployment.allowLocalDeployment = true;

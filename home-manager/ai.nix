@@ -1,4 +1,8 @@
-{config, lib, ...}: let
+{
+  config,
+  lib,
+  ...
+}: let
   agentsFile = ./files/ai/AGENTS.md;
   skillsDir = ./files/ai/skills;
 in {

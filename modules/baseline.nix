@@ -81,6 +81,7 @@
   users.users.vringar =
     import ../user {pkgs = pkgs;}
     // {
+      linger = true;
       openssh.authorizedKeys.keyFiles = [
         ../home-manager/files/ssh/github_key.pub
       ];
