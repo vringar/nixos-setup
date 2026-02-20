@@ -10,7 +10,7 @@ in {
     ...
   }: {
     imports = [./ai.nix];
-    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar pkgs.mergiraf pkgs.pre-commit pkgs.shellcheck pkgs.jetbrains.pycharm];
+    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar pkgs.meld pkgs.mergiraf pkgs.pre-commit pkgs.shellcheck pkgs.jetbrains.pycharm];
 
     programs.bash.enable = true;
 
@@ -236,6 +236,8 @@ in {
     programs.jujutsu = {
       enable = true;
       settings = {
+        ui.merge-editor = "meld3";
+        merge-tools.meld3.program = "${pkgs.meld}/bin/meld";
         aliases = {
           push = [
             "util"
