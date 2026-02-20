@@ -10,7 +10,7 @@ description: Use when working with Jujutsu (jj) version control - commits, rebas
 ```bash
 jj new -m "start new work"    # create commit
 jj describe -m "update msg"   # set message
-jj squash                     # squash into parent
+jj squash -m "message"        # squash into parent
 ```
 
 ## Non-Interactive Commands
@@ -22,6 +22,7 @@ Always use flags to avoid hanging on interactive editors:
 | `jj split` | `jj split -r <rev> -m "message" <files>` |
 | `jj describe` | `jj describe -m "message"` |
 | `jj commit` | `jj commit -m "message"` |
+| `jj squash` | `jj squash -m "message"` |
 | `jj new` | `jj new -m "message"` (optional) |
 
 ## Conflict Resolution
