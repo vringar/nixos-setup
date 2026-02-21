@@ -12,6 +12,7 @@ in {
           _claude-sandbox() {
             local -a opts
             opts=(
+              '(--help -h)'{--help,-h}'[Show help message]'
               '--shell[Drop into interactive sandboxed shell instead of running Claude]'
               '--nix-file[Path to shell.nix relative to project dir]:nix file:_files -g "*.nix"'
             )
@@ -30,6 +31,30 @@ in {
 
         while [[ $# -gt 0 ]]; do
           case "$1" in
+            --help|-h)
+              cat <<'USAGE'
+        Usage: claude-sandbox [OPTIONS] [project-dir]
+
+        Run Claude Code in a bubblewrap sandbox with filesystem isolation.
+
+        The project directory is bind-mounted read-write while the rest of HOME
+        is hidden behind a tmpfs. Nix store, system config, and network access
+        are preserved.
+
+        Options:
+          --shell          Drop into an interactive shell instead of running Claude
+          --nix-file PATH  Path to shell.nix relative to project dir
+                           (auto-detects shell.nix and flake.nix at project root)
+          -h, --help       Show this help message
+
+        Examples:
+          claude-sandbox                        # sandbox cwd, auto-detect shell.nix
+          claude-sandbox ~/projects/foo         # sandbox a specific project
+          claude-sandbox --nix-file nix/shell.nix ~/projects/bar
+          claude-sandbox --shell ~/projects/foo # interactive shell in sandbox
+        USAGE
+              exit 0
+              ;;
             --shell)
               SHELL_MODE=1
               shift
@@ -40,7 +65,7 @@ in {
               ;;
             -*)
               echo "Unknown option: $1" >&2
-              echo "Usage: claude-sandbox [--shell] [--nix-file <path>] [project-dir]" >&2
+              echo "Run 'claude-sandbox --help' for usage." >&2
               exit 1
               ;;
             *)
@@ -67,12 +92,33 @@ in {
 
         HOME_DIR="$HOME"
 
+        # Seed a history file with the launch command
+        SANDBOX_HISTFILE="$SANDBOX_TMP/.zsh_history"
+        if [[ ! -f "$SANDBOX_HISTFILE" ]]; then
+          echo "claude --dangerously-skip-permissions" > "$SANDBOX_HISTFILE"
+        fi
+
         BWRAP_ARGS=(
           # Empty HOME
           --tmpfs "$HOME_DIR"
 
           # Project directory (read-write)
           --bind "$PROJECT_DIR" "$PROJECT_DIR"
+        )
+
+        # If inside a .workspace/ folder, expose parent project's .jj and .git
+        PARENT_DIR="$(dirname "$PROJECT_DIR")"
+        if [[ "$(basename "$PARENT_DIR")" == ".workspace" ]]; then
+          REPO_ROOT="$(dirname "$PARENT_DIR")"
+          if [[ -d "$REPO_ROOT/.jj" ]]; then
+            BWRAP_ARGS+=(--bind "$REPO_ROOT/.jj" "$REPO_ROOT/.jj")
+          fi
+          if [[ -d "$REPO_ROOT/.git" ]]; then
+            BWRAP_ARGS+=(--bind "$REPO_ROOT/.git" "$REPO_ROOT/.git")
+          fi
+        fi
+
+        BWRAP_ARGS+=(
 
           # Nix store and var (read-only)
           --ro-bind /nix /nix
@@ -91,6 +137,13 @@ in {
 
           # Per-project tmp
           --bind "$SANDBOX_TMP" /tmp
+
+          # Zsh config (read-only, symlink to nix store)
+          --ro-bind "$HOME_DIR/.zshrc" "$HOME_DIR/.zshrc"
+
+          # Seed history with launch command (ephemeral, on sandbox tmp)
+          --bind "$SANDBOX_HISTFILE" "$HOME_DIR/.zsh_history"
+          --setenv HISTFILE "$HOME_DIR/.zsh_history"
 
           # Claude config and auth (read-write)
           --bind "$HOME_DIR/.config/claude" "$HOME_DIR/.config/claude"
@@ -121,6 +174,11 @@ in {
         # SSH agent passthrough
         if [[ -n "''${SSH_AUTH_SOCK:-}" ]]; then
           BWRAP_ARGS+=(--ro-bind "$SSH_AUTH_SOCK" "$SSH_AUTH_SOCK")
+        fi
+
+        # GitHub CLI config and auth (read-write, gh updates token expiry)
+        if [[ -d "$HOME_DIR/.config/gh" ]]; then
+          BWRAP_ARGS+=(--bind "$HOME_DIR/.config/gh" "$HOME_DIR/.config/gh")
         fi
 
         # SSH config (read-only, no private keys)
