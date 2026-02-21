@@ -27,6 +27,7 @@ in {
       ./modules/desktop.nix
       ./home-manager/ghidra.nix
       ./home-manager/zellij-resilient.nix
+      ./home-manager/claude-sandbox.nix
     ];
     deployment.tags = ["personal"];
     deployment.allowLocalDeployment = true;
