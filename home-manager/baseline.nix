@@ -180,6 +180,8 @@ in {
     };
     programs.zellij.enable = true;
 
+    services.ssh-agent.enable = true;
+
     programs.ssh = {
       enable = true;
       enableDefaultConfig = false;
@@ -238,6 +240,7 @@ in {
       settings = {
         ui.merge-editor = "meld3";
         merge-tools.meld3.program = "${pkgs.meld}/bin/meld";
+        merge-tools.meld3.merge-args = ["$left" "$base" "$right" "-o" "$output"];
         aliases = {
           push = [
             "util"

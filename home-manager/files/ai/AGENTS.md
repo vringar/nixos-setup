@@ -60,5 +60,11 @@ Exception: Command typos (invalid flags, non-existent options) are expected fail
 - Search before creating - Check if similar code/utilities already exist in the codebase
 - Follow existing patterns - Look for similar implementations to mirror
 
+## Workspace Isolation
+- If your working directory is inside a `.workspace/` folder, you are in an isolated jj workspace
+- Stay within your workspace directory — never read, write, or reference sibling workspaces or the parent project files
+- All jj/git operations work normally — the underlying repo is shared
+- If dependencies or tooling are missing, check for a `shell.nix` or project setup instructions before asking the user
+
 ## Language Specific
 - Prefer idiomatic solutions - Use language-native features over external dependencies
