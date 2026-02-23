@@ -5,4 +5,7 @@
     hunspellDicts.en-gb-ize
     hunspellDicts.de-de
   ];
+  home.sessionVariables = {
+    DICPATH = "$HOME/.nix-profile/share/hunspell";
+  };
 }
