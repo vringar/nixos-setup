@@ -71,6 +71,7 @@
     cifs-utils
     jujutsu
     pkgs.home-manager
+    python3Packages.python-lsp-server
   ];
 
   home-manager.useGlobalPkgs = true;

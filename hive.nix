@@ -14,6 +14,7 @@ in {
       })
       (import "${sources.home-manager}/nixos")
       ./modules/baseline.nix
+      ./home-manager/finance.nix
     ];
 
     deployment.replaceUnknownProfiles = true;
