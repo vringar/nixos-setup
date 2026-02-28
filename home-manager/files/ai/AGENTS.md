@@ -60,10 +60,12 @@ Exception: Command typos (invalid flags, non-existent options) are expected fail
 - Search before creating - Check if similar code/utilities already exist in the codebase
 - Follow existing patterns - Look for similar implementations to mirror
 
-## Workspace Isolation
-- If your working directory is inside a `.workspace/` folder, you are in an isolated jj workspace
-- Stay within your workspace directory — never read, write, or reference sibling workspaces or the parent project files
-- All jj/git operations work normally — the underlying repo is shared
+## Workspace Isolation (jj workspaces)
+- If your working directory is inside a `.workspace/` folder, you are in an **isolated jj workspace**
+- Your workspace has its own working copy and its own `@` (current change). The repo history is shared, but each workspace tracks different in-progress work
+- **NEVER use `jj -R <path>`, `--repository`, or `cd` to a parent/sibling directory to run jj commands** — this shows a DIFFERENT workspace's state, not yours. All jj commands from your workspace directory already target the correct repo
+- **NEVER read, write, or reference files in sibling workspaces or the parent project directory**
+- If `jj status` shows unexpected state, run `jj workspace update-stale` — do NOT try `-R` or `cd ..` as a workaround
 - If dependencies or tooling are missing, check for a `shell.nix` or project setup instructions before asking the user
 
 ## Language Specific
