@@ -31,6 +31,7 @@ Always use flags to avoid hanging on interactive editors:
 1. `jj resolve --tool mergiraf` - First choice (syntax-aware)
 2. `jj resolve --tool :ours` / `:theirs` - Take one side
 3. `jj resolve --list` - List conflicted files
+4. **Generated/lock files** (package-lock.json, Cargo.lock, etc.) - Restore base version then regenerate (see [references/conflicts.md](references/conflicts.md))
 
 ## Key Rules
 
