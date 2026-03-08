@@ -20,7 +20,7 @@ in {
     nixpkgs.flake.source = sources.nixpkgs;
 
     # Pin system-wide nixpkgs to npins
-    nix.nixPath = [ "nixpkgs=${sources.nixpkgs}" ];
+    nix.nixPath = ["nixpkgs=${sources.nixpkgs}"];
     nix.channel.enable = false;
   };
 
