@@ -14,6 +14,8 @@
 in {
   home.sessionVariables = {
     CLAUDE_CONFIG_DIR = "\${XDG_CONFIG_HOME:-$HOME/.config}/claude";
+    UV_PYTHON_PREFERENCE = "only-system";
+    UV_PYTHON_PATH = "${pkgs.python3}/bin/python3";
   };
 
   xdg.configFile =
@@ -28,7 +30,7 @@ in {
       "opencode/agents".source = customAgentsDir;
     };
 
-  home.packages = [crosslink cpitd rtk pkgs.jq];
+  home.packages = [crosslink cpitd rtk pkgs.jq pkgs.uv];
 
   home.file.".claude/hooks/rtk-rewrite.sh" = {
     source = ./files/ai/hooks/rtk-rewrite.sh;

@@ -10,7 +10,7 @@ subcommands=$("$CROSSLINK" help 2>/dev/null | \
   sed -n '/^Commands:/,/^Options:/{/^  [a-z]/p}' | \
   while IFS= read -r line; do
     cmd=$(echo "$line" | awk '{print $1}')
-    desc=$(echo "$line" | sed 's/^  [a-z-]*  *//')
+    desc=$(echo "$line" | awk '{$1=""; sub(/^[[:space:]]+/, ""); print}')
     # Escape single quotes in descriptions
     desc="${desc//\'/\\\'}"
     printf "    '%s:%s'\n" "$cmd" "$desc"
