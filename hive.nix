@@ -29,9 +29,9 @@ in {
       ./hardware/sz1.nix
       ./modules/bluetooth.nix
       ./modules/desktop.nix
-      ./home-manager/ghidra.nix
-      ./home-manager/zellij-resilient.nix
-      ./home-manager/claude-sandbox.nix
+      {home-manager.users.vringar = import ./home-manager/ghidra.nix;}
+      {home-manager.users.vringar = import ./home-manager/zellij-resilient.nix;}
+      {home-manager.users.vringar = import ./home-manager/claude-sandbox.nix;}
     ];
     deployment.tags = ["personal"];
     deployment.allowLocalDeployment = true;

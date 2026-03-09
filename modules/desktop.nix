@@ -1,7 +1,6 @@
 {pkgs, ...}: {
-  imports = [
-    ../home-manager/desktop.nix
-  ];
+  home-manager.users.vringar = import ../home-manager/desktop.nix;
+
   # Enable the X11 windowing system.
   # You can disable this if you're only using the Wayland session.
   services.xserver.enable = false;

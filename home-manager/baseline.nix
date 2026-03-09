@@ -1,18 +1,40 @@
-{config, ...}: let
-  cfg = config.my;
+{
+  pkgs,
+  config,
+  lib,
+  ...
+}: let
+  cfg = config.my.user;
+  hasIdentity = cfg.name != null && cfg.email != null;
 in {
-  imports = [./config.nix];
+  options.my.user = {
+    name = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Full name used for version control identity (e.g. jj, git).";
+    };
+    email = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Email address used for version control identity (e.g. jj, git).";
+    };
+  };
 
-  config.home-manager.users.${cfg.username} = {
-    pkgs,
-    config,
-    lib,
-    ...
-  }: {
-    imports = [./ai.nix];
+  imports = [./ai.nix];
+
+  config = {
     home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar pkgs.meld pkgs.mergiraf pkgs.pre-commit pkgs.shellcheck pkgs.jetbrains.pycharm];
 
-    programs.bash.enable = true;
+    home.sessionPath = [
+      "$HOME/.local/share/JetBrains/Toolbox/scripts"
+    ];
+
+    programs.bash = {
+      enable = true;
+      initExtra = ''
+        [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+      '';
+    };
 
     programs.neovim = {
       enable = true;
@@ -54,12 +76,14 @@ in {
             white = "#ffffff";
           };
         };
-        window.opacity = 0.9;
       };
     };
 
     programs.zsh = {
       enable = true;
+      initContent = ''
+        [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+      '';
       shellAliases = {
         tmux = "tmux -u";
         tf = "terraform";
@@ -105,6 +129,8 @@ in {
       package = pkgs.gitFull;
       enable = true;
       lfs.enable = true;
+      settings.user.name = lib.mkIf hasIdentity cfg.name;
+      settings.user.email = lib.mkIf hasIdentity cfg.email;
       signing = {
         signByDefault = true;
         format = "ssh";
@@ -237,36 +263,43 @@ in {
 
     programs.jujutsu = {
       enable = true;
-      settings = {
-        ui.merge-editor = "meld3";
-        merge-tools.meld3.program = "${pkgs.meld}/bin/meld";
-        merge-tools.meld3.merge-args = ["$left" "$base" "$right" "-o" "$output"];
-        aliases = {
-          push = [
-            "util"
-            "exec"
-            "--"
-            "bash"
-            "-c"
-            ''
-              set -euo pipefail
-              if [[ ! -f .pre-commit-config.yaml ]]; then
+      settings =
+        {
+          ui.merge-editor = "meld3";
+          merge-tools.meld3.program = "${pkgs.meld}/bin/meld";
+          merge-tools.meld3.merge-args = ["$left" "$base" "$right" "-o" "$output"];
+          aliases = {
+            push = [
+              "util"
+              "exec"
+              "--"
+              "bash"
+              "-c"
+              ''
+                set -euo pipefail
+                if [[ ! -f .pre-commit-config.yaml ]]; then
+                  exec jj git push "$@"
+                fi
+                commits=$(jj log -r 'trunk()..@' --no-graph -T 'change_id ++ "\n"' 2>/dev/null || true)
+                if [[ -z "$commits" ]]; then
+                  echo "No commits to push"
+                  exit 0
+                fi
+                echo "Running pre-commit on commits since trunk..."
+                pre-commit run --all-files
+                echo "Pre-commit passed, pushing..."
                 exec jj git push "$@"
-              fi
-              commits=$(jj log -r 'trunk()..@' --no-graph -T 'change_id ++ "\n"' 2>/dev/null || true)
-              if [[ -z "$commits" ]]; then
-                echo "No commits to push"
-                exit 0
-              fi
-              echo "Running pre-commit on commits since trunk..."
-              pre-commit run --all-files
-              echo "Pre-commit passed, pushing..."
-              exec jj git push "$@"
-            ''
-            ""
-          ];
+              ''
+              ""
+            ];
+          };
+        }
+        // lib.optionalAttrs hasIdentity {
+          user = {
+            name = cfg.name;
+            email = cfg.email;
+          };
         };
-      };
     };
     # The state version is required and should stay at the version you
     # originally installed.

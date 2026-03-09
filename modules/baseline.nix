@@ -1,8 +1,4 @@
 {pkgs, ...}: {
-  imports = [
-    ../home-manager/baseline.nix
-  ];
-
   nixpkgs.config.allowUnfree = true;
 
   # Enable networking
@@ -74,7 +70,10 @@
     python3Packages.python-lsp-server
   ];
 
-  home-manager.useGlobalPkgs = true;
+  home-manager = {
+    useGlobalPkgs = true;
+    users.vringar = import ../home-manager/baseline.nix;
+  };
   programs.zsh.ohMyZsh.enable = true;
   programs.zsh.enable = true;
 
@@ -87,6 +86,4 @@
         ../home-manager/files/ssh/github_key.pub
       ];
     };
-
-  my.username = "vringar";
 }
