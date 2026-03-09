@@ -214,6 +214,7 @@ in {
       extraOptionOverrides = {
         IdentityFile = "~/.ssh/github_key";
         AddKeysToAgent = "yes";
+        GSSAPIAuthentication = "no";
       };
       matchBlocks = {
         "jannis-gogs" = {
