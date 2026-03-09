@@ -212,9 +212,9 @@ in {
       enable = true;
       enableDefaultConfig = false;
       extraOptionOverrides = {
+        IgnoreUnknown = "GSSAPIKexAlgorithms,GSSAPIAuthentication";
         IdentityFile = "~/.ssh/github_key";
         AddKeysToAgent = "yes";
-        GSSAPIAuthentication = "no";
       };
       matchBlocks = {
         "jannis-gogs" = {
