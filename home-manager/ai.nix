@@ -21,6 +21,7 @@ in {
     ] (_: {source = agentsFile;})
     // {
       "claude/skills".source = skillsDir;
+      "opencode/skills".source = skillsDir;
     };
 
   home.packages = [crosslink cpitd];
