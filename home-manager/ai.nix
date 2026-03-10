@@ -6,6 +6,7 @@
 }: let
   agentsFile = ./files/ai/AGENTS.md;
   skillsDir = ./files/ai/skills;
+  customAgentsDir = ./files/ai/agents;
   sources = import ../npins;
   crosslink = import ../apps/crosslink {inherit pkgs sources;};
   cpitd = import ../apps/crosslink/cpitd.nix {inherit pkgs sources;};
@@ -22,6 +23,8 @@ in {
     // {
       "claude/skills".source = skillsDir;
       "opencode/skills".source = skillsDir;
+      "claude/agents".source = customAgentsDir;
+      "opencode/agents".source = customAgentsDir;
     };
 
   home.packages = [crosslink cpitd];
@@ -29,4 +32,5 @@ in {
   # Symlink ~/.claude/skills -> ~/.config/claude/skills
   # CLAUDE_CONFIG_DIR doesn't fully support skill discovery
   home.file.".claude/skills".source = config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/skills";
+  home.file.".claude/agents".source = config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/agents";
 }
