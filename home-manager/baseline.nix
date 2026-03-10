@@ -7,6 +7,8 @@
   cfg = config.my.user;
   hasIdentity = cfg.name != null && cfg.email != null;
 in {
+  options.my.nixGL.enable = lib.mkEnableOption "nixGL wrappers for GPU-accelerated apps (needed on non-NixOS)";
+
   options.my.user = {
     name = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
@@ -50,6 +52,11 @@ in {
 
     programs.alacritty = {
       enable = true;
+      package = lib.mkIf config.my.nixGL.enable (
+        pkgs.writeShellScriptBin "alacritty" ''
+          exec ${lib.getExe pkgs.nixgl.auto.nixGLDefault} ${lib.getExe pkgs.alacritty} "$@"
+        ''
+      );
       settings = {
         font.normal = {
           family = "JetBrainsMono Nerd Font Mono";
