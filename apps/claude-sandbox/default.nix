@@ -16,13 +16,15 @@ in
 
     buildPhase = ''
       # Generate zsh completions from source (before substitution — parser doesn't use placeholders)
-      ${python3WithShtab}/bin/python3 -c "
+      for tool in claude-sandbox crosslink-sandbox; do
+        ${python3WithShtab}/bin/python3 -c "
       import importlib.util, shtab
-      spec = importlib.util.spec_from_file_location('claude_sandbox', 'claude-sandbox.py')
+      spec = importlib.util.spec_from_file_location('sandbox', 'claude-sandbox.py')
       mod = importlib.util.module_from_spec(spec)
       spec.loader.exec_module(mod)
-      print(shtab.complete(mod.create_parser(), 'zsh'))
-      " > _claude-sandbox
+      print(shtab.complete(mod.create_parser('$tool'), 'zsh'))
+      " > "_$tool"
+      done
 
       substitute claude-sandbox.py claude-sandbox \
         --replace-fail '@bwrap@' '${pkgs.bubblewrap}/bin/bwrap' \
@@ -39,6 +41,8 @@ in
 
     installPhase = ''
       install -Dm755 claude-sandbox $out/bin/claude-sandbox
+      ln -s claude-sandbox $out/bin/crosslink-sandbox
       install -Dm644 _claude-sandbox $out/share/zsh/site-functions/_claude-sandbox
+      install -Dm644 _crosslink-sandbox $out/share/zsh/site-functions/_crosslink-sandbox
     '';
   }

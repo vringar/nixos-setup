@@ -1,46 +1,64 @@
 #!@python3@
-"""Run Claude Code in a bubblewrap sandbox with filesystem isolation."""
+"""Run commands in a bubblewrap sandbox with filesystem isolation."""
 
 import argparse
 import os
+import shlex
 import sys
 
 BWRAP = "@bwrap@"
 NIX_SHELL = "@nix_shell@"
 BASH = "@bash@"
 
-HELP_EPILOG = """\
+# Default launch commands per script name (when no command is given after --)
+DEFAULT_COMMANDS = {
+    "claude-sandbox": "claude --dangerously-skip-permissions",
+}
+
+
+def get_script_name():
+    return os.path.basename(sys.argv[0])
+
+
+def create_parser(prog=None):
+    prog = prog or get_script_name()
+    epilog = f"""\
 examples:
-  claude-sandbox                        # sandbox cwd, auto-detect shell.nix
-  claude-sandbox ~/projects/foo         # sandbox a specific project
-  claude-sandbox --nix-file nix/shell.nix ~/projects/bar
-  claude-sandbox --shell ~/projects/foo # interactive shell in sandbox
+  {prog}                                   # sandbox cwd, auto-detect shell.nix
+  {prog} ~/projects/foo                    # sandbox a specific project
+  {prog} --nix-file nix/shell.nix .        # explicit nix file
+  {prog} --shell ~/projects/foo            # interactive shell in sandbox
+  {prog} --project-dir ~/p/foo -- cmd arg  # run a custom command
 """
-
-
-def create_parser():
     parser = argparse.ArgumentParser(
-        prog="claude-sandbox",
-        description="Run Claude Code in a bubblewrap sandbox with filesystem isolation.",
-        epilog=HELP_EPILOG,
+        prog=prog,
+        description="Run commands in a bubblewrap sandbox with filesystem isolation.",
+        epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--shell",
         action="store_true",
-        help="Drop into an interactive shell instead of running Claude",
+        help="Drop into an interactive shell instead of running a command",
     )
     nix_file_arg = parser.add_argument(
         "--nix-file",
         metavar="PATH",
         help="Path to shell.nix relative to project dir "
-        "(auto-detects shell.nix and flake.nix at project root)",
+        "(auto-detects shell.nix, nix/shell.nix, flake.nix, and default.nix)",
     )
     nix_file_arg.complete = {"zsh": "_files -g '*.nix'"}
+    parser.add_argument(
+        "--project-dir",
+        metavar="DIR",
+        dest="project_dir_flag",
+        default=None,
+        help="Project directory to sandbox (alternative to positional arg)",
+    )
     project_dir_arg = parser.add_argument(
         "project_dir",
         nargs="?",
-        default=os.getcwd(),
+        default=None,
         help="Project directory to sandbox (default: cwd)",
     )
     project_dir_arg.complete = {"zsh": "_directories"}
@@ -48,7 +66,28 @@ def create_parser():
 
 
 def parse_args():
-    return create_parser().parse_args()
+    # Split at '--' to separate sandbox flags from the command to run
+    argv = sys.argv[1:]
+    if "--" in argv:
+        sep = argv.index("--")
+        sandbox_argv = argv[:sep]
+        run_command = argv[sep + 1:]
+    else:
+        sandbox_argv = argv
+        run_command = None
+
+    args = create_parser().parse_args(sandbox_argv)
+
+    # Resolve project directory: --project-dir flag > positional > cwd
+    args.project_dir = args.project_dir_flag or args.project_dir or os.getcwd()
+
+    # Resolve the command to run inside the sandbox
+    if run_command is not None:
+        args.launch_cmd = shlex.join(run_command) if run_command else None
+    else:
+        args.launch_cmd = DEFAULT_COMMANDS.get(get_script_name())
+
+    return args
 
 
 def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile):
@@ -144,23 +183,35 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile):
 
 
 def resolve_nix_file(project_dir, nix_file_arg):
-    """Resolve nix file: explicit flag > shell.nix > flake.nix > None."""
+    """Resolve nix file: explicit flag > shell.nix > nix/shell.nix > flake.nix > default.nix > None.
+
+    Returns (path, use_attr) where use_attr is True when the file is a
+    default.nix that should be invoked with ``nix-shell -A shell``.
+    """
     if nix_file_arg:
         resolved = os.path.join(project_dir, nix_file_arg)
         if not os.path.isfile(resolved):
             print(f"Error: nix file not found: {resolved}", file=sys.stderr)
             sys.exit(1)
-        return resolved
+        return resolved, False
 
     shell_nix = os.path.join(project_dir, "shell.nix")
     if os.path.isfile(shell_nix):
-        return shell_nix
+        return shell_nix, False
+
+    nix_shell_nix = os.path.join(project_dir, "nix", "shell.nix")
+    if os.path.isfile(nix_shell_nix):
+        return nix_shell_nix, False
 
     flake_nix = os.path.join(project_dir, "flake.nix")
     if os.path.isfile(flake_nix):
-        return flake_nix
+        return flake_nix, False
 
-    return None
+    default_nix = os.path.join(project_dir, "default.nix")
+    if os.path.isfile(default_nix):
+        return default_nix, True
+
+    return None, False
 
 
 def main():
@@ -171,8 +222,18 @@ def main():
         print(f"Error: {project_dir} is not a directory", file=sys.stderr)
         sys.exit(1)
 
+    if not args.launch_cmd and not args.shell:
+        script = get_script_name()
+        print(
+            f"Error: no command specified. Provide a command after '--':\n"
+            f"  {script} --project-dir /path -- command arg1 arg2",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     project_name = os.path.basename(project_dir)
-    sandbox_tmp = f"/tmp/claude-sandbox-{project_name}"
+    script_name = get_script_name()
+    sandbox_tmp = f"/tmp/{script_name}-{project_name}"
     os.makedirs(sandbox_tmp, exist_ok=True)
 
     home_dir = os.environ["HOME"]
@@ -180,8 +241,9 @@ def main():
     # Seed a history file with the launch command
     histfile = os.path.join(sandbox_tmp, ".zsh_history")
     if not os.path.isfile(histfile):
+        seed = args.launch_cmd or ""
         with open(histfile, "w") as f:
-            f.write("claude --dangerously-skip-permissions\n")
+            f.write(seed + "\n")
 
     bwrap_args = build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile)
 
@@ -190,14 +252,16 @@ def main():
         shell = os.environ.get("SHELL", BASH)
         os.execvp(BWRAP, [BWRAP] + bwrap_args + ["--", shell])
     else:
-        print(f"Starting sandboxed Claude Code in {project_dir}")
-        launch_cmd = "claude --dangerously-skip-permissions"
+        launch_cmd = args.launch_cmd
+        print(f"Starting sandboxed {launch_cmd.split()[0]} in {project_dir}")
 
-        nix_file = resolve_nix_file(project_dir, args.nix_file)
+        nix_file, use_attr = resolve_nix_file(project_dir, args.nix_file)
         if nix_file:
-            os.execvp(BWRAP, [BWRAP] + bwrap_args + [
-                "--", NIX_SHELL, nix_file, "--run", launch_cmd,
-            ])
+            nix_args = [NIX_SHELL, nix_file]
+            if use_attr:
+                nix_args += ["-A", "shell"]
+            nix_args += ["--run", launch_cmd]
+            os.execvp(BWRAP, [BWRAP] + bwrap_args + ["--"] + nix_args)
         else:
             os.execvp(BWRAP, [BWRAP] + bwrap_args + [
                 "--", BASH, "-c", launch_cmd,
