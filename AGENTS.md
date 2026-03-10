@@ -28,7 +28,14 @@ jj push
 
 ## Verification
 
-Run `colmena build` to verify changes compile before committing.
+- **NixOS hosts (sz1, sz3):** Run `colmena build` to verify changes compile before committing.
+- **Standalone home-manager (non-NixOS):** Use `hm-switch.sh` to build and apply:
+
+```bash
+bash hm-switch.sh
+```
+
+`hm-switch.sh` resolves the pinned nixpkgs from `npins`, then invokes `home-manager switch` against `home.nix` with the correct `NIX_PATH`. Always use this script — do not invoke `home-manager` directly.
 
 ## npins
 
