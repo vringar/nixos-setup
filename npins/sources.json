@@ -67,6 +67,19 @@
       "url": "https://git.lix.systems/lix-project/lix/archive/35fbfea6f8649bc0ebed4896db6e06d1c0861a59.tar.gz",
       "hash": "sha256-xK4XmW4hhH8929CnR7oirtJgdjNYuFxp2f1R60/oijI="
     },
+    "nixGL": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "nix-community",
+        "repo": "nixGL"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "b6105297e6f0cd041670c3e8628394d4ee247ed5",
+      "url": "https://github.com/nix-community/nixGL/archive/b6105297e6f0cd041670c3e8628394d4ee247ed5.tar.gz",
+      "hash": "sha256-fbRQzIGPkjZa83MowjbD2ALaJf9y6KMDdJBQMKFeY/8="
+    },
     "nixpkgs": {
       "type": "Channel",
       "name": "nixos-unstable",
