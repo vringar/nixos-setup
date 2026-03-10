@@ -21,6 +21,9 @@ in {
 
   my.user.name = "Stefan Zabka";
   my.user.email = "stefan.zabka@camunda.com";
+  my.user.sshKeyName = "id_ed25519";
+
+  home.sessionVariables.GIT_SSH = "/usr/bin/ssh";
 
   programs.home-manager.enable = true;
 

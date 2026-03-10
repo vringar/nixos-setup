@@ -59,6 +59,7 @@ Exception: Command typos (invalid flags, non-existent options) are expected fail
 ## Context
 - Search before creating - Check if similar code/utilities already exist in the codebase
 - Follow existing patterns - Look for similar implementations to mirror
+- Fetch documentation independently - When encountering unfamiliar APIs, config formats, or libraries, use available tools to look them up rather than asking the user
 
 ## Workspace Isolation (jj workspaces)
 - If your working directory is inside a `.workspace/` folder, you are in an **isolated jj workspace**

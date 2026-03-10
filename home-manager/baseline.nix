@@ -18,12 +18,17 @@ in {
       default = null;
       description = "Email address used for version control identity (e.g. jj, git).";
     };
+    sshKeyName = lib.mkOption {
+      type = lib.types.str;
+      default = "github_key";
+      description = "Name of the default SSH key file in ~/.ssh/ (without extension).";
+    };
   };
 
   imports = [./ai.nix];
 
   config = {
-    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar pkgs.meld pkgs.mergiraf pkgs.pre-commit pkgs.shellcheck pkgs.jetbrains.pycharm];
+    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar pkgs.meld pkgs.mergiraf pkgs.pre-commit pkgs.shellcheck pkgs.jetbrains.pycharm pkgs.alejandra];
 
     home.sessionPath = [
       "$HOME/.local/share/JetBrains/Toolbox/scripts"
@@ -134,10 +139,7 @@ in {
       signing = {
         signByDefault = true;
         format = "ssh";
-        key =
-          if (builtins.pathExists "${builtins.toString "/home/${config.home.username}/.ssh/id_ed25519.pub"}")
-          then "/home/${config.home.username}/.ssh/id_ed25519.pub"
-          else "/home/${config.home.username}/.ssh/github_key.pub";
+        key = "/home/${config.home.username}/.ssh/${cfg.sshKeyName}.pub";
       };
       settings = {
         core = {
@@ -213,7 +215,7 @@ in {
       enableDefaultConfig = false;
       extraOptionOverrides = {
         IgnoreUnknown = "GSSAPIKexAlgorithms,GSSAPIAuthentication";
-        IdentityFile = "~/.ssh/github_key";
+        IdentityFile = "~/.ssh/${cfg.sshKeyName}";
         AddKeysToAgent = "yes";
       };
       matchBlocks = {
@@ -231,13 +233,13 @@ in {
         };
         "tischtennis" = {
           hostname = "tischtennis.einetollewebsite.de";
+          identityFile = "~/.ssh/${cfg.sshKeyName}";
           user = "ubuntu";
-          identityFile = "~/.ssh/github_key";
         };
         "sect" = {
           hostname = "192.168.140.52";
+          identityFile = "~/.ssh/${cfg.sshKeyName}";
           user = "root";
-          identityFile = "~/.ssh/github_key";
         };
         "tompute" = {
           hostname = "tompute.sect.tu-berlin.de";
