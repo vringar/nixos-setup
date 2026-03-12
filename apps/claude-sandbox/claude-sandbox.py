@@ -121,8 +121,12 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile):
         # Kernel filesystems
         "--proc", "/proc",
         "--dev", "/dev",
-        # Per-project tmp
+        # Per-project tmp (isolated at /tmp for general use)
         "--bind", sandbox_tmp, "/tmp",
+        # Also at its real host path so the nix daemon (outside the sandbox)
+        # can access temp files created by nix-shell inside the sandbox
+        "--bind", sandbox_tmp, sandbox_tmp,
+        "--setenv", "TMPDIR", sandbox_tmp,
         # Zsh config (read-only, symlink to nix store)
         "--ro-bind", os.path.join(home_dir, ".zshrc"),
                      os.path.join(home_dir, ".zshrc"),
