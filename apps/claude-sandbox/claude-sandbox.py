@@ -110,6 +110,8 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile):
             args += ["--bind", git_dir, git_dir]
 
     args += [
+        # /bin/sh (needed by programs like Claude Code that spawn /bin/sh)
+        "--symlink", BASH, "/bin/sh",
         # Nix store and var (read-only)
         "--ro-bind", "/nix", "/nix",
         # System config (DNS, passwd, nix profiles)
