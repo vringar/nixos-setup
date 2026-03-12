@@ -33,4 +33,5 @@ in {
   # CLAUDE_CONFIG_DIR doesn't fully support skill discovery
   home.file.".claude/skills".source = config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/skills";
   home.file.".claude/agents".source = config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/agents";
+  home.file.".claude/settings.json".source = ./files/ai/claude-settings.json;
 }

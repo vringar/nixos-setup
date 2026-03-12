@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jj log -r @ --no-graph -T 'description' 2>/dev/null | grep -q . && exit 0; jj diff --stat -r @ 2>/dev/null | grep -q . && echo 'REMINDER: Current jj change has modifications but no description. Please jj describe and jj new before stopping.' || exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
