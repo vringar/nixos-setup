@@ -9,7 +9,7 @@ pkgs.rustPlatform.buildRustPackage {
   src = sources.crosslink;
   sourceRoot = "source/crosslink";
 
-  cargoHash = "sha256-BMqlaiZn8ve4nNkiSCi5t6x4NxvPn+I0xrVkRZ3D+CU=";
+  cargoHash = "sha256-MKVShGieuHWreLMnkwSF/mSbB8l7FTcV29Rg+t7X6rs=";
 
   nativeBuildInputs = [pkgs.pkg-config];
   buildInputs = [pkgs.sqlite];
