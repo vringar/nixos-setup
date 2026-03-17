@@ -20,8 +20,11 @@ in {
 
   nixpkgs.config.allowUnfree = true;
   nixpkgs.overlays = [
-    (final: _: {
+    (final: prev: {
       nixgl = import sources.nixGL {pkgs = final;};
+      pre-commit = prev.pre-commit.overrideAttrs (old: {
+        patches = (old.patches or []) ++ [./apps/pre-commit/meta-hooks-pythonpath.patch];
+      });
     })
   ];
 
