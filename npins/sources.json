@@ -22,9 +22,9 @@
       },
       "branch": "develop",
       "submodules": false,
-      "revision": "38214022fa2829353e856bc0c40e70edee132561",
-      "url": "https://github.com/forecast-bio/crosslink/archive/38214022fa2829353e856bc0c40e70edee132561.tar.gz",
-      "hash": "sha256-HpychT7FTA2ze8ocKu/wRNA5hDd+T/QJHYGL0Ry3M+A="
+      "revision": "6765a563d6a2095f6570c8112c50dae97222a39a",
+      "url": "https://github.com/forecast-bio/crosslink/archive/6765a563d6a2095f6570c8112c50dae97222a39a.tar.gz",
+      "hash": "sha256-h4wC1Kn8KhaMdcPB7yl+pTyR8I9s3M0i+zSJk6UyH/Q="
     },
     "home-manager": {
       "type": "Git",
@@ -35,9 +35,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "27b93804fbef1544cb07718d3f0a451f4c4cd6c0",
-      "url": "https://github.com/nix-community/home-manager/archive/27b93804fbef1544cb07718d3f0a451f4c4cd6c0.tar.gz",
-      "hash": "sha256-Dp5Ir2u4jJDGCgeMRviHvEQDe+U37hMxp6RSNOoMMPc="
+      "revision": "be0c641a6a5564caa33982faa1fe2c60d92131c7",
+      "url": "https://github.com/nix-community/home-manager/archive/be0c641a6a5564caa33982faa1fe2c60d92131c7.tar.gz",
+      "hash": "sha256-FFMc1uAwy2GYasd0rdNDVxKyAgzuoJH2M+GglBQbqf0="
     },
     "lix-module": {
       "type": "Git",
@@ -63,9 +63,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "35fbfea6f8649bc0ebed4896db6e06d1c0861a59",
-      "url": "https://git.lix.systems/lix-project/lix/archive/35fbfea6f8649bc0ebed4896db6e06d1c0861a59.tar.gz",
-      "hash": "sha256-xK4XmW4hhH8929CnR7oirtJgdjNYuFxp2f1R60/oijI="
+      "revision": "fada71a749b60b199842e28931d6e5fe9000dfeb",
+      "url": "https://git.lix.systems/lix-project/lix/archive/fada71a749b60b199842e28931d6e5fe9000dfeb.tar.gz",
+      "hash": "sha256-W6tRMwEZnxUjfV91E7Ga1Pb5yFVCiPPgkuoSzVw6xEU="
     },
     "nixGL": {
       "type": "Git",
@@ -83,8 +83,8 @@
     "nixpkgs": {
       "type": "Channel",
       "name": "nixos-unstable",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre958961.aca4d95fce49/nixexprs.tar.xz",
-      "hash": "sha256-nbKkTH2oRlWaAjeDh/QMraqjfj/C2xJFa53twFzRd8o="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre962285.fe416aaedd39/nixexprs.tar.xz",
+      "hash": "sha256-oFe06TmOy8UUT1f7xMHqDpSYq2Fy1mkIsXZUvdnyfeY="
     }
   },
   "version": 7
