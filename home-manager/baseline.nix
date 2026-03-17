@@ -54,7 +54,7 @@ in {
       enable = true;
       package = lib.mkIf config.my.nixGL.enable (
         pkgs.writeShellScriptBin "alacritty" ''
-          exec ${lib.getExe pkgs.nixgl.auto.nixGLDefault} ${lib.getExe pkgs.alacritty} "$@"
+          exec ${lib.getExe' pkgs.nixgl.auto.nixGLDefault "nixGL"} ${lib.getExe pkgs.alacritty} "$@"
         ''
       );
       settings = {

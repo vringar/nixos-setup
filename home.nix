@@ -32,6 +32,12 @@ in {
 
   home.sessionVariables.GIT_SSH = "/usr/bin/ssh";
 
+  home.packages = [
+    (pkgs.writeShellScriptBin "camunda-modeler" ''
+      exec ${lib.getExe' pkgs.nixgl.auto.nixGLDefault "nixGL"} ${lib.getExe pkgs.camunda-modeler} "$@"
+    '')
+  ];
+
   programs.home-manager.enable = true;
 
   home.username = username;
