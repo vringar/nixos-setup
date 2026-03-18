@@ -30,7 +30,22 @@ in {
   imports = [./ai.nix];
 
   config = {
-    home.packages = [pkgs.claude-code pkgs.gh pkgs.git-cinnabar pkgs.meld pkgs.mergiraf pkgs.pre-commit pkgs.shellcheck pkgs.jetbrains.pycharm pkgs.alejandra];
+    home.packages = [
+      pkgs.claude-code
+      pkgs.gh
+      pkgs.git-cinnabar
+      pkgs.meld
+      pkgs.mergiraf
+      pkgs.pre-commit
+      pkgs.shellcheck
+      pkgs.jetbrains.pycharm
+      pkgs.alejandra
+      pkgs.vscode-langservers-extracted
+      # Kate looks for this name; vscode-langservers-extracted provides the binary as vscode-json-language-server
+      (pkgs.writeShellScriptBin "vscode-json-languageserver" ''
+        exec ${lib.getExe' pkgs.vscode-langservers-extracted "vscode-json-language-server"} "$@"
+      '')
+    ];
 
     home.sessionPath = [
       "$HOME/.local/share/JetBrains/Toolbox/scripts"
