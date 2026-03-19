@@ -9,6 +9,7 @@ import sys
 BWRAP = "@bwrap@"
 NIX_SHELL = "@nix_shell@"
 BASH = "@bash@"
+PYTHON3_BIN_DIR = "@python3_bin_dir@"
 
 # Default launch commands per script name (when no command is given after --)
 DEFAULT_COMMANDS = {
@@ -112,6 +113,8 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile):
     args += [
         # /bin/sh (needed by programs like Claude Code that spawn /bin/sh)
         "--symlink", BASH, "/bin/sh",
+        # Python (needed by hooks and tools invoked inside the sandbox)
+        "--setenv", "PATH", PYTHON3_BIN_DIR + ":" + os.environ.get("PATH", ""),
         # Nix store and var (read-only)
         "--ro-bind", "/nix", "/nix",
         # System config (DNS, passwd, nix profiles)
