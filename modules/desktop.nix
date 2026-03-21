@@ -53,6 +53,7 @@
   programs.firefox.enable = true;
   programs.partition-manager.enable = true;
   environment.systemPackages = with pkgs; [
+    wl-clipboard
     nextcloud-client
     (vscode-with-extensions.override {
       vscodeExtensions = with vscode-extensions; [
