@@ -1,5 +1,6 @@
 {pkgs, ...}: {
   home-manager.users.vringar = import ../home-manager/desktop.nix;
+  users.users.vringar.packages = import ../user/desktop.nix {inherit pkgs;};
 
   # Enable the X11 windowing system.
   # You can disable this if you're only using the Wayland session.

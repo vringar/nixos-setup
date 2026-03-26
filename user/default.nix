@@ -4,34 +4,20 @@
   extraGroups = ["networkmanager" "wheel" "docker"];
   shell = pkgs.zsh;
   packages = with pkgs; [
-    alacritty
     alejandra
     bat
-    cheese
     delta
-    discord
     direnv
-    element-desktop
     file
-    filezilla
     fzf
     htop
     jujutsu
-    kdePackages.kate
-    keepassxc
-    nextcloud-client
     nil
     nmap
-    obs-studio
-    pdfpc
-    polylux2pdfpc
     starship
-    signal-desktop
     tailscale
     typst
     tmux
-    thunderbird
-    vlc
     wget
   ];
 }

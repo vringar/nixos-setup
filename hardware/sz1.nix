@@ -103,5 +103,8 @@
   # networking.interfaces.enp4s0.useDHCP = lib.mkDefault true;
 
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
+
+  # Enable QEMU aarch64 emulation for building Pi images
+  boot.binfmt.emulatedSystems = ["aarch64-linux"];
   hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
 }
