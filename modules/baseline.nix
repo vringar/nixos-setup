@@ -1,4 +1,6 @@
-{pkgs, ...}: {
+{pkgs, ...}: let
+  sources = import ../npins;
+in {
   nixpkgs.config.allowUnfree = true;
 
   # Enable networking
@@ -61,6 +63,9 @@
     wget
     curl
     npins
+    (pkgs.callPackage "${sources.agenix}/pkgs/agenix.nix" {
+      substituteAll = {src, ...} @ args: pkgs.replaceVars src (builtins.removeAttrs args ["src"]);
+    })
     lixPackageSets.git.colmena
     git
     git-lfs

@@ -13,8 +13,11 @@ in {
         versionSuffix = sources.lix-src.revision;
       })
       (import "${sources.home-manager}/nixos")
+      (import "${sources.agenix}/modules/age.nix")
       ./modules/baseline.nix
     ];
+
+    age.identityPaths = [ "/home/vringar/.ssh/github_key" ];
 
     deployment.replaceUnknownProfiles = true;
     nixpkgs.flake.source = sources.nixpkgs;
@@ -29,6 +32,7 @@ in {
       ./hardware/sz1.nix
       ./modules/bluetooth.nix
       ./modules/desktop.nix
+      ./modules/wg-sect.nix
       {home-manager.users.vringar = import ./home-manager/ghidra.nix;}
       {home-manager.users.vringar = import ./home-manager/zellij-resilient.nix;}
       {home-manager.users.vringar = import ./home-manager/claude-sandbox.nix;}
@@ -45,6 +49,7 @@ in {
       ./hardware/sz3.nix
       ./modules/bluetooth.nix
       ./modules/desktop.nix
+      ./modules/wg-sect.nix
     ];
 
     deployment.tags = ["personal"];
