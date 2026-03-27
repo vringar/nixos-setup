@@ -28,8 +28,14 @@ jj push
 
 ## Verification
 
-- **NixOS hosts (sz1, sz3):** Run `colmena build` to verify changes compile before committing.
-- **Standalone home-manager (non-NixOS):** Use `hm-switch.sh` to build and apply:
+First, detect whether you are on a NixOS system:
+
+```bash
+[ -f /etc/NIXOS ] && echo "NixOS" || echo "non-NixOS"
+```
+
+- **On NixOS (sz1, sz3):** Run `colmena build` to verify changes compile before committing.
+- **On non-NixOS (standalone home-manager):** Use `hm-switch.sh` to build and apply:
 
 ```bash
 bash hm-switch.sh

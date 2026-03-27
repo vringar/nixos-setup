@@ -10,6 +10,7 @@
   sources = import ../npins;
   crosslink = import ../apps/crosslink {inherit pkgs sources;};
   cpitd = import ../apps/crosslink/cpitd.nix {inherit pkgs sources;};
+  rtk = import ../apps/rtk {inherit pkgs sources;};
 in {
   home.sessionVariables = {
     CLAUDE_CONFIG_DIR = "\${XDG_CONFIG_HOME:-$HOME/.config}/claude";
@@ -27,7 +28,12 @@ in {
       "opencode/agents".source = customAgentsDir;
     };
 
-  home.packages = [crosslink cpitd];
+  home.packages = [crosslink cpitd rtk pkgs.jq];
+
+  home.file.".claude/hooks/rtk-rewrite.sh" = {
+    source = ./files/ai/hooks/rtk-rewrite.sh;
+    executable = true;
+  };
 
   # Symlink ~/.claude/skills -> ~/.config/claude/skills
   # CLAUDE_CONFIG_DIR doesn't fully support skill discovery
