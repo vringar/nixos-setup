@@ -69,7 +69,6 @@ in {
     deployment.tags = ["personal"];
     deployment.targetHost = "t20.fritz.box";
     deployment.targetUser = "vringar";
-    deployment.buildOnTarget = true; # bootstrap only: remove after first successful deploy
 
     system.stateVersion = "25.05";
   };
