@@ -8,8 +8,8 @@
 
   home.packages = [
     pkgs.kdePackages.ksshaskpass
-    pkgs.jetbrains.pycharm
     pkgs.meld
+    pkgs.jetbrains.pycharm
     pkgs.vscode-langservers-extracted
     # Kate looks for this name; vscode-langservers-extracted provides the binary as vscode-json-language-server
     (pkgs.writeShellScriptBin "vscode-json-languageserver" ''
@@ -63,4 +63,10 @@
   };
 
   programs.obsidian.enable = true;
+
+  programs.jujutsu.settings = {
+    ui.merge-editor = "meld3";
+    merge-tools.meld3.program = lib.getExe pkgs.meld;
+    merge-tools.meld3.merge-args = ["$left" "$base" "$right" "-o" "$output"];
+  };
 }

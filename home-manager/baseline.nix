@@ -238,9 +238,6 @@ in {
       enable = true;
       settings =
         {
-          ui.merge-editor = "meld3";
-          merge-tools.meld3.program = "${pkgs.meld}/bin/meld";
-          merge-tools.meld3.merge-args = ["$left" "$base" "$right" "-o" "$output"];
           aliases = {
             push = [
               "util"

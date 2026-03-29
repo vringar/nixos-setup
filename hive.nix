@@ -44,17 +44,11 @@ in {
     system.stateVersion = "25.05";
   };
 
-  t20 = {lib, ...}: {
+  t20 = {...}: {
     imports = [
       ./hardware/pi.nix
       ./modules/ghidra-server.nix
     ];
-
-    # Headless server — server shell config only, no desktop packages
-    home-manager.users = lib.mkForce {
-      vringar = import ./home-manager/server.nix;
-    };
-    users.users.vringar.packages = lib.mkForce [];
 
     services.ghidra-server.enable = true;
     services.tailscale.enable = true;
