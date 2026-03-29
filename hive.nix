@@ -31,6 +31,7 @@ in {
       ./modules/bluetooth.nix
       ./modules/desktop.nix
       ./modules/wg-sect.nix
+      {home-manager.users.vringar = import ./home-manager/ai.nix;}
       {home-manager.users.vringar = import ./home-manager/ghidra.nix;}
       {home-manager.users.vringar = import ./home-manager/zellij-resilient.nix;}
       {home-manager.users.vringar = import ./home-manager/claude-sandbox.nix;}
@@ -82,6 +83,7 @@ in {
       ./modules/bluetooth.nix
       ./modules/desktop.nix
       ./modules/wg-sect.nix
+      {home-manager.users.vringar = import ./home-manager/ai.nix;}
     ];
 
     deployment.tags = ["personal"];

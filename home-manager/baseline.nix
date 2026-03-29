@@ -27,11 +27,8 @@ in {
     };
   };
 
-  imports = [./ai.nix];
-
   config = {
     home.packages = [
-      pkgs.claude-code
       pkgs.gh
       pkgs.git-cinnabar
       pkgs.mergiraf

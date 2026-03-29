@@ -30,7 +30,7 @@ in {
       "opencode/agents".source = customAgentsDir;
     };
 
-  home.packages = [crosslink cpitd rtk pkgs.jq pkgs.uv];
+  home.packages = [crosslink cpitd rtk pkgs.jq pkgs.uv pkgs.claude-code];
 
   home.file.".claude/hooks/rtk-rewrite.sh" = {
     source = ./files/ai/hooks/rtk-rewrite.sh;
