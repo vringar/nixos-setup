@@ -56,6 +56,11 @@ in {
       isSystemUser = true;
       group = "ghidra-server";
       description = "Ghidra Server daemon user";
+      # Ghidra's launch.sh writes a JDK path cache to $HOME/.config/ghidra/;
+      # system users default to /var/empty (read-only), causing startup failure.
+      # StateDirectory creates /var/lib/ghidra-server owned by this user.
+      home = "/var/lib/ghidra-server";
+      createHome = false;
     };
     users.groups.ghidra-server = {};
 
