@@ -11,6 +11,7 @@
   crosslink = import ../apps/crosslink {inherit pkgs sources;};
   cpitd = import ../apps/crosslink/cpitd.nix {inherit pkgs sources;};
   rtk = import ../apps/rtk {inherit pkgs sources;};
+  claude-code = import ../apps/claude-code {inherit pkgs;};
 in {
   home.sessionVariables = {
     CLAUDE_CONFIG_DIR = "\${XDG_CONFIG_HOME:-$HOME/.config}/claude";
@@ -30,7 +31,7 @@ in {
       "opencode/agents".source = customAgentsDir;
     };
 
-  home.packages = [crosslink cpitd rtk pkgs.jq pkgs.uv pkgs.claude-code];
+  home.packages = [crosslink cpitd rtk pkgs.jq pkgs.uv claude-code];
 
   home.file.".claude/hooks/rtk-rewrite.sh" = {
     source = ./files/ai/hooks/rtk-rewrite.sh;

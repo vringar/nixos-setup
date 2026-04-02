@@ -4,11 +4,11 @@
 }:
 pkgs.rustPlatform.buildRustPackage {
   pname = "rtk";
-  version = "0.34.0";
+  version = "0.34.3";
 
   src = sources.rtk;
 
-  cargoHash = "sha256-b+4q5xf+g5MNZ/c0AwRF9vUQGKIbTezt3dE4VQIVQPE=";
+  cargoHash = "sha256-WpSwEx/pkGTIlDv1cTFtTcTC3YgddMYVbOLlqKYeDK0=";
 
   nativeBuildInputs = [pkgs.pkg-config];
   buildInputs = [pkgs.sqlite];

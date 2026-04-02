@@ -1,0 +1,11 @@
+[INFO ] Using configuration: /home/vringar/nixos-setup/hive.nix
+[INFO ] Enumerating nodes...
+warning: 'system' has been renamed to/replaced by 'stdenv.hostPlatform.system'
+[INFO ] Selected 1 out of 3 hosts.
+  sz1 | Evaluating sz1
+  sz1 | warning: 'system' has been renamed to/replaced by 'stdenv.hostPlatform.system'
+  sz1 | Evaluated sz1
+  sz1 | Building sz1
+  sz1 | /nix/store/2fwfdrgpd4b3wwhi4kl2gyf7va0l09gb-nixos-system-sz1-26.05pre972949.6201e203d095
+  sz1 | Built "/nix/store/2fwfdrgpd4b3wwhi4kl2gyf7va0l09gb-nixos-system-sz1-26.05pre972949.6201e203d095"
+      | All done!

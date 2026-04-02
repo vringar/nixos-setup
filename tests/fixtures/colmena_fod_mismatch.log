@@ -1,0 +1,14 @@
+[INFO ] Using configuration: /home/vringar/nixos-setup/hive.nix
+[INFO ] Enumerating nodes...
+[INFO ] Selected 1 out of 3 hosts.
+  sz1 | Evaluating sz1
+  sz1 | Building sz1
+  sz1 | error: hash mismatch in fixed-output derivation '/nix/store/abc123-source':
+  sz1 |          specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  sz1 |             got:    sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=
+  sz1 | error: 1 dependencies of derivation '/nix/store/xyz-pkg.drv' failed to build
+  sz1 | Build failed: Child process exited with error code: 1
+[ERROR] Failed to build sz1 - Last 20 lines of logs:
+[ERROR]   stderr) > error: hash mismatch in fixed-output derivation '/nix/store/abc123-source':
+[ERROR]   stderr) >          specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+[ERROR]   stderr) >             got:    sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=

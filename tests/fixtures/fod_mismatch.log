@@ -1,0 +1,4 @@
+building '/nix/store/abc123-source.drv'...
+error: hash mismatch in fixed-output derivation '/nix/store/abc123-source':
+         specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+            got:    sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=

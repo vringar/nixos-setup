@@ -1,0 +1,5 @@
+building '/nix/store/xyz456-cargo-deps.drv'...
+error: cargoHash or cargoSha256 is out of date
+
+       Cargo.lock has been modified. Please update cargoHash or cargoSha256 to:
+       sha256-NEWCARGOHASHNEWCARGOHASHNEWCARGOHASH=

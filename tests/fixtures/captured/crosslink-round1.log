@@ -1,0 +1,273 @@
+[INFO ] Using configuration: /home/vringar/nixos-setup/hive.nix
+[INFO ] Enumerating nodes...
+warning: 'system' has been renamed to/replaced by 'stdenv.hostPlatform.system'
+[INFO ] Selected 1 out of 3 hosts.
+  sz1 | Evaluating sz1
+  sz1 | warning: 'system' has been renamed to/replaced by 'stdenv.hostPlatform.system'
+  sz1 | Evaluated sz1
+  sz1 | Building sz1
+  sz1 | these 9 derivations will be built:
+  sz1 |   /nix/store/5kpzybvlai0fbjbhbbv3j8ra14g064kq-crosslink-0-unstable.drv
+  sz1 |   /nix/store/wp85wvcgg07q014ccgd8f790fkvwlv8l-home-manager-path.drv
+  sz1 |   /nix/store/rwf1sc3i0475mfj5vfkkyr3835sbnkww-activation-script.drv
+  sz1 |   /nix/store/cm39splvl8wpb96kd6f3xyax5fr91p0k-home-manager-generation.drv
+  sz1 |   /nix/store/q9i0h1xd07y7lfbwfjp77kilx1r1gwza-unit-home-manager-vringar.service.drv
+  sz1 |   /nix/store/y644g876m43lp0jpjklywmdmaz97nr2l-system-units.drv
+  sz1 |   /nix/store/z2f4l3v6hq262g8qf9kisal78qcmnhm6-etc.drv
+  sz1 |   /nix/store/nd00y8hg7p52gyqprqjff6y61fnjfab4-activate.drv
+  sz1 |   /nix/store/flbzbhvhf87yfkx4qgy720kgyyfnk93r-nixos-system-sz1-26.05pre972949.6201e203d095.drv
+  sz1 | building '/nix/store/5kpzybvlai0fbjbhbbv3j8ra14g064kq-crosslink-0-unstable.drv'...
+  sz1 | Running phase: unpackPhase
+  sz1 | unpacking source archive /nix/store/2a8jiyb1il5s8dspw2jwf8999lbagbms-source
+  sz1 | source root is source/crosslink
+  sz1 | Executing cargoSetupPostUnpackHook
+  sz1 | Finished cargoSetupPostUnpackHook
+  sz1 | Running phase: patchPhase
+  sz1 | Executing cargoSetupPostPatchHook
+  sz1 | Validating consistency between /build/source/crosslink/Cargo.lock and /build/crosslink-0-unstable-vendor/Cargo.lock
+  sz1 | 253c253
+  sz1 | < version = "1.2.58"
+  sz1 | ---
+  sz1 | > version = "1.2.57"
+  sz1 | 255c255
+  sz1 | < checksum = "e1e928d4b69e3077709075a938a05ffbedfa53a84c8f766efbf8220bb1ff60e1"
+  sz1 | ---
+  sz1 | > checksum = "7a0dd1ca384932ff3641c8718a02769f1698e7563dc6974ffd03346116310423"
+  sz1 | 388c388
+  sz1 | < version = "0.7.0"
+  sz1 | ---
+  sz1 | > version = "0.5.2"
+  sz1 | 424c424
+  sz1 | <  "mio 1.2.0",
+  sz1 | ---
+  sz1 | >  "mio 1.1.1",
+  sz1 | 1002c1002
+  sz1 | < version = "1.0.18"
+  sz1 | ---
+  sz1 | > version = "1.0.17"
+  sz1 | 1004c1004
+  sz1 | < checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+  sz1 | ---
+  sz1 | > checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
+  sz1 | 1008c1008
+  sz1 | < version = "0.3.92"
+  sz1 | ---
+  sz1 | > version = "0.3.91"
+  sz1 | 1010c1010
+  sz1 | < checksum = "cc4c90f45aa2e6eacbe8645f77fdea542ac97a494bcd117a67df9ff4d611f995"
+  sz1 | ---
+  sz1 | > checksum = "b49715b7073f385ba4bc528e5747d02e66cb39c6146efb66b781f131f0fb399c"
+  sz1 | 1073c1073
+  sz1 | < version = "0.1.15"
+  sz1 | ---
+  sz1 | > version = "0.1.14"
+  sz1 | 1075c1075
+  sz1 | < checksum = "7ddbf48fd451246b1f8c2610bd3b4ac0cc6e149d89832867093ab69a17194f08"
+  sz1 | ---
+  sz1 | > checksum = "1744e39d1d6a9948f4f388969627434e31128196de472883b39f148769bfe30a"
+  sz1 | 1096c1096
+  sz1 | < version = "0.3.7"
+  sz1 | ---
+  sz1 | > version = "0.3.5"
+  sz1 | 1098c1098
+  sz1 | < checksum = "3f50e8f47623268b5407192d26876c4d7f89d686ca130fdc53bced4814cd29f8"
+  sz1 | ---
+  sz1 | > checksum = "5f4de44e98ddbf09375cbf4d17714d18f39195f4f4894e8524501726fd9a8a4a"
+  sz1 | 1221c1221
+  sz1 | < version = "1.2.0"
+  sz1 | ---
+  sz1 | > version = "1.1.1"
+  sz1 | 1223c1223
+  sz1 | < checksum = "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1"
+  sz1 | ---
+  sz1 | > checksum = "a69bcab0ad47271a0234d9422b131806bf3968021e5dc9328caf2d4cd58557fc"
+  sz1 | 1284c1284
+  sz1 | < version = "0.2.1"
+  sz1 | ---
+  sz1 | > version = "0.2.0"
+  sz1 | 1286c1286
+  sz1 | < checksum = "c6673768db2d862beb9b39a78fdcb1a69439615d5794a1be50caa9bc92c81967"
+  sz1 | ---
+  sz1 | > checksum = "cf97ec579c3c42f953ef76dbf8d55ac91fb219dde70e49aa4a6b7d74e9919050"
+  sz1 | 1528c1528
+  sz1 | < version = "1.11.0"
+  sz1 | ---
+  sz1 | > version = "1.10.0"
+  sz1 | 1530c1530
+  sz1 | < checksum = "4b45fcc2344c680f5025fe57779faef368840d0bd1f42f216291f0dc4ace4744"
+  sz1 | ---
+  sz1 | > checksum = "37566cb3fdacef14c0737f9546df7cfeadbfbc9fef10991038bf5015d0c80532"
+  sz1 | 1978c1978
+  sz1 | <  "mio 1.2.0",
+  sz1 | ---
+  sz1 | >  "mio 1.1.1",
+  sz1 | 2247c2247
+  sz1 | <  "mio 1.2.0",
+  sz1 | ---
+  sz1 | >  "mio 1.1.1",
+  sz1 | 2511c2511
+  sz1 | < version = "1.13.2"
+  sz1 | ---
+  sz1 | > version = "1.12.0"
+  sz1 | 2513c2513
+  sz1 | < checksum = "9629274872b2bfaf8d66f5f15725007f635594914870f65218920345aa11aa8c"
+  sz1 | ---
+  sz1 | > checksum = "f6ccf251212114b54433ec949fd6a7841275f9ada20dddd2f29e9ceea4501493"
+  sz1 | 2552c2552
+  sz1 | < version = "1.23.0"
+  sz1 | ---
+  sz1 | > version = "1.22.0"
+  sz1 | 2554c2554
+  sz1 | < checksum = "5ac8b6f42ead25368cf5b098aeb3dc8a1a2c05a3eee8a9a1a68c640edbfc79d9"
+  sz1 | ---
+  sz1 | > checksum = "a68d3c8f01c0cfa54a75291d83601161799e4a89a39e0929f4b0354d88757a37"
+  sz1 | 2635c2635
+  sz1 | < version = "0.2.115"
+  sz1 | ---
+  sz1 | > version = "0.2.114"
+  sz1 | 2637c2637
+  sz1 | < checksum = "6523d69017b7633e396a89c5efab138161ed5aafcbc8d3e5c5a42ae38f50495a"
+  sz1 | ---
+  sz1 | > checksum = "6532f9a5c1ece3798cb1c2cfdba640b9b3ba884f5db45973a6f442510a87d38e"
+  sz1 | 2648c2648
+  sz1 | < version = "0.2.115"
+  sz1 | ---
+  sz1 | > version = "0.2.114"
+  sz1 | 2650c2650
+  sz1 | < checksum = "4e3a6c758eb2f701ed3d052ff5737f5bfe6614326ea7f3bbac7156192dc32e67"
+  sz1 | ---
+  sz1 | > checksum = "18a2d50fcf105fb33bb15f00e7a77b772945a2ee45dcf454961fd843e74c18e6"
+  sz1 | 2658c2658
+  sz1 | < version = "0.2.115"
+  sz1 | ---
+  sz1 | > version = "0.2.114"
+  sz1 | 2660c2660
+  sz1 | < checksum = "921de2737904886b52bcbb237301552d05969a6f9c40d261eb0533c8b055fedf"
+  sz1 | ---
+  sz1 | > checksum = "03ce4caeaac547cdf713d280eda22a730824dd11e6b8c3ca9e42247b25c631e3"
+  sz1 | 2671c2671
+  sz1 | < version = "0.2.115"
+  sz1 | ---
+  sz1 | > version = "0.2.114"
+  sz1 | 2673c2673
+  sz1 | < checksum = "a93e946af942b58934c604527337bad9ae33ba1d5c6900bbb41c2c07c2364a93"
+  sz1 | ---
+  sz1 | > checksum = "75a326b8c223ee17883a4251907455a2431acc2791c98c26279376490c378c16"
+  sz1 | 3048c3048
+  sz1 | < version = "0.8.48"
+  sz1 | ---
+  sz1 | > version = "0.8.42"
+  sz1 | 3050c3050
+  sz1 | < checksum = "eed437bf9d6692032087e337407a86f04cd8d6a16a37199ed57949d415bd68e9"
+  sz1 | ---
+  sz1 | > checksum = "f2578b716f8a7a858b7f02d5bd870c14bf4ddbbcf3a4c05414ba6503640505e3"
+  sz1 | 3057c3057
+  sz1 | < version = "0.8.48"
+  sz1 | ---
+  sz1 | > version = "0.8.42"
+  sz1 | 3059c3059
+  sz1 | < checksum = "70e3cd084b1788766f53af483dd21f93881ff30d7320490ec3ef7526d203bad4"
+  sz1 | ---
+  sz1 | > checksum = "7e6cc098ea4d3bd6246687de65af3f920c430e236bee1e3bf2e441463f08a02f"
+  sz1 | 
+  sz1 | ERROR: cargoHash or cargoSha256 is out of date
+  sz1 | 
+  sz1 | Cargo.lock is not the same in /build/crosslink-0-unstable-vendor
+  sz1 | 
+  sz1 | To fix the issue:
+  sz1 | 1. Set cargoHash/cargoSha256 to an empty string: `cargoHash = "";`
+  sz1 | 2. Build the derivation and wait for it to fail with a hash mismatch
+  sz1 | 3. Copy the "got: sha256-..." value back into the cargoHash field
+  sz1 |    You should have: cargoHash = "sha256-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX=";
+  sz1 | 
+  sz1 | error: builder for '/nix/store/5kpzybvlai0fbjbhbbv3j8ra14g064kq-crosslink-0-unstable.drv' failed with exit code 1;
+  sz1 |        last 25 log lines:
+  sz1 |        > ---
+  sz1 |        > > version = "0.8.42"
+  sz1 |        > 3050c3050
+  sz1 |        > < checksum = "eed437bf9d6692032087e337407a86f04cd8d6a16a37199ed57949d415bd68e9"
+  sz1 |        > ---
+  sz1 |        > > checksum = "f2578b716f8a7a858b7f02d5bd870c14bf4ddbbcf3a4c05414ba6503640505e3"
+  sz1 |        > 3057c3057
+  sz1 |        > < version = "0.8.48"
+  sz1 |        > ---
+  sz1 |        > > version = "0.8.42"
+  sz1 |        > 3059c3059
+  sz1 |        > < checksum = "70e3cd084b1788766f53af483dd21f93881ff30d7320490ec3ef7526d203bad4"
+  sz1 |        > ---
+  sz1 |        > > checksum = "7e6cc098ea4d3bd6246687de65af3f920c430e236bee1e3bf2e441463f08a02f"
+  sz1 |        >
+  sz1 |        > ERROR: cargoHash or cargoSha256 is out of date
+  sz1 |        >
+  sz1 |        > Cargo.lock is not the same in /build/crosslink-0-unstable-vendor
+  sz1 |        >
+  sz1 |        > To fix the issue:
+  sz1 |        > 1. Set cargoHash/cargoSha256 to an empty string: `cargoHash = "";`
+  sz1 |        > 2. Build the derivation and wait for it to fail with a hash mismatch
+  sz1 |        > 3. Copy the "got: sha256-..." value back into the cargoHash field
+  sz1 |        >    You should have: cargoHash = "sha256-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX=";
+  sz1 |        >
+  sz1 |        For full logs, run:
+  sz1 |                nix log /nix/store/5kpzybvlai0fbjbhbbv3j8ra14g064kq-crosslink-0-unstable.drv
+  sz1 | error: 1 dependencies of derivation '/nix/store/wp85wvcgg07q014ccgd8f790fkvwlv8l-home-manager-path.drv' failed to build
+  sz1 | error: 1 dependencies of derivation '/nix/store/cm39splvl8wpb96kd6f3xyax5fr91p0k-home-manager-generation.drv' failed to build
+  sz1 | error: 1 dependencies of derivation '/nix/store/rwf1sc3i0475mfj5vfkkyr3835sbnkww-activation-script.drv' failed to build
+  sz1 | error: 1 dependencies of derivation '/nix/store/q9i0h1xd07y7lfbwfjp77kilx1r1gwza-unit-home-manager-vringar.service.drv' failed to build
+  sz1 | error: 1 dependencies of derivation '/nix/store/y644g876m43lp0jpjklywmdmaz97nr2l-system-units.drv' failed to build
+  sz1 | error: 1 dependencies of derivation '/nix/store/z2f4l3v6hq262g8qf9kisal78qcmnhm6-etc.drv' failed to build
+  sz1 | error: 1 dependencies of derivation '/nix/store/nd00y8hg7p52gyqprqjff6y61fnjfab4-activate.drv' failed to build
+  sz1 | error: 1 dependencies of derivation '/nix/store/flbzbhvhf87yfkx4qgy720kgyyfnk93r-nixos-system-sz1-26.05pre972949.6201e203d095.drv' failed to build
+  sz1 | Build failed: Child process exited with error code: 1
+      | Failed: Child process exited with error code: 1
+[ERROR] Failed to build sz1 - Last 20 lines of logs:
+[ERROR]   stderr)        >
+[ERROR]   stderr)        > Cargo.lock is not the same in /build/crosslink-0-unstable-vendor
+[ERROR]   stderr)        >
+[ERROR]   stderr)        > To fix the issue:
+[ERROR]   stderr)        > 1. Set cargoHash/cargoSha256 to an empty string: `cargoHash = "";`
+[ERROR]   stderr)        > 2. Build the derivation and wait for it to fail with a hash mismatch
+[ERROR]   stderr)        > 3. Copy the "got: sha256-..." value back into the cargoHash field
+[ERROR]   stderr)        >    You should have: cargoHash = "sha256-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX=";
+[ERROR]   stderr)        >
+[ERROR]   stderr)        For full logs, run:
+[ERROR]   stderr)                nix log /nix/store/5kpzybvlai0fbjbhbbv3j8ra14g064kq-crosslink-0-unstable.drv
+[ERROR]   stderr) error: 1 dependencies of derivation '/nix/store/wp85wvcgg07q014ccgd8f790fkvwlv8l-home-manager-path.drv' failed to build
+[ERROR]   stderr) error: 1 dependencies of derivation '/nix/store/cm39splvl8wpb96kd6f3xyax5fr91p0k-home-manager-generation.drv' failed to build
+[ERROR]   stderr) error: 1 dependencies of derivation '/nix/store/rwf1sc3i0475mfj5vfkkyr3835sbnkww-activation-script.drv' failed to build
+[ERROR]   stderr) error: 1 dependencies of derivation '/nix/store/q9i0h1xd07y7lfbwfjp77kilx1r1gwza-unit-home-manager-vringar.service.drv' failed to build
+[ERROR]   stderr) error: 1 dependencies of derivation '/nix/store/y644g876m43lp0jpjklywmdmaz97nr2l-system-units.drv' failed to build
+[ERROR]   stderr) error: 1 dependencies of derivation '/nix/store/z2f4l3v6hq262g8qf9kisal78qcmnhm6-etc.drv' failed to build
+[ERROR]   stderr) error: 1 dependencies of derivation '/nix/store/nd00y8hg7p52gyqprqjff6y61fnjfab4-activate.drv' failed to build
+[ERROR]   stderr) error: 1 dependencies of derivation '/nix/store/flbzbhvhf87yfkx4qgy720kgyyfnk93r-nixos-system-sz1-26.05pre972949.6201e203d095.drv' failed to build
+[ERROR]  failure) Child process exited with error code: 1
+[ERROR] Failed to complete requested operation - Last 1 lines of logs:
+[ERROR]  failure) Child process exited with error code: 1
+[ERROR] -----
+[ERROR] Operation failed with error: Child process exited with error code: 1
+Backtrace:
+   0: <backtrace::capture::Backtrace as snafu::GenerateImplicitData>::generate
+   1: colmena::util::CommandExecution::run::{{closure}}
+   2: <colmena::nix::host::local::Local as colmena::nix::host::Host>::realize_remote::{{closure}}
+   3: colmena::nix::host::Host::realize::{{closure}}
+   4: colmena::nix::deployment::Deployment::build_and_push_node::{{closure}}
+   5: <futures_util::future::maybe_done::MaybeDone<Fut> as core::future::future::Future>::poll
+   6: <futures_util::future::join_all::JoinAll<F> as core::future::future::Future>::poll
+   7: <futures_util::future::maybe_done::MaybeDone<Fut> as core::future::future::Future>::poll
+   8: <futures_util::future::join_all::JoinAll<F> as core::future::future::Future>::poll
+   9: colmena::job::MetaJobHandle::run::{{closure}}
+  10: <tokio::future::poll_fn::PollFn<F> as core::future::future::Future>::poll
+  11: <tokio::future::maybe_done::MaybeDone<Fut> as core::future::future::Future>::poll
+  12: <tokio::future::poll_fn::PollFn<F> as core::future::future::Future>::poll
+  13: colmena::troubleshooter::run_wrapped::{{closure}}
+  14: colmena::cli::run::{{closure}}
+  15: tokio::runtime::park::CachedParkThread::block_on
+  16: tokio::runtime::scheduler::multi_thread::MultiThread::block_on
+  17: tokio::runtime::runtime::Runtime::block_on
+  18: colmena::main
+  19: std::sys::backtrace::__rust_begin_short_backtrace
+  20: std::rt::lang_start::{{closure}}
+  21: std::rt::lang_start_internal
+  22: main
+  23: __libc_start_call_main
+  24: __libc_start_main_alias_2
+  25: _start

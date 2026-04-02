@@ -1,0 +1,1804 @@
+[INFO ] Using configuration: /home/vringar/nixos-setup/hive.nix
+[INFO ] Enumerating nodes...
+warning: 'system' has been renamed to/replaced by 'stdenv.hostPlatform.system'
+[INFO ] Selected 1 out of 3 hosts.
+  sz1 | Evaluating sz1
+  sz1 | warning: 'system' has been renamed to/replaced by 'stdenv.hostPlatform.system'
+  sz1 | Evaluated sz1
+  sz1 | Building sz1
+  sz1 | these 10 derivations will be built:
+  sz1 |   /nix/store/snnym25jw31gishllg3wxn6fchzgdb67-rtk-0.34.3-vendor.drv
+  sz1 |   /nix/store/4q8k8cgxjcgfb0rbr49bw4fz8nwcwy7b-rtk-0.34.3.drv
+  sz1 |   /nix/store/xb8mb93hmqx3sg2272fv9h4q5d04s29i-home-manager-path.drv
+  sz1 |   /nix/store/r610pqp3a1zvqyfrnmfky5r2rj4s48jz-activation-script.drv
+  sz1 |   /nix/store/sgkp984dc1xpfqqjg08vi6admq03rp6a-home-manager-generation.drv
+  sz1 |   /nix/store/r6zjs36mg3vw05yhphx03z0zli9pmwlf-unit-home-manager-vringar.service.drv
+  sz1 |   /nix/store/9zlslmls8jnxxbiair92gp1ildhw06dc-system-units.drv
+  sz1 |   /nix/store/bidizsbj086bwaviknmrjx2n28qg5cbj-etc.drv
+  sz1 |   /nix/store/qhczhndl7ssr3k0hknhx7phqwcfcic1w-activate.drv
+  sz1 |   /nix/store/01j5kx91lf9xmnw9xlg08g6r8l7ddh9w-nixos-system-sz1-26.05pre972949.6201e203d095.drv
+  sz1 | building '/nix/store/snnym25jw31gishllg3wxn6fchzgdb67-rtk-0.34.3-vendor.drv'...
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/adler2-2.0.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/ahash-0.8.12
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/aho-corasick-1.1.4
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/android_system_properties-0.1.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/anstream-0.6.21
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/anstyle-1.0.13
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/anstyle-parse-0.2.7
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/anstyle-query-1.1.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/anstyle-wincon-3.0.11
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/anyhow-1.0.102
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/autocfg-1.5.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/automod-1.0.16
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/base64-0.22.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/bitflags-2.11.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/block-buffer-0.10.4
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/bstr-1.12.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/bumpalo-3.20.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/cc-1.2.56
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/cfg-if-1.0.4
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/chrono-0.4.44
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/clap-4.5.60
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/clap_builder-4.5.60
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/clap_derive-4.5.55
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/clap_lex-1.0.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/colorchoice-1.0.4
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/colored-2.2.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/core-foundation-sys-0.8.7
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/cpufeatures-0.2.17
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/crc32fast-1.5.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/crossbeam-deque-0.8.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/crossbeam-epoch-0.9.18
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/crossbeam-utils-0.8.21
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/crypto-common-0.1.7
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/digest-0.10.7
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/dirs-5.0.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/dirs-sys-0.4.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/displaydoc-0.2.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/env_home-0.1.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/equivalent-1.0.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/errno-0.3.14
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/fallible-iterator-0.3.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/fallible-streaming-iterator-0.1.9
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/fastrand-2.3.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/find-msvc-tools-0.1.9
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/flate2-1.1.9
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/foldhash-0.1.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/form_urlencoded-1.2.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/generic-array-0.14.7
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/getrandom-0.2.17
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/getrandom-0.4.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/globset-0.4.18
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/hashbrown-0.14.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/hashbrown-0.15.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/hashbrown-0.16.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/hashlink-0.9.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/heck-0.5.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/hostname-0.4.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/iana-time-zone-0.1.65
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/iana-time-zone-haiku-0.1.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/icu_collections-2.1.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/icu_locale_core-2.1.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/icu_normalizer-2.1.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/icu_normalizer_data-2.1.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/icu_properties-2.1.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/icu_properties_data-2.1.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/icu_provider-2.1.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/id-arena-2.3.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/idna-1.1.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/idna_adapter-1.2.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/ignore-0.4.25
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/indexmap-2.13.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/is_terminal_polyfill-1.70.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/itoa-1.0.17
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/js-sys-0.3.91
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/lazy_static-1.5.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/leb128fmt-0.1.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/libc-0.2.182
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/libredox-0.1.14
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/libsqlite3-sys-0.28.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/linux-raw-sys-0.12.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/litemap-0.8.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/log-0.4.29
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/memchr-2.8.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/miniz_oxide-0.8.9
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/num-traits-0.2.19
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/once_cell-1.21.3
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/once_cell_polyfill-1.70.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/option-ext-0.2.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/percent-encoding-2.3.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/pkg-config-0.3.32
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/potential_utf-0.1.4
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/prettyplease-0.2.37
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/proc-macro2-1.0.106
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/quick-xml-0.37.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/quote-1.0.45
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/r-efi-6.0.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/redox_users-0.4.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/regex-1.12.3
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/regex-automata-0.4.14
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/regex-syntax-0.8.10
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/ring-0.17.14
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/rusqlite-0.31.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/rustix-1.1.4
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/rustls-0.23.37
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/rustls-pki-types-1.14.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/rustls-webpki-0.103.9
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/rustversion-1.0.22
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/same-file-1.0.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/semver-1.0.27
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/serde-1.0.228
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/serde_core-1.0.228
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/serde_derive-1.0.228
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/serde_json-1.0.149
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/serde_spanned-0.6.9
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/sha2-0.10.9
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/shlex-1.3.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/simd-adler32-0.3.8
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/smallvec-1.15.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/stable_deref_trait-1.2.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/strsim-0.11.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/subtle-2.6.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/syn-2.0.117
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/synstructure-0.13.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/tempfile-3.26.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/thiserror-1.0.69
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/thiserror-impl-1.0.69
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/tinystr-0.8.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/toml-0.8.23
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/toml_datetime-0.6.11
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/toml_edit-0.22.27
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/toml_write-0.1.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/typenum-1.19.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/unicode-ident-1.0.24
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/unicode-xid-0.2.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/untrusted-0.9.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/ureq-2.12.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/url-2.5.8
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/utf8_iter-1.0.4
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/utf8parse-0.2.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/vcpkg-0.2.15
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/version_check-0.9.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/walkdir-2.5.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wasi-0.11.1+wasi-snapshot-preview1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wasip2-1.0.2+wasi-0.2.9
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wasip3-0.4.0+wasi-0.3.0-rc-2026-01-06
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wasm-bindgen-0.2.114
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wasm-bindgen-macro-0.2.114
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wasm-bindgen-macro-support-0.2.114
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wasm-bindgen-shared-0.2.114
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wasm-encoder-0.244.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wasm-metadata-0.244.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wasmparser-0.244.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/webpki-roots-0.26.11
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/webpki-roots-1.0.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/which-8.0.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/winapi-util-0.1.11
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-core-0.62.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-implement-0.60.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-interface-0.59.3
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-link-0.2.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-result-0.4.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-strings-0.5.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-sys-0.48.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-sys-0.52.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-sys-0.59.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-sys-0.61.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-targets-0.48.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows-targets-0.52.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_aarch64_gnullvm-0.48.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_aarch64_gnullvm-0.52.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_aarch64_msvc-0.48.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_aarch64_msvc-0.52.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_i686_gnu-0.48.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_i686_gnu-0.52.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_i686_gnullvm-0.52.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_i686_msvc-0.48.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_i686_msvc-0.52.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_x86_64_gnu-0.48.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_x86_64_gnu-0.52.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_x86_64_gnullvm-0.48.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_x86_64_gnullvm-0.52.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_x86_64_msvc-0.48.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/windows_x86_64_msvc-0.52.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/winnow-0.7.15
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/winsafe-0.0.19
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wit-bindgen-0.51.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wit-bindgen-core-0.51.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wit-bindgen-rust-0.51.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wit-bindgen-rust-macro-0.51.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wit-component-0.244.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/wit-parser-0.244.0
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/writeable-0.6.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/yoke-0.8.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/yoke-derive-0.8.1
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/zerocopy-0.8.40
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/zerocopy-derive-0.8.40
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/zerofrom-0.1.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/zerofrom-derive-0.1.6
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/zeroize-1.8.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/zerotrie-0.2.3
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/zerovec-0.11.5
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/zerovec-derive-0.11.2
+  sz1 | Unpacking to /nix/store/ipdj6bisy5gy4l6a0pqw4brkiqjxyq43-rtk-0.34.3-vendor/source-registry-0/zmij-1.0.21
+  sz1 | building '/nix/store/4q8k8cgxjcgfb0rbr49bw4fz8nwcwy7b-rtk-0.34.3.drv'...
+  sz1 | Running phase: unpackPhase
+  sz1 | unpacking source archive /nix/store/vax2syhnsllgcyxb32bxly6ncalg37ph-source
+  sz1 | source root is source
+  sz1 | Executing cargoSetupPostUnpackHook
+  sz1 | Finished cargoSetupPostUnpackHook
+  sz1 | Running phase: patchPhase
+  sz1 | Executing cargoSetupPostPatchHook
+  sz1 | Validating consistency between /build/source/Cargo.lock and /build/rtk-0.34.3-vendor/Cargo.lock
+  sz1 | Finished cargoSetupPostPatchHook
+  sz1 | Running phase: updateAutotoolsGnuConfigScriptsPhase
+  sz1 | Running phase: configurePhase
+  sz1 | Running phase: buildPhase
+  sz1 | Executing cargoBuildHook
+  sz1 | cargoBuildHook flags: -j 24 --target x86_64-unknown-linux-gnu --offline --profile release
+  sz1 |    Compiling proc-macro2 v1.0.106
+  sz1 |    Compiling unicode-ident v1.0.24
+  sz1 |    Compiling quote v1.0.45
+  sz1 |    Compiling serde_core v1.0.228
+  sz1 |    Compiling cfg-if v1.0.4
+  sz1 |    Compiling stable_deref_trait v1.2.1
+  sz1 |    Compiling version_check v0.9.5
+  sz1 |    Compiling libc v0.2.182
+  sz1 |    Compiling shlex v1.3.0
+  sz1 |    Compiling find-msvc-tools v0.1.9
+  sz1 |    Compiling writeable v0.6.2
+  sz1 |    Compiling litemap v0.8.1
+  sz1 |    Compiling memchr v2.8.0
+  sz1 |    Compiling serde v1.0.228
+  sz1 |    Compiling typenum v1.19.0
+  sz1 |    Compiling icu_normalizer_data v2.1.1
+  sz1 |    Compiling once_cell v1.21.3
+  sz1 |    Compiling icu_properties_data v2.1.2
+  sz1 |    Compiling zeroize v1.8.2
+  sz1 |    Compiling smallvec v1.15.1
+  sz1 |    Compiling zerocopy v0.8.40
+  sz1 |    Compiling crossbeam-utils v0.8.21
+  sz1 |    Compiling equivalent v1.0.2
+  sz1 |    Compiling hashbrown v0.16.1
+  sz1 |    Compiling crc32fast v1.5.0
+  sz1 |    Compiling log v0.4.29
+  sz1 |    Compiling pkg-config v0.3.32
+  sz1 |    Compiling cc v1.2.56
+  sz1 |    Compiling rustls-pki-types v1.14.0
+  sz1 |    Compiling rustix v1.1.4
+  sz1 |    Compiling vcpkg v0.2.15
+  sz1 |    Compiling untrusted v0.9.0
+  sz1 |    Compiling toml_write v0.1.2
+  sz1 |    Compiling winnow v0.7.15
+  sz1 |    Compiling bitflags v2.11.0
+  sz1 |    Compiling generic-array v0.14.7
+  sz1 |    Compiling ahash v0.8.12
+  sz1 |    Compiling regex-syntax v0.8.10
+  sz1 |    Compiling autocfg v1.5.0
+  sz1 |    Compiling utf8parse v0.2.2
+  sz1 |    Compiling is_terminal_polyfill v1.70.2
+  sz1 |    Compiling anstyle v1.0.13
+  sz1 |    Compiling anstyle-parse v0.2.7
+  sz1 |    Compiling anstyle-query v1.1.5
+  sz1 |    Compiling getrandom v0.4.2
+  sz1 |    Compiling percent-encoding v2.3.2
+  sz1 |    Compiling aho-corasick v1.1.4
+  sz1 |    Compiling linux-raw-sys v0.12.1
+  sz1 |    Compiling zmij v1.0.21
+  sz1 |    Compiling simd-adler32 v0.3.8
+  sz1 |    Compiling indexmap v2.13.0
+  sz1 |    Compiling colorchoice v1.0.4
+  sz1 |    Compiling adler2 v2.0.1
+  sz1 |    Compiling num-traits v0.2.19
+  sz1 |    Compiling rustls v0.23.37
+  sz1 |    Compiling utf8_iter v1.0.4
+  sz1 |    Compiling miniz_oxide v0.8.9
+  sz1 |    Compiling anstream v0.6.21
+  sz1 |    Compiling form_urlencoded v1.2.2
+  sz1 |    Compiling bstr v1.12.1
+  sz1 |    Compiling webpki-roots v1.0.6
+  sz1 |    Compiling crossbeam-epoch v0.9.18
+  sz1 |    Compiling subtle v2.6.1
+  sz1 |    Compiling same-file v1.0.6
+  sz1 |    Compiling option-ext v0.2.0
+  sz1 |    Compiling strsim v0.11.1
+  sz1 |    Compiling heck v0.5.0
+  sz1 |    Compiling serde_json v1.0.149
+  sz1 |    Compiling syn v2.0.117
+  sz1 |    Compiling clap_lex v1.0.0
+  sz1 |    Compiling anyhow v1.0.102
+  sz1 |    Compiling clap_builder v4.5.60
+  sz1 |    Compiling crossbeam-deque v0.8.6
+  sz1 |    Compiling flate2 v1.1.9
+  sz1 |    Compiling walkdir v2.5.0
+  sz1 |    Compiling webpki-roots v0.26.11
+  sz1 |    Compiling base64 v0.22.1
+  sz1 |    Compiling fastrand v2.3.0
+  sz1 |    Compiling getrandom v0.2.17
+  sz1 |    Compiling dirs-sys v0.4.1
+  sz1 |    Compiling iana-time-zone v0.1.65
+  sz1 |    Compiling ring v0.17.14
+  sz1 |    Compiling libsqlite3-sys v0.28.0
+  sz1 |    Compiling cpufeatures v0.2.17
+  sz1 |    Compiling fallible-streaming-iterator v0.1.9
+  sz1 |    Compiling env_home v0.1.0
+  sz1 |    Compiling fallible-iterator v0.3.0
+  sz1 |    Compiling crypto-common v0.1.7
+  sz1 |    Compiling block-buffer v0.10.4
+  sz1 |    Compiling lazy_static v1.5.0
+  sz1 |    Compiling itoa v1.0.17
+  sz1 |    Compiling dirs v5.0.1
+  sz1 |    Compiling colored v2.2.0
+  sz1 |    Compiling hostname v0.4.2
+  sz1 |    Compiling digest v0.10.7
+  sz1 |    Compiling quick-xml v0.37.5
+  sz1 |    Compiling sha2 v0.10.9
+  sz1 |    Compiling chrono v0.4.44
+  sz1 |    Compiling regex-automata v0.4.14
+  sz1 |    Compiling which v8.0.1
+  sz1 |    Compiling tempfile v3.26.0
+  sz1 |    Compiling serde_spanned v0.6.9
+  sz1 |    Compiling toml_datetime v0.6.11
+  sz1 |    Compiling toml_edit v0.22.27
+  sz1 |    Compiling synstructure v0.13.2
+  sz1 |    Compiling hashbrown v0.14.5
+  sz1 |    Compiling globset v0.4.18
+  sz1 |    Compiling regex v1.12.3
+  sz1 |    Compiling zerofrom-derive v0.1.6
+  sz1 |    Compiling yoke-derive v0.8.1
+  sz1 |    Compiling zerovec-derive v0.11.2
+  sz1 |    Compiling displaydoc v0.2.5
+  sz1 |    Compiling serde_derive v1.0.228
+  sz1 |    Compiling clap_derive v4.5.55
+  sz1 |    Compiling automod v1.0.16
+  sz1 |    Compiling hashlink v0.9.1
+  sz1 |    Compiling toml v0.8.23
+  sz1 |    Compiling ignore v0.4.25
+  sz1 |    Compiling rtk v0.34.3 (/build/source)
+  sz1 |    Compiling zerofrom v0.1.6
+  sz1 |    Compiling yoke v0.8.1
+  sz1 |    Compiling zerovec v0.11.5
+  sz1 |    Compiling zerotrie v0.2.3
+  sz1 |    Compiling clap v4.5.60
+  sz1 |    Compiling tinystr v0.8.2
+  sz1 |    Compiling potential_utf v0.1.4
+  sz1 |    Compiling icu_collections v2.1.1
+  sz1 |    Compiling icu_locale_core v2.1.1
+  sz1 |    Compiling icu_provider v2.1.1
+  sz1 |    Compiling icu_normalizer v2.1.1
+  sz1 |    Compiling icu_properties v2.1.2
+  sz1 |    Compiling idna_adapter v1.2.1
+  sz1 |    Compiling idna v1.1.0
+  sz1 |    Compiling url v2.5.8
+  sz1 |    Compiling rustls-webpki v0.103.9
+  sz1 |    Compiling ureq v2.12.1
+  sz1 |    Compiling rusqlite v0.31.0
+  sz1 | warning: unused variable: `e`
+  sz1 |    --> src/core/utils.rs:342:13
+  sz1 |     |
+  sz1 | 342 |         Err(e) => {
+  sz1 |     |             ^ help: if this is intentional, prefix it with an underscore: `_e`
+  sz1 |     |
+  sz1 |     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+  sz1 | 
+  sz1 | warning: `rtk` (bin "rtk") generated 1 warning (run `cargo fix --bin "rtk" -p rtk` to apply 1 suggestion)
+  sz1 |     Finished `release` profile [optimized] target(s) in 2m 28s
+  sz1 | Executing cargoInstallPostBuildHook
+  sz1 | Finished cargoInstallPostBuildHook
+  sz1 | Finished cargoBuildHook
+  sz1 | buildPhase completed in 2 minutes 29 seconds
+  sz1 | Running phase: checkPhase
+  sz1 | Executing cargoCheckHook
+  sz1 | cargoCheckHook flags: -j 24 --profile release --target x86_64-unknown-linux-gnu --offline --
+  sz1 |    Compiling cfg-if v1.0.4
+  sz1 |    Compiling stable_deref_trait v1.2.1
+  sz1 |    Compiling memchr v2.8.0
+  sz1 |    Compiling writeable v0.6.2
+  sz1 |    Compiling litemap v0.8.1
+  sz1 |    Compiling once_cell v1.21.3
+  sz1 |    Compiling smallvec v1.15.1
+  sz1 |    Compiling zeroize v1.8.2
+  sz1 |    Compiling libc v0.2.182
+  sz1 |    Compiling serde_core v1.0.228
+  sz1 |    Compiling icu_properties_data v2.1.2
+  sz1 |    Compiling icu_normalizer_data v2.1.1
+  sz1 |    Compiling typenum v1.19.0
+  sz1 |    Compiling zerocopy v0.8.40
+  sz1 |    Compiling untrusted v0.9.0
+  sz1 |    Compiling utf8parse v0.2.2
+  sz1 |    Compiling log v0.4.29
+  sz1 |    Compiling regex-syntax v0.8.10
+  sz1 |    Compiling hashbrown v0.16.1
+  sz1 |    Compiling bitflags v2.11.0
+  sz1 |    Compiling equivalent v1.0.2
+  sz1 |    Compiling zerofrom v0.1.6
+  sz1 |    Compiling crossbeam-utils v0.8.21
+  sz1 |    Compiling is_terminal_polyfill v1.70.2
+  sz1 |    Compiling utf8_iter v1.0.4
+  sz1 |    Compiling simd-adler32 v0.3.8
+  sz1 |    Compiling anstyle v1.0.13
+  sz1 |    Compiling anstyle-parse v0.2.7
+  sz1 |    Compiling anstyle-query v1.1.5
+  sz1 |    Compiling adler2 v2.0.1
+  sz1 |    Compiling rustls-pki-types v1.14.0
+  sz1 |    Compiling yoke v0.8.1
+  sz1 |    Compiling percent-encoding v2.3.2
+  sz1 |    Compiling linux-raw-sys v0.12.1
+  sz1 |    Compiling colorchoice v1.0.4
+  sz1 |    Compiling crc32fast v1.5.0
+  sz1 |    Compiling subtle v2.6.1
+  sz1 |    Compiling miniz_oxide v0.8.9
+  sz1 |    Compiling option-ext v0.2.0
+  sz1 |    Compiling clap_lex v1.0.0
+  sz1 |    Compiling same-file v1.0.6
+  sz1 |    Compiling strsim v0.11.1
+  sz1 |    Compiling winnow v0.7.15
+  sz1 |    Compiling anstream v0.6.21
+  sz1 |    Compiling form_urlencoded v1.2.2
+  sz1 |    Compiling toml_write v0.1.2
+  sz1 |    Compiling zerovec v0.11.5
+  sz1 |    Compiling zerotrie v0.2.3
+  sz1 |    Compiling walkdir v2.5.0
+  sz1 |    Compiling libsqlite3-sys v0.28.0
+  sz1 |    Compiling num-traits v0.2.19
+  sz1 |    Compiling zmij v1.0.21
+  sz1 |    Compiling cpufeatures v0.2.17
+  sz1 |    Compiling fallible-streaming-iterator v0.1.9
+  sz1 |    Compiling webpki-roots v1.0.6
+  sz1 |    Compiling clap_builder v4.5.60
+  sz1 |    Compiling env_home v0.1.0
+  sz1 |    Compiling itoa v1.0.17
+  sz1 |    Compiling aho-corasick v1.1.4
+  sz1 |    Compiling rustix v1.1.4
+  sz1 |    Compiling crossbeam-epoch v0.9.18
+  sz1 |    Compiling bstr v1.12.1
+  sz1 |    Compiling webpki-roots v0.26.11
+  sz1 |    Compiling fallible-iterator v0.3.0
+  sz1 |    Compiling lazy_static v1.5.0
+  sz1 |    Compiling fastrand v2.3.0
+  sz1 |    Compiling flate2 v1.1.9
+  sz1 |    Compiling base64 v0.22.1
+  sz1 |    Compiling iana-time-zone v0.1.65
+  sz1 |    Compiling generic-array v0.14.7
+  sz1 |    Compiling colored v2.2.0
+  sz1 |    Compiling quick-xml v0.37.5
+  sz1 |    Compiling indexmap v2.13.0
+  sz1 |    Compiling crossbeam-deque v0.8.6
+  sz1 |    Compiling anyhow v1.0.102
+  sz1 |    Compiling tinystr v0.8.2
+  sz1 |    Compiling potential_utf v0.1.4
+  sz1 |    Compiling icu_collections v2.1.1
+  sz1 |    Compiling getrandom v0.2.17
+  sz1 |    Compiling getrandom v0.4.2
+  sz1 |    Compiling dirs-sys v0.4.1
+  sz1 |    Compiling hostname v0.4.2
+  sz1 |    Compiling icu_locale_core v2.1.1
+  sz1 |    Compiling chrono v0.4.44
+  sz1 |    Compiling ring v0.17.14
+  sz1 |    Compiling dirs v5.0.1
+  sz1 |    Compiling crypto-common v0.1.7
+  sz1 |    Compiling block-buffer v0.10.4
+  sz1 |    Compiling digest v0.10.7
+  sz1 |    Compiling sha2 v0.10.9
+  sz1 |    Compiling icu_provider v2.1.1
+  sz1 |    Compiling icu_properties v2.1.2
+  sz1 |    Compiling icu_normalizer v2.1.1
+  sz1 |    Compiling regex-automata v0.4.14
+  sz1 |    Compiling which v8.0.1
+  sz1 |    Compiling tempfile v3.26.0
+  sz1 |    Compiling rustls-webpki v0.103.9
+  sz1 |    Compiling serde v1.0.228
+  sz1 |    Compiling serde_json v1.0.149
+  sz1 |    Compiling clap v4.5.60
+  sz1 |    Compiling rustls v0.23.37
+  sz1 |    Compiling idna_adapter v1.2.1
+  sz1 |    Compiling serde_spanned v0.6.9
+  sz1 |    Compiling toml_datetime v0.6.11
+  sz1 |    Compiling idna v1.1.0
+  sz1 |    Compiling toml_edit v0.22.27
+  sz1 |    Compiling url v2.5.8
+  sz1 |    Compiling ahash v0.8.12
+  sz1 |    Compiling hashbrown v0.14.5
+  sz1 |    Compiling globset v0.4.18
+  sz1 |    Compiling regex v1.12.3
+  sz1 |    Compiling hashlink v0.9.1
+  sz1 |    Compiling ignore v0.4.25
+  sz1 |    Compiling rusqlite v0.31.0
+  sz1 |    Compiling toml v0.8.23
+  sz1 |    Compiling ureq v2.12.1
+  sz1 |    Compiling rtk v0.34.3 (/build/source)
+  sz1 | warning: unused variable: `e`
+  sz1 |    --> src/core/utils.rs:342:13
+  sz1 |     |
+  sz1 | 342 |         Err(e) => {
+  sz1 |     |             ^ help: if this is intentional, prefix it with an underscore: `_e`
+  sz1 |     |
+  sz1 |     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+  sz1 | 
+  sz1 | warning: `rtk` (bin "rtk" test) generated 1 warning (run `cargo fix --bin "rtk" -p rtk --tests` to apply 1 suggestion)
+  sz1 |     Finished `release` profile [optimized] target(s) in 2m 04s
+  sz1 |      Running unittests src/main.rs (target/x86_64-unknown-linux-gnu/release/deps/rtk-5272293e7dfd3f1f)
+  sz1 | 
+  sz1 | running 1256 tests
+  sz1 | test analytics::cc_economics::tests::test_compute_dual_metrics_with_data ... ok
+  sz1 | test analytics::cc_economics::tests::test_compute_weighted_metrics_no_cache ... ok
+  sz1 | test analytics::cc_economics::tests::test_compute_weighted_metrics_zero_tokens ... ok
+  sz1 | test analytics::cc_economics::tests::test_compute_dual_metrics_zero_tokens ... ok
+  sz1 | test analytics::cc_economics::tests::test_compute_dual_metrics_no_ccusage_data ... ok
+  sz1 | test analytics::cc_economics::tests::test_compute_weighted_input_cpt ... ok
+  sz1 | test analytics::cc_economics::tests::test_period_economics_new ... ok
+  sz1 | test analytics::cc_economics::tests::test_compute_totals ... ok
+  sz1 | test analytics::cc_economics::tests::test_set_ccusage_stores_per_type_tokens ... ok
+  sz1 | test analytics::cc_economics::tests::test_merge_monthly_only_ccusage ... ok
+  sz1 | test analytics::cc_economics::tests::test_merge_monthly_both_present ... ok
+  sz1 | test analytics::cc_economics::tests::test_merge_monthly_only_rtk ... ok
+  sz1 | test analytics::cc_economics::tests::test_merge_monthly_sorted ... ok
+  sz1 | test analytics::cc_economics::tests::test_convert_saturday_to_monday ... ok
+  sz1 | test analytics::ccusage::tests::test_parse_daily_valid ... ok
+  sz1 | test analytics::ccusage::tests::test_parse_monthly_valid ... ok
+  sz1 | test analytics::session_cmd::tests::test_adoption_pct_zero_division ... ok
+  sz1 | test analytics::ccusage::tests::test_parse_default_cache_fields ... ok
+  sz1 | test analytics::ccusage::tests::test_parse_weekly_valid ... ok
+  sz1 | test analytics::ccusage::tests::test_parse_malformed_json ... ok
+  sz1 | test analytics::ccusage::tests::test_parse_missing_required_fields ... ok
+  sz1 | test analytics::session_cmd::tests::test_adoption_pct_75_percent ... ok
+  sz1 | test analytics::session_cmd::tests::test_count_all_rtk ... ok
+  sz1 | test analytics::session_cmd::tests::test_count_chained_commands_split ... ok
+  sz1 | test analytics::session_cmd::tests::test_count_empty_commands ... ok
+  sz1 | test analytics::session_cmd::tests::test_count_unsupported_commands_not_counted ... ok
+  sz1 | test analytics::session_cmd::tests::test_progress_bar_boundaries ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_cfn_describe_stacks_no_outputs ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_cfn_describe_stacks_with_outputs ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_cfn_list_stacks ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_ec2_token_savings ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_ec2_instances ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_sts_identity ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_s3_ls_overflow ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_sts_identity_missing_fields ... ok
+  sz1 | test analytics::session_cmd::tests::test_parse_empty_session ... ok
+  sz1 | test analytics::session_cmd::tests::test_parse_jsonl_ignores_non_bash_tools ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_snapshot_ec2_instances ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_snapshot_sts_identity ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_ecs_list_services ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_sts_identity_invalid_json ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_ec2_invalid_json ... ok
+  sz1 | test analytics::session_cmd::tests::test_parse_jsonl_chained_command ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_rds_instances ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_sts_token_savings ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_ec2_no_name_tag ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_ecs_describe_services ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_filter_s3_ls_basic ... ok
+  sz1 | test cmds::cloud::container::tests::test_compact_ports_empty ... ok
+  sz1 | test cmds::cloud::aws_cmd::tests::test_rds_overflow ... ok
+  sz1 | test cmds::cloud::container::tests::test_compact_ports_many ... ok
+  sz1 | test cmds::cloud::container::tests::test_format_compose_build_empty ... ok
+  sz1 | test cmds::cloud::container::tests::test_compact_ports_single ... ok
+  sz1 | test cmds::cloud::container::tests::test_format_compose_logs_empty ... ok
+  sz1 | test cmds::cloud::container::tests::test_format_compose_ps_empty ... ok
+  sz1 | test cmds::cloud::container::tests::test_format_compose_build_basic ... ok
+  sz1 | test cmds::cloud::container::tests::test_format_compose_ps_basic ... ok
+  sz1 | test cmds::cloud::container::tests::test_format_compose_ps_exited_service ... ok
+  sz1 | test cmds::cloud::container::tests::test_format_compose_ps_long_image_path ... ok
+  sz1 | test cmds::cloud::container::tests::test_format_compose_ps_whitespace_only ... ok
+  sz1 | test cmds::cloud::container::tests::test_format_compose_ps_no_ports ... ok
+  sz1 | test cmds::cloud::curl_cmd::tests::test_filter_curl_long_output ... ok
+  sz1 | test cmds::cloud::curl_cmd::tests::test_filter_curl_non_json ... ok
+  sz1 | test cmds::cloud::curl_cmd::tests::test_filter_curl_json_small_returns_original ... ok
+  sz1 | test cmds::cloud::curl_cmd::tests::test_filter_curl_json_array ... ok
+  sz1 | test cmds::cloud::curl_cmd::tests::test_filter_curl_json ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_filter_table_empty ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_is_table_format_rejects_plain ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_is_table_format_detects_separator ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_compact_url_strips_protocol ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_compact_url_short_unchanged ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_compact_url_truncates_long_url ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_extract_filename_empty_url_fallback ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_extract_filename_from_output_flag ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_format_size_bytes ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_extract_filename_from_url_fallback ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_filter_table_strips_row_count ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_filter_table_overflow ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_snapshot_table_format ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_filter_psql_passthrough ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_filter_table_basic ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_table_token_savings ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_is_expanded_format_rejects_table ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_is_expanded_format_detects_records ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_filter_psql_routes_to_table ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_format_size_kilobytes ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_truncate_line_exact ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_format_size_zero ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_format_size_megabytes ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_truncate_line_short ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_parse_error_dns ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_truncate_line_long ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_parse_error_404 ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_is_likely_diagnostic_code_filters_framework_monikers ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_parse_error_ssl ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_expanded_token_savings ... ok
+  sz1 | test cmds::cloud::wget_cmd::tests::test_parse_error_unknown ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_filter_psql_routes_to_expanded ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_filter_expanded_basic ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_filter_expanded_strips_row_count ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_snapshot_expanded_format ... ok
+  sz1 | test cmds::cloud::psql_cmd::tests::test_filter_expanded_overflow ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_build_fails_when_binlog_missing ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_build_fails_when_binlog_is_unparseable ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_restore_fails_when_binlog_missing ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_test_fails_when_binlog_missing ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_extract_binary_like_issues_recovers_code_message_and_path ... ok
+  sz1 | test cmds::cloud::container::tests::test_format_compose_logs_basic ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_restore_issues_ignores_summary_warning_error_counts ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_restore_from_text_extracts_nuget_error_diagnostic ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_build_from_text_extracts_issues ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_restore_from_text_extracts_project_count ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_scrub_sensitive_env_vars_masks_token_and_connection_values ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_select_best_issues_keeps_primary_when_context_is_good ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_select_best_issues_prefers_fallback_when_primary_loses_context ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_scrub_sensitive_env_vars_masks_values ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_cleanup_temp_file_ignores_missing_file ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_both_mtp_properties_in_same_file_still_vstest_bridge ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_cleanup_temp_file_removes_existing_file ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_build_from_text_extracts_inline_warning_counts ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_extract_results_directory_arg_detects_variants ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_detect_mode_directory_build_props_vstest_bridge ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_detect_mode_classic_csproj_injects_trx ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_detect_mode_mtp_csproj_is_vstest_bridge_injects_report_trx ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_build_output_includes_errors_and_warnings ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_test_from_text_aggregates_multiple_project_summaries ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_test_from_text_prefers_test_summary_duration_and_counts ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_detect_mode_vstest_bridge_injects_report_trx ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_test_from_text_extracts_failure_summary ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_test_reads_message_events ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_restore_output_failure ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_build_from_text_extracts_warning_without_code ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_test_from_text_ignores_non_test_failed_prefix_lines ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_preserves_positional_project_argument_order ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_test_from_fixture_text ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_restore_output_includes_error_details ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_all_formatted ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_report_summary_uses_fresh_report_file ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_test_from_text_keeps_multiline_failure_details ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_restore_output_success ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_report_summary_ignores_stale_report_file ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_test_output_handles_binlog_only_without_counts ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_test_output_shows_failures ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_test_output_surfaces_warnings ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_test_output_surfaces_errors ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_user_report_arg_no_cleanup ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_temp_file_cleanup ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_build_does_not_infer_binary_errors_on_successful_build ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_build_from_fixture_text ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_build_from_text_extracts_msbuild_global_error ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_forwarding_args_with_spaces ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_build_reads_structured_events ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_forwarding_project_file ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_has_binlog_arg_detects_variants ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_forwarding_no_build_and_no_restore ... ok
+  sz1 | test cmds::dotnet::binlog::tests::test_parse_build_sets_project_count_floor ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_forwarding_config_and_framework ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_has_results_directory_arg_detects_variants ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_merge_build_summaries_keeps_binlog_when_context_is_good ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_merge_build_summaries_keeps_structured_issues_when_present ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_merge_restore_summaries_prefers_raw_error_count ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_merge_test_summaries_keeps_structured_counts_and_fills_failed_tests ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_format_needs_formatting ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_is_global_json_mtp_mode_detects_mtp_runner ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_is_global_json_mtp_mode_returns_false_for_vstest_runner ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_normalize_build_summary_sets_success_floor ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_is_mtp_project_file_returns_false_for_classic_vstest ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_normalize_restore_summary_sets_error_floor_on_failed_command ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_normalize_test_summary_sets_failure_floor ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_resolve_trx_results_dir_generated_directory_is_marked_for_cleanup ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_resolve_trx_results_dir_user_directory_is_not_marked_for_cleanup ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_merge_test_summary_from_trx_falls_back_to_testresults ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_test_subcommand_does_not_inject_minimal_verbosity_by_default ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_user_long_verbosity_override ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_merge_test_summary_from_trx_keeps_larger_existing_counts ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_trx_logger_and_results_directory_injected ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_user_logger_override ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_merge_test_summary_from_trx_returns_default_when_no_trx ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_user_results_directory_prevents_extra_injection ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_user_trx_logger_does_not_duplicate ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_user_verbose_override ... ok
+  sz1 | test cmds::dotnet::dotnet_format_report::tests::test_parse_format_report_all_formatted ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_merge_test_summary_from_trx_overrides_smaller_existing_counts ... ok
+  sz1 | test cmds::dotnet::dotnet_format_report::tests::test_parse_format_report_empty ... ok
+  sz1 | test cmds::dotnet::dotnet_format_report::tests::test_parse_format_report_with_changes ... ok
+  sz1 | test cmds::dotnet::dotnet_trx::tests::test_parse_trx_content_extracts_counters_when_attribute_order_varies ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_merge_test_summary_from_trx_uses_primary_and_cleans_file ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_merge_test_summary_from_trx_uses_larger_project_count ... ok
+  sz1 | test cmds::dotnet::dotnet_trx::tests::test_parse_trx_content_extracts_failed_tests_with_details ... ok
+  sz1 | test cmds::dotnet::dotnet_trx::tests::test_parse_trx_content_extracts_passed_counts ... ok
+  sz1 | test cmds::dotnet::dotnet_trx::tests::test_parse_trx_content_returns_none_for_invalid_xml ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_parse_global_json_mtp_mode_detects_mtp_native ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_compute_diff_empty_inputs ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_compute_diff_completely_different_line ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_scan_mtp_kind_detects_use_microsoft_testing_platform_runner ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_compute_diff_added_lines ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_scan_mtp_kind_detects_use_testing_platform_runner ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_scan_mtp_kind_detects_vstest_bridge ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_scan_mtp_kind_returns_none_when_value_is_false ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_vstest_bridge_existing_separator_inserts_report_trx_after_it ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_vstest_bridge_injects_report_trx_after_separator ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_vstest_bridge_respects_existing_report_trx ... ok
+  sz1 | test cmds::dotnet::dotnet_trx::tests::test_find_recent_trx_in_dir_ignores_non_trx_files ... ok
+  sz1 | test cmds::dotnet::dotnet_trx::tests::test_find_recent_trx_in_dir_returns_none_when_missing ... ok
+  sz1 | test cmds::dotnet::dotnet_trx::tests::test_parse_trx_content_extracts_failed_tests_when_attribute_order_varies ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_compute_diff_modified_line ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_compute_diff_removed_lines ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_compute_diff_identical ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_condense_unified_diff_empty ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_condense_unified_diff_multiple_files ... ok
+  sz1 | test cmds::dotnet::dotnet_trx::tests::test_parse_trx_files_in_dir_since_handles_uppercase_extension ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_condense_unified_diff_no_false_overflow ... ok
+  sz1 | test cmds::dotnet::dotnet_trx::tests::test_parse_trx_files_in_dir_aggregates_counts_and_wall_clock_duration ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_condense_unified_diff_overflow_count_accuracy ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_condense_unified_diff_single_file ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_long_lines_not_truncated ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_similarity_completely_different ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_similarity_empty_strings ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_similarity_identical ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_similarity_partial_overlap ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_similarity_threshold_for_modified ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_extract_identifier_empty ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_extract_identifier_only_flags ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_extract_identifier_simple ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_extract_identifier_with_attempt_flag ... ok
+  sz1 | test cmds::git::diff_cmd::tests::test_no_truncation_large_diff ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_extract_identifier_with_job_and_log_failed ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_extract_identifier_with_job_flag_after ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_extract_identifier_with_job_flag_before ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_extract_identifier_with_long_repo_flag ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_extract_identifier_with_repo_flag_after ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_extract_identifier_with_repo_flag_before ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_extract_identifier_with_web_flag ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_filter_markdown_body_empty ... ok
+  sz1 | test analytics::session_cmd::tests::test_count_chained_no_false_inflation ... ok
+  sz1 | test analytics::session_cmd::tests::test_count_chained_with_semicolon ... ok
+  sz1 | test analytics::session_cmd::tests::test_count_mixed_explicit_and_hook ... ok
+  sz1 | test analytics::session_cmd::tests::test_parse_jsonl_session_and_count ... ok
+  sz1 | test analytics::session_cmd::tests::test_count_chained_all_supported ... ok
+  sz1 | test analytics::session_cmd::tests::test_count_hook_rewritten_commands ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_has_json_flag_absent ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_has_json_flag_present ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_non_diff_format_flag_absent ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_non_diff_format_flag_name_only ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_non_diff_format_flag_name_status ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_non_diff_format_flag_numstat ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_non_diff_format_flag_regular_args ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_non_diff_format_flag_shortstat ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_non_diff_format_flag_stat ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_ok_confirmation_pr_comment ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_ok_confirmation_pr_create ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_ok_confirmation_pr_edit ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_ok_confirmation_pr_merge ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_run_view_no_passthrough_empty ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_run_view_no_passthrough_other_flags ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_run_view_passthrough_log ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_run_view_passthrough_json ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_run_view_passthrough_log_failed ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_should_passthrough_issue_view_comments ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_should_passthrough_issue_view_default ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_should_passthrough_issue_view_jq ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_should_passthrough_issue_view_json ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_should_passthrough_issue_view_web ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_should_passthrough_pr_view_comments ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_should_passthrough_pr_view_default ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_should_passthrough_pr_view_jq ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_should_passthrough_pr_view_json ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_should_passthrough_pr_view_web ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_filter_markdown_body_html_comment_multiline ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_filter_markdown_body_image_only_lines ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_filter_markdown_body_horizontal_rules ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_filter_markdown_body_badge_lines ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_filter_markdown_body_code_block_preserved ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_filter_markdown_body_token_savings ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_filter_markdown_body_meaningful_content_preserved ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_filter_markdown_body_blank_lines_collapse ... ok
+  sz1 | test cmds::git::git::tests::test_branch_creation_from_commit ... ignored
+  sz1 | test cmds::git::git::tests::test_branch_creation_not_swallowed ... ignored
+  sz1 | test cmds::git::gh_cmd::tests::test_truncate_empty_and_short ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_truncate ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_filter_markdown_body_html_comment_single_line ... ok
+  sz1 | test cmds::git::gh_cmd::tests::test_truncate_multibyte_utf8 ... ok
+  sz1 | test cmds::git::git::tests::test_commit_am_flag ... ok
+  sz1 | test cmds::git::git::tests::test_commit_amend ... ok
+  sz1 | test cmds::git::git::tests::test_commit_multiple_messages ... ok
+  sz1 | test cmds::git::git::tests::test_compact_diff ... ok
+  sz1 | test cmds::git::git::tests::test_commit_single_message ... ok
+  sz1 | test cmds::git::git::tests::test_compact_diff_hunk_truncation_count_accurate ... ok
+  sz1 | test cmds::git::git::tests::test_compact_diff_increased_hunk_limit ... ok
+  sz1 | test cmds::git::git::tests::test_compact_diff_increased_total_limit ... ok
+  sz1 | test cmds::git::git::tests::test_compact_diff_recovery_hint_present ... ok
+  sz1 | test cmds::git::git::tests::test_filter_branch_no_remotes ... ok
+  sz1 | test cmds::git::git::tests::test_filter_branch_output ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_body_omission_indicator ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_emoji ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_cap_lines ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_multibyte ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_skips_trailers ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_token_savings ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_truncate_long ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_user_format_oneline ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_user_format_with_limit ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_user_limit_no_cap ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_user_limit_wider_truncation ... ok
+  sz1 | test cmds::git::git::tests::test_filter_log_output_with_body ... ok
+  sz1 | test cmds::git::git::tests::test_filter_stash_list ... ok
+  sz1 | test cmds::git::git::tests::test_filter_status_with_args_clean ... ok
+  sz1 | test cmds::git::git::tests::test_filter_status_with_args ... ok
+  sz1 | test cmds::git::git::tests::test_filter_worktree_list ... ok
+  sz1 | test cmds::git::git::tests::test_format_status_output_clean ... ok
+  sz1 | test cmds::git::git::tests::test_format_status_modified_truncation ... ok
+  sz1 | test cmds::git::git::tests::test_format_status_output_emoji_filename ... ok
+  sz1 | test cmds::git::git::tests::test_format_status_output_mixed_changes ... ok
+  sz1 | test cmds::git::git::tests::test_format_status_output_modified_files ... ok
+  sz1 | test cmds::git::git::tests::test_format_status_output_thai_filename ... ok
+  sz1 | test cmds::git::git::tests::test_format_status_output_truncation ... ok
+  sz1 | test cmds::git::git::tests::test_format_status_output_untracked_files ... ok
+  sz1 | test cmds::git::git::tests::test_format_status_overflow_count_exact ... ok
+  sz1 | test cmds::git::git::tests::test_format_status_untracked_truncation ... ok
+  sz1 | test cmds::git::git::tests::test_git_cmd_no_global_args ... ok
+  sz1 | test cmds::git::git::tests::test_git_cmd_with_boolean_flags ... ok
+  sz1 | test cmds::git::git::tests::test_git_status_not_a_repo_exits_nonzero ... ignored
+  sz1 | test cmds::git::git::tests::test_git_cmd_with_directory ... ok
+  sz1 | test cmds::git::git::tests::test_is_blob_show_arg ... ok
+  sz1 | test cmds::git::git::tests::test_git_cmd_with_multiple_global_args ... ok
+  sz1 | test cmds::git::git::tests::test_parse_user_limit_combined ... ok
+  sz1 | test cmds::git::git::tests::test_parse_user_limit_max_count_eq ... ok
+  sz1 | test cmds::git::git::tests::test_parse_user_limit_max_count_space ... ok
+  sz1 | test cmds::git::git::tests::test_parse_user_limit_n_space ... ok
+  sz1 | test cmds::git::git::tests::test_parse_user_limit_none ... ok
+  sz1 | test cmds::git::git::tests::test_run_passthrough_accepts_args ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_create_empty ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_create_no_branch_name ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_log_empty ... ok
+  sz1 | test cmds::dotnet::dotnet_cmd::tests::test_merge_test_summary_from_trx_ignores_stale_fallback_file ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_log_exact_format ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_log_pre_stripped_input ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_log_long ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_log_truncation ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_log_token_savings ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_restack ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_restack_empty ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_extract_branch_name ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_create_exact_format ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_create ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_restack_exact_format ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_restack_token_savings ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_create_token_savings ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_submit_empty ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_sync_empty ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_sync ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_sync_exact_format ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_sync_no_deletes ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_is_graph_node ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_sync_token_savings ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_compact_package_name ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_filter_go_build_errors ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_filter_go_build_success ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_submit_token_savings ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_submit_exact_format ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_filter_go_vet_no_issues ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_filter_go_test_all_pass ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_filter_go_test_with_failures ... ok
+  sz1 | test cmds::git::gt_cmd::tests::test_filter_gt_submit_with_urls ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_has_golangci_format_flag_absent ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_filter_go_vet_with_issues ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_has_golangci_format_flag_v1 ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_has_golangci_format_flag_v2 ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_match_go_tool_bare ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_match_go_tool_golangci_lint ... ok
+  sz1 | test cmds::go::go_cmd::tests::test_match_go_tool_rejects_unknown ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_compact_path ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_filter_golangci_no_issues ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_filter_golangci_v2_fields_parse_cleanly ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_filter_golangci_with_issues ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_filter_v1_does_not_show_source_lines ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_filter_v2_empty_source_lines_graceful ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_filter_v2_shows_source_lines ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_filter_v2_source_line_truncated_non_ascii ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_filter_v2_source_line_truncated_to_80_chars ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_parse_version_empty_returns_1 ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_golangci_v2_token_savings ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_parse_version_malformed_returns_1 ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_parse_version_v1_format ... ok
+  sz1 | test cmds::dotnet::dotnet_trx::tests::test_find_recent_trx_in_dir_picks_newest_trx ... ok
+  sz1 | test cmds::go::golangci_cmd::tests::test_parse_version_v2_format ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_compact_path ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_detect_linter_after_npx_strip ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_detect_linter_after_pnpm_exec_strip ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_detect_linter_default_on_flag ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_detect_linter_default_on_path ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_detect_linter_eslint ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_filter_eslint_json ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_filter_pylint_json_no_issues ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_is_python_linter ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_filter_pylint_json_with_issues ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_strip_pm_prefix_bunx ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_strip_pm_prefix_empty ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_strip_pm_prefix_none ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_strip_pm_prefix_npx ... ok
+  sz1 | test cmds::js::lint_cmd::tests::test_strip_pm_prefix_pnpm_exec ... ok
+  sz1 | test cmds::js::npm_cmd::tests::test_filter_npm_output ... ok
+  sz1 | test cmds::js::npm_cmd::tests::test_filter_npm_output_empty ... ok
+  sz1 | test cmds::js::npm_cmd::tests::test_npm_subcommand_routing ... ok
+  sz1 | test cmds::js::playwright_cmd::tests::test_playwright_parser_json_float_duration ... ok
+  sz1 | test cmds::js::playwright_cmd::tests::test_playwright_parser_json ... ok
+  sz1 | test cmds::js::playwright_cmd::tests::test_playwright_parser_json_with_failure ... ok
+  sz1 | test cmds::js::pnpm_cmd::tests::test_package_name_validation ... ok
+  sz1 | test cmds::js::next_cmd::tests::test_extract_time ... ok
+  sz1 | test cmds::js::pnpm_cmd::tests::test_pnpm_outdated_parser_json ... ok
+  sz1 | test cmds::js::pnpm_cmd::tests::test_run_passthrough_accepts_args ... ok
+  sz1 | test cmds::js::pnpm_cmd::tests::test_pnpm_list_parser_json ... ok
+  sz1 | test cmds::js::prettier_cmd::tests::test_filter_all_formatted ... ok
+  sz1 | test cmds::js::prettier_cmd::tests::test_filter_empty_output ... ok
+  sz1 | test cmds::js::prettier_cmd::tests::test_filter_files_need_formatting ... ok
+  sz1 | test cmds::js::prettier_cmd::tests::test_filter_many_files ... ok
+  sz1 | test cmds::js::prettier_cmd::tests::test_filter_whitespace_only_output ... ok
+  sz1 | test cmds::js::prisma_cmd::tests::test_extract_number ... ok
+  sz1 | test cmds::js::prisma_cmd::tests::test_filter_generate ... ok
+  sz1 | test cmds::js::prisma_cmd::tests::test_filter_migrate_dev ... ok
+  sz1 | test cmds::js::playwright_cmd::tests::test_playwright_parser_passthrough ... ok
+  sz1 | test cmds::js::vitest_cmd::tests::test_strip_ansi ... ok
+  sz1 | test cmds::js::next_cmd::tests::test_filter_next_build ... ok
+  sz1 | test cmds::js::vitest_cmd::tests::test_vitest_parser_json ... ok
+  sz1 | test cmds::js::vitest_cmd::tests::test_vitest_parser_with_dotenv_prefix ... ok
+  sz1 | test cmds::js::vitest_cmd::tests::test_vitest_parser_with_nested_json ... ok
+  sz1 | test cmds::js::vitest_cmd::tests::test_vitest_parser_with_pnpm_prefix ... ok
+  sz1 | test cmds::js::tsc_cmd::tests::test_filter_no_errors ... ok
+  sz1 | test cmds::js::playwright_cmd::tests::test_playwright_parser_regex_fallback ... ok
+  sz1 | test cmds::js::tsc_cmd::tests::test_continuation_lines_preserved ... ok
+  sz1 | test cmds::js::tsc_cmd::tests::test_every_error_message_shown ... ok
+  sz1 | test cmds::js::tsc_cmd::tests::test_filter_tsc_output ... ok
+  sz1 | test cmds::js::tsc_cmd::tests::test_no_file_limit ... ok
+  sz1 | test cmds::python::mypy_cmd::tests::test_filter_mypy_no_errors ... ok
+  sz1 | test cmds::js::vitest_cmd::tests::test_vitest_parser_passthrough ... ok
+  sz1 | test cmds::js::vitest_cmd::tests::test_vitest_parser_regex_fallback ... ok
+  sz1 | test cmds::python::pip_cmd::tests::test_filter_pip_outdated_none ... ok
+  sz1 | test cmds::python::pip_cmd::tests::test_filter_pip_list_empty ... ok
+  sz1 | test cmds::python::pip_cmd::tests::test_filter_pip_list ... ok
+  sz1 | test cmds::python::mypy_cmd::tests::test_filter_mypy_fileless_errors ... ok
+  sz1 | test cmds::python::mypy_cmd::tests::test_filter_mypy_with_column_numbers ... ok
+  sz1 | test cmds::python::mypy_cmd::tests::test_filter_mypy_every_error_shown ... ok
+  sz1 | test cmds::python::mypy_cmd::tests::test_filter_mypy_errors_grouped_by_file ... ok
+  sz1 | test cmds::python::mypy_cmd::tests::test_filter_mypy_note_continuation ... ok
+  sz1 | test cmds::python::mypy_cmd::tests::test_filter_mypy_top_codes_summary ... ok
+  sz1 | test cmds::python::mypy_cmd::tests::test_filter_mypy_single_code_no_summary ... ok
+  sz1 | test cmds::python::pip_cmd::tests::test_filter_pip_outdated_some ... ok
+  sz1 | test cmds::python::pytest_cmd::tests::test_filter_pytest_no_tests ... ok
+  sz1 | test cmds::python::pytest_cmd::tests::test_filter_pytest_with_failures ... ok
+  sz1 | test cmds::python::pytest_cmd::tests::test_parse_summary_line ... ok
+  sz1 | test cmds::python::mypy_cmd::tests::test_filter_mypy_no_file_limit ... ok
+  sz1 | test cmds::python::pytest_cmd::tests::test_filter_pytest_all_pass ... ok
+  sz1 | test cmds::python::ruff_cmd::tests::test_filter_ruff_format_all_formatted ... ok
+  sz1 | test cmds::python::ruff_cmd::tests::test_compact_path ... ok
+  sz1 | test cmds::python::pytest_cmd::tests::test_filter_pytest_multiple_failures ... ok
+  sz1 | test cmds::python::ruff_cmd::tests::test_filter_ruff_check_no_issues ... ok
+  sz1 | test cmds::python::ruff_cmd::tests::test_filter_ruff_format_needs_formatting ... ok
+  sz1 | test cmds::python::ruff_cmd::tests::test_filter_ruff_check_with_issues ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_filter_minitest_empty ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_filter_minitest_reporters_format ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_looks_like_test_path ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_filter_minitest_all_pass ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_filter_minitest_skip ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_parse_minitest_summary ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_filter_minitest_with_ansi ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_filter_minitest_with_failures ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_filter_minitest_multiple_failures ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_filter_minitest_with_errors ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_select_runner_line_number_uses_rails ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_select_runner_flags_not_counted_as_files ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_select_runner_multiple_files_uses_rails ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_select_runner_multiple_with_line_numbers ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_select_runner_no_files_uses_rake ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_select_runner_non_test_subcommand_uses_rake ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_select_runner_single_file_uses_rake ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_select_runner_single_positional_file_uses_rails ... ok
+  sz1 | test cmds::ruby::rake_cmd::tests::test_token_savings ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_backtrace_filters_gems ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_empty_output ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_all_pass ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_errors_outside_examples ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_exception_class_shortened ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_many_failures_caps_at_five ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_no_examples ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_with_failures ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_with_pending ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_has_format_flag_equals ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_has_format_flag_long ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_has_format_flag_none ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_has_format_flag_short_combined ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_text_header_to_failed_examples ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_text_fallback_extracts_failures ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_text_many_failures_caps_at_five ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_token_savings_all_pass ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_token_savings_text_fallback ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_invalid_json_falls_back ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_strip_noise_deprecation ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_ansi_wrapped_json ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_strip_noise_finished_in ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_strip_noise_spring ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_token_savings_with_failures ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_strip_noise_simplecov ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_text_fallback ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_strip_noise_capybara_screenshot ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_compact_ruby_path ... ok
+  sz1 | test cmds::ruby::rspec_cmd::tests::test_filter_rspec_text_fallback_no_summary ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_correctable_hint ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_caps_at_ten_files ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_empty_output ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_invalid_json_falls_back ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_caps_offenses_per_file ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_json_with_ansi_prefix ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_no_offenses ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_severity_ordering ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_text_autocorrect ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_text_bundler_error ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_text_fallback ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_text_load_error ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_text_with_offenses ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_with_offenses_per_file ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_filter_rubocop_within_file_line_ordering ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_severity_rank ... ok
+  sz1 | test cmds::ruby::rubocop_cmd::tests::test_token_savings ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_build_errors ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_build_success ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_clippy_clean ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_clippy_includes_error_details ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_clippy_warnings ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_install_empty_output ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_install_already_installed ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_install_error ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_install_from_path ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_install_locking_and_blocking ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_install_multiple_errors ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_install_path_warning ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_install_replace ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_install_success ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_install_up_to_date ... ok
+  sz1 | test cmds::dotnet::dotnet_trx::tests::test_parse_trx_files_in_dir_since_ignores_older_files ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_test_compile_error_preserves_error_header ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_test_failures ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_test_multi_suite_with_failures ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_format_crate_info ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_nextest_empty ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_restore_double_dash_clippy_with_package_flags ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_restore_double_dash_empty_args ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_nextest_compilation_stripped ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_restore_double_dash_with_separator ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_nextest_cancellation_notice ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_restore_double_dash_with_test_name ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_nextest_with_skipped ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_nextest_multiple_binaries ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_restore_double_dash_without_separator ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_restore_double_dash_clippy ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_nextest_with_failures ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_nextest_all_pass ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_mask_value_five_chars ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_is_cloud_var ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_mask_value_long ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_mask_value_short ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_is_cloud_var_negative ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_nextest_single_failure_detail ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_is_interesting_var ... ok
+  sz1 | test cmds::system::find_cmd::tests::dot_becomes_star ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_is_interesting_var_negative ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_is_lang_var_negative ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_is_lang_var_rust ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_is_tool_var ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_nextest_summary_regex_fallback ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_mask_value_exactly_four ... ok
+  sz1 | test cmds::system::env_cmd::tests::test_sensitive_patterns_contains_keys ... ok
+  sz1 | test cmds::system::find_cmd::tests::glob_match_complex ... ok
+  sz1 | test cmds::system::find_cmd::tests::glob_match_exact ... ok
+  sz1 | test cmds::system::find_cmd::tests::glob_match_question_mark ... ok
+  sz1 | test cmds::system::find_cmd::tests::glob_match_star_all ... ok
+  sz1 | test cmds::system::find_cmd::tests::glob_match_star_rs ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_empty_args ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_native_find_iname ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_native_find_maxdepth ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_native_find_name ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_test_regex_fallback ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_test_all_pass ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_test_multi_suite_all_pass ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_native_find_name_and_type ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_native_find_name_is_case_sensitive ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_native_find_no_path ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_test_all_suites_zero_tests ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_native_find_rejects_exec ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_native_find_rejects_not ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_native_find_type_d ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_test_with_ignored_and_filtered ... ok
+  sz1 | test cmds::rust::cargo_cmd::tests::test_filter_cargo_test_single_suite_compact ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_rtk_syntax_pattern_and_path ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_rtk_syntax_pattern_only ... ok
+  sz1 | test cmds::system::find_cmd::tests::parse_rtk_syntax_with_flags ... ok
+  sz1 | test cmds::system::format_cmd::tests::test_compact_path ... ok
+  sz1 | test cmds::rust::runner::tests::test_filter_errors ... ok
+  sz1 | test cmds::system::format_cmd::tests::test_detect_formatter_from_explicit_arg ... ok
+  sz1 | test cmds::system::grep_cmd::tests::test_bre_alternation_translated ... ok
+  sz1 | test cmds::system::format_cmd::tests::test_filter_black_all_formatted ... ok
+  sz1 | test cmds::system::format_cmd::tests::test_filter_black_needs_formatting ... ok
+  sz1 | test cmds::system::grep_cmd::tests::test_clean_line ... ok
+  sz1 | test cmds::system::format_cmd::tests::test_detect_formatter_from_package_json ... ok
+  sz1 | test cmds::system::grep_cmd::tests::test_clean_line_multibyte ... ok
+  sz1 | test cmds::system::format_cmd::tests::test_detect_formatter_from_pyproject_ruff ... ok
+  sz1 | test cmds::system::grep_cmd::tests::test_compact_path ... ok
+  sz1 | test cmds::system::grep_cmd::tests::test_extra_args_accepted ... ok
+  sz1 | test cmds::system::format_cmd::tests::test_detect_formatter_from_pyproject_black ... ok
+  sz1 | test cmds::system::grep_cmd::tests::test_grep_overflow_uses_uncapped_total ... ok
+  sz1 | test cmds::system::grep_cmd::tests::test_recursive_flag_stripped ... ok
+  sz1 | test cmds::system::json_cmd::tests::test_cargo_toml_suggests_deps ... ok
+  sz1 | test cmds::system::json_cmd::tests::test_extract_schema_array ... ok
+  sz1 | test cmds::system::json_cmd::tests::test_extract_schema_simple ... ok
+  sz1 | test cmds::system::json_cmd::tests::test_json_file_accepted ... ok
+  sz1 | test cmds::system::grep_cmd::tests::test_clean_line_emoji ... ok
+  sz1 | test cmds::system::json_cmd::tests::test_no_extension_accepted ... ok
+  sz1 | test cmds::system::json_cmd::tests::test_toml_file_rejected ... ok
+  sz1 | test cmds::system::json_cmd::tests::test_unknown_extension_accepted ... ok
+  sz1 | test cmds::system::json_cmd::tests::test_yaml_file_rejected ... ok
+  sz1 | test cmds::system::ls::tests::test_compact_empty ... ok
+  sz1 | test cmds::system::ls::tests::test_compact_basic ... ok
+  sz1 | test cmds::system::log_cmd::tests::test_analyze_logs ... ok
+  sz1 | test cmds::system::ls::tests::test_compact_handles_filenames_with_spaces ... ok
+  sz1 | test cmds::system::ls::tests::test_compact_filters_noise ... ok
+  sz1 | test cmds::system::ls::tests::test_compact_show_all ... ok
+  sz1 | test cmds::system::ls::tests::test_compact_summary ... ok
+  sz1 | test cmds::system::ls::tests::test_compact_symlinks ... ok
+  sz1 | test cmds::system::ls::tests::test_entries_no_summary ... ok
+  sz1 | test cmds::system::ls::tests::test_human_size ... ok
+  sz1 | test cmds::system::grep_cmd::tests::test_rg_always_has_line_numbers ... ok
+  sz1 | test cmds::system::read::tests::test_apply_line_window_tail_lines ... ok
+  sz1 | test cmds::system::read::tests::test_apply_line_window_tail_lines_no_trailing_newline ... ok
+  sz1 | test cmds::system::ls::tests::test_pipe_line_count ... ok
+  sz1 | test cmds::system::read::tests::test_stdin_support_signature ... ok
+  sz1 | test cmds::system::tree::tests::test_filter_handles_empty ... ok
+  sz1 | test cmds::system::tree::tests::test_filter_preserves_structure ... ok
+  sz1 | test cmds::system::tree::tests::test_filter_removes_summary ... ok
+  sz1 | test cmds::system::tree::tests::test_filter_removes_trailing_empty_lines ... ok
+  sz1 | test cmds::system::log_cmd::tests::test_analyze_logs_multibyte ... ok
+  sz1 | test cmds::system::tree::tests::test_filter_summary_variations ... ok
+  sz1 | test cmds::system::tree::tests::test_noise_dirs_constant ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_deep_common_prefix ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_common_prefix ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_detect_mode_full ... ok
+  sz1 | test cmds::system::local_llm::tests::test_python_analysis ... ok
+  sz1 | test cmds::system::local_llm::tests::test_rust_analysis ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_detect_mode_lines ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_detect_mode_mixed ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_multi_file_lines ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_detect_mode_separate_flags ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_no_common_prefix ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_single_file_full ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_empty ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_single_file_lines_only ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_stdin_full ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_single_file_words_only ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_stdin_lines ... ok
+  sz1 | test cmds::system::wc_cmd::tests::test_multi_file_full ... ok
+  sz1 | test core::config::tests::test_hooks_config_default_empty ... ok
+  sz1 | test core::display_helpers::tests::test_day_stats_trait ... ok
+  sz1 | test core::display_helpers::tests::test_month_stats_trait ... ok
+  sz1 | test core::display_helpers::tests::test_print_period_table_empty ... ok
+  sz1 | test core::display_helpers::tests::test_print_period_table_with_data ... ok
+  sz1 | test core::filter::tests::test_filter_level_parsing ... ok
+  sz1 | test core::display_helpers::tests::test_week_stats_trait ... ok
+  sz1 | test core::filter::tests::test_json_no_comment_stripping ... ok
+  sz1 | test core::filter::tests::test_language_detection ... ok
+  sz1 | test cmds::system::read::tests::test_apply_line_window_max_lines_still_works ... ok
+  sz1 | test core::filter::tests::test_language_detection_data_formats ... ok
+  sz1 | test core::filter::tests::test_json_aggressive_filter_preserves_structure ... ok
+  sz1 | test core::config::tests::test_hooks_config_deserialize ... ok
+  sz1 | test core::config::tests::test_config_without_hooks_section_is_valid ... ok
+  sz1 | test core::filter::tests::test_minimal_filter_removes_comments ... ok
+  sz1 | test core::filter::tests::test_smart_truncate_overflow_count_exact ... ok
+  sz1 | test core::tee::tests::test_should_tee_disabled ... ok
+  sz1 | test core::tee::tests::test_should_tee_always_mode_success ... ok
+  sz1 | test core::tee::tests::test_format_hint ... ok
+  sz1 | test core::tee::tests::test_should_tee_never_mode ... ok
+  sz1 | test core::tee::tests::test_should_tee_proceed_on_failure ... ok
+  sz1 | test core::tee::tests::test_should_tee_skip_small_output ... ok
+  sz1 | test core::tee::tests::test_should_tee_skip_success_in_failures_mode ... ok
+  sz1 | test core::tee::tests::test_sanitize_slug ... ok
+  sz1 | test core::tee::tests::test_tee_config_default ... ok
+  sz1 | test core::tee::tests::test_tee_mode_serde ... ok
+  sz1 | test core::telemetry::tests::test_detect_install_method_returns_known_value ... ok
+  sz1 | test core::telemetry::tests::test_install_method_windows_paths ... ok
+  sz1 | test core::telemetry::tests::test_install_method_unix_paths ... ok
+  sz1 | test core::telemetry::tests::test_marker_path_exists ... ok
+  sz1 | test core::tee::tests::test_write_tee_file_truncation ... ok
+  sz1 | test core::telemetry::tests::test_salt_file_path_is_in_rtk_dir ... ok
+  sz1 | test core::telemetry::tests::test_random_salt_uniqueness ... ok
+  sz1 | test core::tee::tests::test_write_tee_file_creates_file ... ok
+  sz1 | test core::telemetry::tests::test_salt_is_persisted ... ok
+  sz1 | test core::telemetry::tests::test_device_hash_is_valid_hex ... ok
+  sz1 | test core::telemetry::tests::test_device_hash_is_stable ... ok
+  sz1 | test core::toml_filter::tests::test_builtin_toml_has_schema_version ... ok
+  sz1 | test core::tee::tests::test_tee_config_deserialize ... ok
+  sz1 | test core::toml_filter::tests::test_find_filter_no_match_returns_none ... ok
+  sz1 | test core::toml_filter::tests::test_empty_filter_passthrough ... ok
+  sz1 | test core::toml_filter::tests::test_head_and_tail_combined ... ok
+  sz1 | test core::toml_filter::tests::test_filters_without_tests_detected ... ok
+  sz1 | test core::toml_filter::tests::test_head_lines ... ok
+  sz1 | test core::toml_filter::tests::test_empty_input ... ok
+  sz1 | test core::toml_filter::tests::test_full_pipeline_order ... ok
+  sz1 | test core::toml_filter::tests::test_find_filter_matches_terraform ... ok
+  sz1 | test core::toml_filter::tests::test_keep_lines_matching_basic ... ok
+  sz1 | test core::toml_filter::tests::test_match_output_basic_short_circuit ... ok
+  sz1 | test core::toml_filter::tests::test_match_output_invalid_regex_rejected ... ok
+  sz1 | test core::toml_filter::tests::test_match_output_no_match_pipeline_continues ... ok
+  sz1 | test core::toml_filter::tests::test_match_output_no_match_then_on_empty ... ok
+  sz1 | test core::toml_filter::tests::test_match_output_strip_ansi_before_match ... ok
+  sz1 | test core::toml_filter::tests::test_match_output_unless_falls_through_to_next_rule ... ok
+  sz1 | test core::toml_filter::tests::test_match_output_unless_invalid_regex_rejected ... ok
+  sz1 | test core::toml_filter::tests::test_match_output_unless_allows_short_circuit_when_no_errors ... ok
+  sz1 | test core::toml_filter::tests::test_match_output_unless_no_field_behaves_like_before ... ok
+  sz1 | test core::toml_filter::tests::test_match_output_second_rule_matches ... ok
+  sz1 | test core::toml_filter::tests::test_invalid_regex_returns_err ... ok
+  sz1 | test core::toml_filter::tests::test_match_output_unless_blocks_short_circuit_when_errors_present ... ok
+  sz1 | test core::toml_filter::tests::test_max_lines_counts_omit_message ... ok
+  sz1 | test core::toml_filter::tests::test_mutual_exclusion_strip_keep_errors ... ok
+  sz1 | test core::toml_filter::tests::test_on_empty_not_triggered_when_output_remains ... ok
+  sz1 | test core::toml_filter::tests::test_on_empty_when_all_filtered ... ok
+  sz1 | test core::toml_filter::tests::test_replace_empty_input_noop ... ok
+  sz1 | test core::toml_filter::tests::test_replace_basic_all_occurrences ... ok
+  sz1 | test core::tee::tests::test_cleanup_old_files ... ok
+  sz1 | test core::toml_filter::tests::test_replace_then_strip_interaction ... ok
+  sz1 | test core::toml_filter::tests::test_replace_invalid_regex_rejected ... ok
+  sz1 | test core::toml_filter::tests::test_replace_chaining_sequential ... ok
+  sz1 | test core::toml_filter::tests::test_strip_lines_matching_basic ... ok
+  sz1 | test core::toml_filter::tests::test_tail_lines ... ok
+  sz1 | test core::toml_filter::tests::test_run_filter_tests_fails_on_wrong_expected ... ok
+  sz1 | test core::toml_filter::tests::test_schema_version_mismatch_errors ... ok
+  sz1 | test core::toml_filter::tests::test_strip_ansi_removes_codes ... ok
+  sz1 | test core::toml_filter::tests::test_unicode_preserved ... ok
+  sz1 | test core::toml_filter::tests::test_run_filter_tests_passes_on_correct_expected ... ok
+  sz1 | test core::toml_filter::tests::test_truncate_lines_at_unicode_safe ... ok
+  sz1 | test core::toml_filter::tests::test_unknown_field_typo_errors ... ok
+  sz1 | test core::tracking::tests::test_args_display ... ok
+  sz1 | test core::tracking::tests::test_custom_db_path_env ... ok
+  sz1 | test core::tracking::tests::test_default_db_path ... ok
+  sz1 | test core::tracking::tests::test_estimate_tokens ... ok
+  sz1 | test core::toml_filter::tests::test_replace_backreferences ... ok
+  sz1 | test core::tracking::tests::test_project_filter_params_glob_pattern ... ok
+  sz1 | test core::tracking::tests::test_project_filter_params_none ... ok
+  sz1 | test core::tracking::tests::test_project_filter_params_underscore_safe ... ok
+  sz1 | test core::toml_filter::tests::test_project_filters_priority_over_builtin ... ok
+  sz1 | test core::utils::tests::test_detect_package_manager_default ... ok
+  sz1 | test core::toml_filter::tests::test_builtin_filters_compile ... ok
+  sz1 | test core::utils::tests::test_format_cpt_edge_cases ... ok
+  sz1 | test core::utils::tests::test_format_cpt_normal ... ok
+  sz1 | test core::utils::tests::test_format_tokens_millions ... ok
+  sz1 | test core::utils::tests::test_format_tokens_small ... ok
+  sz1 | test core::utils::tests::test_format_tokens_thousands ... ok
+  sz1 | test core::utils::tests::test_format_usd_edge ... ok
+  sz1 | test core::utils::tests::test_format_usd_large ... ok
+  sz1 | test core::utils::tests::test_format_usd_medium ... ok
+  sz1 | test core::utils::tests::test_format_usd_small ... ok
+  sz1 | test core::utils::tests::test_ok_confirmation_no_detail ... ok
+  sz1 | test core::utils::tests::test_ok_confirmation_with_detail ... ok
+  sz1 | test core::toml_filter::tests::test_terraform_savings_above_60pct ... ok
+  sz1 | test core::utils::tests::test_resolve_binary_finds_known_command ... ok
+  sz1 | test core::toml_filter::tests::test_builtin_all_expected_filters_present ... ok
+  sz1 | test core::utils::tests::test_resolve_binary_path_contains_binary_name ... ok
+  sz1 | test core::utils::tests::test_resolve_binary_returns_absolute_path ... ok
+  sz1 | test core::utils::tests::test_resolve_binary_fails_for_unknown ... ok
+  sz1 | test core::utils::tests::test_strip_ansi_complex ... ok
+  sz1 | test core::utils::tests::test_strip_ansi_multiple ... ok
+  sz1 | test core::utils::tests::test_strip_ansi_no_codes ... ok
+  sz1 | test core::utils::tests::test_strip_ansi_simple ... ok
+  sz1 | test core::utils::tests::test_tool_exists_finds_cargo ... ok
+  sz1 | test core::utils::tests::test_tool_exists_finds_git ... ok
+  sz1 | test core::toml_filter::tests::test_make_savings_above_60pct ... ok
+  sz1 | test core::utils::tests::test_truncate_edge_case ... ok
+  sz1 | test core::utils::tests::test_tool_exists_rejects_unknown ... ok
+  sz1 | test core::utils::tests::test_truncate_exact_length ... ok
+  sz1 | test core::utils::tests::test_truncate_long_string ... ok
+  sz1 | test core::utils::tests::test_truncate_multibyte_cjk ... ok
+  sz1 | test core::utils::tests::test_truncate_multibyte_emoji ... ok
+  sz1 | test core::utils::tests::test_truncate_multibyte_thai ... ok
+  sz1 | test core::utils::tests::test_truncate_short_string ... ok
+  sz1 | test discover::lexer::tests::test_and_operator ... ok
+  sz1 | test discover::lexer::tests::test_background_job_is_shellism ... ok
+  sz1 | test discover::lexer::tests::test_background_not_confused_with_amp_redirect ... ok
+  sz1 | test discover::lexer::tests::test_backslash_in_single_quotes ... ok
+  sz1 | test discover::lexer::tests::test_backtick_substitution ... ok
+  sz1 | test discover::lexer::tests::test_brace_expansion ... ok
+  sz1 | test discover::lexer::tests::test_combined_redirect_chain ... ok
+  sz1 | test discover::lexer::tests::test_command_with_args ... ok
+  sz1 | test discover::lexer::tests::test_complex_compound ... ok
+  sz1 | test discover::lexer::tests::test_dollar_brace_stays_shellism ... ok
+  sz1 | test discover::lexer::tests::test_dollar_digit_stays_shellism ... ok
+  sz1 | test discover::lexer::tests::test_dollar_special_vars_stay_shellism ... ok
+  sz1 | test discover::lexer::tests::test_dollar_subshell_stays_shellism ... ok
+  sz1 | test discover::lexer::tests::test_double_quoted_string ... ok
+  sz1 | test discover::lexer::tests::test_empty_input ... ok
+  sz1 | test core::toml_filter::tests::test_builtin_filter_count ... ok
+  sz1 | test discover::lexer::tests::test_empty_quoted_string ... ok
+  sz1 | test core::toml_filter::tests::test_new_filter_discoverable_after_concat ... ok
+  sz1 | test discover::lexer::tests::test_env_prefix_is_arg ... ok
+  sz1 | test discover::lexer::tests::test_escaped_glob ... ok
+  sz1 | test discover::lexer::tests::test_escaped_quote_in_double ... ok
+  sz1 | test discover::lexer::tests::test_escaped_space ... ok
+  sz1 | test discover::lexer::tests::test_exclamation_is_shellism ... ok
+  sz1 | test discover::lexer::tests::test_fd_redirect_needs_adjacent_digit ... ok
+  sz1 | test discover::lexer::tests::test_fd_redirect_no_space ... ok
+  sz1 | test discover::lexer::tests::test_find_pipe_xargs ... ok
+  sz1 | test discover::lexer::tests::test_glob_detection ... ok
+  sz1 | test discover::lexer::tests::test_leading_trailing_spaces ... ok
+  sz1 | test discover::lexer::tests::test_mixed_operators ... ok
+  sz1 | test discover::lexer::tests::test_multiple_and ... ok
+  sz1 | test discover::lexer::tests::test_multiple_pipes ... ok
+  sz1 | test discover::lexer::tests::test_multiple_spaces ... ok
+  sz1 | test discover::lexer::tests::test_nested_quotes ... ok
+  sz1 | test discover::lexer::tests::test_offset_segment_extraction ... ok
+  sz1 | test discover::lexer::tests::test_offset_tracking ... ok
+  sz1 | test discover::lexer::tests::test_operator_at_end ... ok
+  sz1 | test discover::lexer::tests::test_operator_at_start ... ok
+  sz1 | test discover::lexer::tests::test_or_operator ... ok
+  sz1 | test discover::lexer::tests::test_pipe_detection ... ok
+  sz1 | test discover::lexer::tests::test_quoted_glob_not_shellism ... ok
+  sz1 | test discover::lexer::tests::test_quoted_operator_not_split ... ok
+  sz1 | test discover::lexer::tests::test_quoted_pipe_not_pipe ... ok
+  sz1 | test discover::lexer::tests::test_quoted_variable_not_shellism ... ok
+  sz1 | test discover::lexer::tests::test_redirect_1_to_2_single_token ... ok
+  sz1 | test discover::lexer::tests::test_redirect_2_to_1_single_token ... ok
+  sz1 | test discover::lexer::tests::test_redirect_2_to_1_with_and ... ok
+  sz1 | test discover::lexer::tests::test_redirect_2_to_1_with_pipe ... ok
+  sz1 | test discover::lexer::tests::test_redirect_amp_gt ... ok
+  sz1 | test discover::lexer::tests::test_redirect_amp_gt_gt ... ok
+  sz1 | test discover::lexer::tests::test_redirect_append ... ok
+  sz1 | test discover::lexer::tests::test_redirect_append_to_file ... ok
+  sz1 | test discover::lexer::tests::test_redirect_dev_null ... ok
+  sz1 | test discover::lexer::tests::test_redirect_fd_close ... ok
+  sz1 | test discover::lexer::tests::test_redirect_heredoc_marker ... ok
+  sz1 | test discover::lexer::tests::test_redirect_in ... ok
+  sz1 | test discover::lexer::tests::test_redirect_out ... ok
+  sz1 | test discover::lexer::tests::test_redirect_shorthand_dup ... ok
+  sz1 | test discover::lexer::tests::test_redirect_stderr ... ok
+  sz1 | test discover::lexer::tests::test_redirect_stderr_no_space ... ok
+  sz1 | test discover::lexer::tests::test_semicolon ... ok
+  sz1 | test discover::lexer::tests::test_semicolon_no_space ... ok
+  sz1 | test discover::lexer::tests::test_shell_split_backslash_escape ... ok
+  sz1 | test discover::lexer::tests::test_shell_split_double_quotes ... ok
+  sz1 | test discover::lexer::tests::test_shell_split_empty ... ok
+  sz1 | test discover::lexer::tests::test_shell_split_mixed_quotes ... ok
+  sz1 | test discover::lexer::tests::test_shell_split_multiple_spaces ... ok
+  sz1 | test discover::lexer::tests::test_shell_split_simple ... ok
+  sz1 | test discover::lexer::tests::test_shell_split_single_quotes ... ok
+  sz1 | test discover::lexer::tests::test_shell_split_single_word ... ok
+  sz1 | test discover::lexer::tests::test_shell_split_tabs ... ok
+  sz1 | test discover::lexer::tests::test_shell_split_unclosed_quote ... ok
+  sz1 | test discover::lexer::tests::test_simple_command ... ok
+  sz1 | test discover::lexer::tests::test_simple_var_enables_native_routing ... ok
+  sz1 | test discover::lexer::tests::test_simple_var_is_arg ... ok
+  sz1 | test discover::lexer::tests::test_single_quoted_string ... ok
+  sz1 | test discover::lexer::tests::test_subshell_detection ... ok
+  sz1 | test discover::lexer::tests::test_unclosed_double_quote ... ok
+  sz1 | test discover::lexer::tests::test_unclosed_single_quote ... ok
+  sz1 | test discover::lexer::tests::test_unicode_preservation ... ok
+  sz1 | test discover::lexer::tests::test_whitespace_only ... ok
+  sz1 | test discover::provider::tests::test_encode_project_path ... ok
+  sz1 | test discover::provider::tests::test_encode_project_path_trailing_slash ... ok
+  sz1 | test discover::provider::tests::test_extract_assistant_bash ... ok
+  sz1 | test discover::provider::tests::test_extract_is_error_flag ... ok
+  sz1 | test discover::provider::tests::test_extract_malformed_line ... ok
+  sz1 | test discover::provider::tests::test_extract_multiple_tools ... ok
+  sz1 | test discover::provider::tests::test_extract_non_bash_ignored ... ok
+  sz1 | test discover::provider::tests::test_extract_non_message_ignored ... ok
+  sz1 | test discover::provider::tests::test_match_project_filter ... ok
+  sz1 | test discover::registry::tests::test_all_rules_are_complete ... ok
+  sz1 | test discover::provider::tests::test_extract_output_content ... ok
+  sz1 | test discover::registry::tests::test_classify_absolute_path_git ... ok
+  sz1 | test discover::provider::tests::test_extract_sequence_ordering ... ok
+  sz1 | test discover::registry::tests::test_classify_absolute_path_grep ... ok
+  sz1 | test discover::registry::tests::test_classify_absolute_path_ls ... ok
+  sz1 | test discover::registry::tests::test_classify_absolute_path_no_args ... ok
+  sz1 | test discover::registry::tests::test_classify_aws ... ok
+  sz1 | test discover::registry::tests::test_classify_aws_ec2 ... ok
+  sz1 | test discover::registry::tests::test_classify_cargo_check ... ok
+  sz1 | test discover::registry::tests::test_classify_cargo_check_all_targets ... ok
+  sz1 | test discover::registry::tests::test_classify_cargo_clippy_savings ... ok
+  sz1 | test discover::registry::tests::test_classify_cargo_fmt_passthrough ... ok
+  sz1 | test discover::registry::tests::test_classify_cargo_install ... ok
+  sz1 | test discover::registry::tests::test_classify_cargo_test_filter ... ok
+  sz1 | test discover::registry::tests::test_classify_cat_file ... ok
+  sz1 | test discover::registry::tests::test_classify_cat_redirect_not_supported ... ok
+  sz1 | test discover::registry::tests::test_classify_cd_ignored ... ok
+  sz1 | test discover::registry::tests::test_classify_command_substitution_passthrough ... ok
+  sz1 | test discover::registry::tests::test_classify_diff ... ok
+  sz1 | test core::toml_filter::tests::test_builtin_all_filters_have_inline_tests ... ok
+  sz1 | test discover::registry::tests::test_classify_docker_build ... ok
+  sz1 | test discover::registry::tests::test_classify_docker_exec ... ok
+  sz1 | test discover::registry::tests::test_classify_docker_run ... ok
+  sz1 | test discover::registry::tests::test_classify_echo_ignored ... ok
+  sz1 | test discover::registry::tests::test_classify_env_prefix_stripped ... ok
+  sz1 | test discover::registry::tests::test_classify_find_not_blocked_by_fi ... ok
+  sz1 | test discover::registry::tests::test_classify_env_quoted_value_stripped ... ok
+  sz1 | test discover::registry::tests::test_classify_gh_release ... ok
+  sz1 | test discover::registry::tests::test_classify_git_dash_c ... ok
+  sz1 | test discover::registry::tests::test_classify_git_diff_cached ... ok
+  sz1 | test discover::registry::tests::test_classify_git_git_dir ... ok
+  sz1 | test discover::registry::tests::test_classify_git_no_pager_log ... ok
+  sz1 | test discover::registry::tests::test_classify_git_status ... ok
+  sz1 | test discover::registry::tests::test_classify_git_with_dash_c_path ... ok
+  sz1 | test discover::registry::tests::test_classify_go_build ... ok
+  sz1 | test discover::registry::tests::test_classify_go_test ... ok
+  sz1 | test discover::registry::tests::test_classify_go_vet ... ok
+  sz1 | test discover::registry::tests::test_classify_htop_unsupported ... ok
+  sz1 | test discover::registry::tests::test_classify_golangci_lint ... ok
+  sz1 | test discover::registry::tests::test_classify_kubectl_apply ... ok
+  sz1 | test discover::registry::tests::test_classify_kubectl_describe ... ok
+  sz1 | test discover::registry::tests::test_classify_mypy ... ok
+  sz1 | test discover::registry::tests::test_classify_npx_tsc ... ok
+  sz1 | test discover::registry::tests::test_classify_pip_list ... ok
+  sz1 | test discover::registry::tests::test_classify_prisma ... ok
+  sz1 | test discover::registry::tests::test_classify_psql ... ok
+  sz1 | test core::tracking::tests::test_track_passthrough_no_dilution ... ok
+  sz1 | test discover::registry::tests::test_classify_psql_url ... ok
+  sz1 | test discover::registry::tests::test_classify_pytest ... ok
+  sz1 | test discover::registry::tests::test_classify_python_m_mypy ... ok
+  sz1 | test discover::registry::tests::test_classify_rtk_already ... ok
+  sz1 | test discover::registry::tests::test_classify_python_m_pytest ... ok
+  sz1 | test discover::registry::tests::test_classify_ruff_check ... ok
+  sz1 | test discover::registry::tests::test_classify_ruff_format ... ok
+  sz1 | test discover::registry::tests::test_classify_sudo_stripped ... ok
+  sz1 | test discover::registry::tests::test_classify_swift_test ... ok
+  sz1 | test discover::registry::tests::test_classify_tree ... ok
+  sz1 | test discover::registry::tests::test_classify_uv_pip_list ... ok
+  sz1 | test discover::registry::tests::test_classify_vitest ... ok
+  sz1 | test discover::registry::tests::test_classify_wc_multi_file ... ok
+  sz1 | test discover::registry::tests::test_classify_wc_supported ... ok
+  sz1 | test discover::registry::tests::test_done_still_ignored_exact ... ok
+  sz1 | test discover::registry::tests::test_fi_still_ignored_exact ... ok
+  sz1 | test discover::registry::tests::test_has_rtk_disabled_prefix ... ok
+  sz1 | test discover::registry::tests::test_registry_covers_all_cargo_subcommands ... ok
+  sz1 | test discover::registry::tests::test_rewrite_already_rtk ... ok
+  sz1 | test discover::registry::tests::test_registry_covers_all_git_subcommands ... ok
+  sz1 | test discover::registry::tests::test_rewrite_aws ... ok
+  sz1 | test discover::registry::tests::test_rewrite_aws_ec2 ... ok
+  sz1 | test discover::registry::tests::test_rewrite_background_amp_non_regression ... ok
+  sz1 | test discover::registry::tests::test_rewrite_background_does_not_affect_double_amp ... ok
+  sz1 | test discover::registry::tests::test_rewrite_background_single_amp ... ok
+  sz1 | test discover::registry::tests::test_rewrite_background_unsupported_right ... ok
+  sz1 | test discover::registry::tests::test_rewrite_cargo_install ... ok
+  sz1 | test discover::registry::tests::test_rewrite_cargo_test ... ok
+  sz1 | test discover::registry::tests::test_rewrite_cat_file ... ok
+  sz1 | test discover::registry::tests::test_rewrite_cat_with_compatible_flags ... ok
+  sz1 | test discover::registry::tests::test_rewrite_cat_with_incompatible_flags_skipped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_command_substitution_passthrough ... ok
+  sz1 | test discover::registry::tests::test_rewrite_compound_all_unsupported_returns_none ... ok
+  sz1 | test discover::registry::tests::test_rewrite_compound_and ... ok
+  sz1 | test discover::registry::tests::test_rewrite_compound_four_segments ... ok
+  sz1 | test discover::registry::tests::test_rewrite_compound_mixed_supported_unsupported ... ok
+  sz1 | test discover::registry::tests::test_rewrite_compound_or ... ok
+  sz1 | test discover::registry::tests::test_rewrite_compound_pipe_git_grep ... ok
+  sz1 | test discover::registry::tests::test_rewrite_compound_partial_exclude ... ok
+  sz1 | test discover::registry::tests::test_rewrite_compound_pipe_raw_filter ... ok
+  sz1 | test discover::registry::tests::test_rewrite_compound_semicolon ... ok
+  sz1 | test discover::registry::tests::test_rewrite_compound_three_segments ... ok
+  sz1 | test discover::registry::tests::test_rewrite_diff ... ok
+  sz1 | test discover::registry::tests::test_rewrite_docker_compose_build ... ok
+  sz1 | test discover::registry::tests::test_rewrite_docker_compose_config_skipped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_docker_compose_down_skipped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_docker_compose_logs ... ok
+  sz1 | test discover::registry::tests::test_rewrite_docker_compose_ps ... ok
+  sz1 | test discover::registry::tests::test_rewrite_docker_compose_up_skipped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_docker_run ... ok
+  sz1 | test discover::registry::tests::test_rewrite_empty_excludes_rewrites_curl ... ok
+  sz1 | test discover::registry::tests::test_rewrite_empty_returns_none ... ok
+  sz1 | test discover::registry::tests::test_rewrite_env_escaped_quotes_in_value ... ok
+  sz1 | test discover::registry::tests::test_rewrite_env_quoted_plus_unquoted ... ok
+  sz1 | test discover::registry::tests::test_rewrite_env_quoted_value_with_spaces ... ok
+  sz1 | test discover::registry::tests::test_rewrite_env_single_quoted_value_with_spaces ... ok
+  sz1 | test discover::registry::tests::test_rewrite_env_var_prefix ... ok
+  sz1 | test discover::registry::tests::test_rewrite_exclude_does_not_affect_other_commands ... ok
+  sz1 | test discover::registry::tests::test_rewrite_excludes_curl ... ok
+  sz1 | test discover::registry::tests::test_rewrite_find_no_pipe_still_rewritten ... ok
+  sz1 | test discover::registry::tests::test_rewrite_find_pipe_skipped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_find_pipe_xargs_wc ... ok
+  sz1 | test discover::registry::tests::test_rewrite_find_with_flags ... ok
+  sz1 | test discover::registry::tests::test_rewrite_gh_api_json_skipped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_gh_jq_skipped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_gh_json_skipped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_gh_release ... ok
+  sz1 | test discover::registry::tests::test_rewrite_gh_template_skipped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_gh_without_json_still_works ... ok
+  sz1 | test discover::registry::tests::test_rewrite_git_dash_c ... ok
+  sz1 | test discover::registry::tests::test_rewrite_git_dash_c_diff ... ok
+  sz1 | test discover::registry::tests::test_rewrite_git_dash_c_log ... ok
+  sz1 | test discover::registry::tests::test_rewrite_git_dash_c_status ... ok
+  sz1 | test discover::registry::tests::test_rewrite_git_log ... ok
+  sz1 | test discover::registry::tests::test_rewrite_git_no_pager ... ok
+  sz1 | test discover::registry::tests::test_rewrite_git_status ... ok
+  sz1 | test discover::registry::tests::test_rewrite_go_build ... ok
+  sz1 | test discover::registry::tests::test_all_patterns_are_valid_regex ... ok
+  sz1 | test discover::registry::tests::test_rewrite_go_test ... ok
+  sz1 | test discover::registry::tests::test_rewrite_go_vet ... ok
+  sz1 | test discover::registry::tests::test_rewrite_golangci_lint ... ok
+  sz1 | test discover::registry::tests::test_rewrite_head_no_flag_still_rewrites ... ok
+  sz1 | test cmds::system::find_cmd::tests::find_gitignored_excluded ... ok
+  sz1 | test discover::registry::tests::test_rewrite_heredoc_returns_none ... ok
+  sz1 | test discover::registry::tests::test_rewrite_ignored_cd ... ok
+  sz1 | test discover::registry::tests::test_rewrite_kubectl_describe ... ok
+  sz1 | test discover::registry::tests::test_rewrite_mixed_compound_partial ... ok
+  sz1 | test discover::registry::tests::test_rewrite_non_rtk_disabled_env_still_rewrites ... ok
+  sz1 | test discover::registry::tests::test_rewrite_next_build ... ok
+  sz1 | test discover::registry::tests::test_rewrite_head_numeric_flag ... ok
+  sz1 | test discover::registry::tests::test_rewrite_head_other_flag_skipped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_head_lines_long_flag ... ok
+  sz1 | test discover::registry::tests::test_rewrite_npx_playwright ... ok
+  sz1 | test discover::registry::tests::test_rewrite_npx_tsc ... ok
+  sz1 | test discover::registry::tests::test_rewrite_pip_list ... ok
+  sz1 | test discover::registry::tests::test_rewrite_pip_outdated ... ok
+  sz1 | test discover::registry::tests::test_rewrite_pipe_first_only ... ok
+  sz1 | test discover::registry::tests::test_rewrite_pnpm_list ... ok
+  sz1 | test discover::registry::tests::test_rewrite_pnpm_tsc ... ok
+  sz1 | test discover::registry::tests::test_rewrite_prettier ... ok
+  sz1 | test discover::registry::tests::test_rewrite_pnpm_vitest ... ok
+  sz1 | test discover::registry::tests::test_rewrite_prisma ... ok
+  sz1 | test discover::registry::tests::test_rewrite_psql ... ok
+  sz1 | test discover::registry::tests::test_rewrite_pytest ... ok
+  sz1 | test discover::registry::tests::test_rewrite_redirect_2_gt_amp_1_trailing ... ok
+  sz1 | test discover::registry::tests::test_rewrite_python_m_pytest ... ok
+  sz1 | test discover::registry::tests::test_rewrite_redirect_2_gt_amp_1_with_and ... ok
+  sz1 | test discover::registry::tests::test_rewrite_redirect_2_gt_amp_1_with_pipe ... ok
+  sz1 | test discover::registry::tests::test_rewrite_redirect_amp_gt_devnull ... ok
+  sz1 | test discover::registry::tests::test_rewrite_redirect_double ... ok
+  sz1 | test discover::registry::tests::test_rewrite_redirect_fd_close ... ok
+  sz1 | test discover::registry::tests::test_rewrite_redirect_plain_2_devnull ... ok
+  sz1 | test discover::registry::tests::test_rewrite_redirect_quotes_not_stripped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_rg_pattern ... ok
+  sz1 | test cmds::system::find_cmd::tests::run_from_args_rtk_syntax ... ok
+  sz1 | test discover::registry::tests::test_rewrite_rtk_disabled_curl ... ok
+  sz1 | test discover::registry::tests::test_rewrite_rtk_disabled_git_status ... ok
+  sz1 | test discover::registry::tests::test_rewrite_rtk_disabled_multi_env ... ok
+  sz1 | test discover::registry::tests::test_rewrite_rtk_disabled_warns_on_stderr ... ok
+  sz1 | test discover::registry::tests::test_rewrite_ruff_check ... ok
+  sz1 | test discover::registry::tests::test_rewrite_sudo_docker ... ok
+  sz1 | test discover::registry::tests::test_rewrite_ruff_format ... ok
+  sz1 | test discover::registry::tests::test_rewrite_swift_test ... ok
+  sz1 | test discover::registry::tests::test_rewrite_unsupported_returns_none ... ok
+  sz1 | test discover::registry::tests::test_rewrite_tree ... ok
+  sz1 | test discover::registry::tests::test_rewrite_uv_pip_list ... ok
+  sz1 | test discover::registry::tests::test_rewrite_vitest ... ok
+  sz1 | test discover::registry::tests::test_rewrite_wc ... ok
+  sz1 | test discover::registry::tests::test_rewrite_wc_multi_file ... ok
+  sz1 | test discover::registry::tests::test_rewrite_with_env_prefix ... ok
+  sz1 | test discover::registry::tests::test_split_chain_and ... ok
+  sz1 | test discover::registry::tests::test_split_chain_semicolon ... ok
+  sz1 | test discover::registry::tests::test_split_command_substitution_no_split ... ok
+  sz1 | test discover::registry::tests::test_split_heredoc_no_split ... ok
+  sz1 | test discover::registry::tests::test_rewrite_tail_numeric_flag ... ok
+  sz1 | test discover::registry::tests::test_rewrite_tail_lines_long_flag ... ok
+  sz1 | test discover::registry::tests::test_rewrite_tail_n_space_flag ... ok
+  sz1 | test discover::registry::tests::test_rewrite_tail_lines_space_flag ... ok
+  sz1 | test discover::registry::tests::test_rewrite_tail_plain_file_skipped ... ok
+  sz1 | test discover::registry::tests::test_rewrite_tail_other_flag_skipped ... ok
+  sz1 | test discover::registry::tests::test_split_pipe_first_only ... ok
+  sz1 | test discover::registry::tests::test_split_quoted_and ... ok
+  sz1 | test discover::registry::tests::test_split_single ... ok
+  sz1 | test discover::registry::tests::test_strip_absolute_path_helper ... ok
+  sz1 | test discover::registry::tests::test_strip_disabled_prefix ... ok
+  sz1 | test discover::registry::tests::test_strip_git_global_opts_helper ... ok
+  sz1 | test hooks::hook_audit_cmd::tests::test_base_command_simple ... ok
+  sz1 | test hooks::hook_audit_cmd::tests::test_base_command_single_word ... ok
+  sz1 | test hooks::hook_audit_cmd::tests::test_base_command_with_env ... ok
+  sz1 | test hooks::hook_audit_cmd::tests::test_filter_since_days_zero_returns_all ... ok
+  sz1 | test hooks::hook_audit_cmd::tests::test_parse_line_invalid ... ok
+  sz1 | test hooks::hook_audit_cmd::tests::test_parse_line_rewrite ... ok
+  sz1 | test hooks::hook_audit_cmd::tests::test_parse_line_skip ... ok
+  sz1 | test hooks::hook_audit_cmd::tests::test_token_savings ... ok
+  sz1 | test hooks::hook_check::tests::test_hook_status_enum ... ok
+  sz1 | test hooks::hook_check::tests::test_parse_hook_version_future ... ok
+  sz1 | test hooks::hook_check::tests::test_parse_hook_version_missing ... ok
+  sz1 | test hooks::hook_check::tests::test_parse_hook_version_no_tag ... ok
+  sz1 | test hooks::hook_check::tests::test_parse_hook_version_present ... ok
+  sz1 | test hooks::hook_check::tests::test_status_returns_valid_variant ... ok
+  sz1 | test hooks::hook_cmd::tests::test_detect_copilot_cli_bash ... ok
+  sz1 | test hooks::hook_cmd::tests::test_detect_non_bash_is_passthrough ... ok
+  sz1 | test hooks::hook_cmd::tests::test_detect_unknown_is_passthrough ... ok
+  sz1 | test hooks::hook_cmd::tests::test_detect_vscode_bash ... ok
+  sz1 | test hooks::hook_cmd::tests::test_detect_vscode_run_terminal_command ... ok
+  sz1 | test hooks::hook_cmd::tests::test_gemini_hook_env_prefix_preserved ... ok
+  sz1 | test hooks::hook_cmd::tests::test_gemini_hook_excluded_commands ... ok
+  sz1 | test hooks::hook_cmd::tests::test_gemini_hook_uses_rewrite_command ... ok
+  sz1 | test hooks::hook_cmd::tests::test_get_rewritten_already_rtk ... ok
+  sz1 | test hooks::hook_cmd::tests::test_get_rewritten_heredoc ... ok
+  sz1 | test hooks::hook_cmd::tests::test_get_rewritten_supported ... ok
+  sz1 | test hooks::hook_cmd::tests::test_get_rewritten_unsupported ... ok
+  sz1 | test hooks::hook_cmd::tests::test_print_allow_format ... ok
+  sz1 | test hooks::hook_cmd::tests::test_print_rewrite_format ... ok
+  sz1 | test hooks::init::tests::test_claude_md_mode_creates_full_injection ... ok
+  sz1 | test hooks::init::tests::test_clean_double_blanks ... ok
+  sz1 | test hooks::init::tests::test_clean_double_blanks_preserves_single ... ok
+  sz1 | test hooks::init::tests::test_codex_mode_rejects_auto_patch ... ok
+  sz1 | test hooks::init::tests::test_codex_mode_rejects_no_patch ... ok
+  sz1 | test hooks::init::tests::test_cursor_hook_already_present_false_empty ... ok
+  sz1 | test hooks::init::tests::test_cursor_hook_already_present_false_other_hooks ... ok
+  sz1 | test hooks::init::tests::test_cursor_hook_already_present_true ... ok
+  sz1 | test hooks::init::tests::test_atomic_write ... ok
+  sz1 | test hooks::init::tests::test_cursor_hook_outputs_cursor_format ... ok
+  sz1 | test hooks::init::tests::test_cursor_hook_script_has_guards ... ok
+  sz1 | test core::utils::tests::test_resolved_command_executes_known_command ... ok
+  sz1 | test hooks::init::tests::test_hook_already_present_different_path ... ok
+  sz1 | test hooks::init::tests::test_hook_already_present_exact_match ... ok
+  sz1 | test hooks::init::tests::test_hook_has_guards ... ok
+  sz1 | test hooks::init::tests::test_hook_not_present_empty ... ok
+  sz1 | test hooks::init::tests::test_hook_not_present_other_hooks ... ok
+  sz1 | test hooks::init::tests::test_init_has_version_marker ... ok
+  sz1 | test hooks::init::tests::test_init_mentions_all_top_level_commands ... ok
+  sz1 | test hooks::init::tests::test_insert_cursor_hook_entry_empty ... ok
+  sz1 | test hooks::init::tests::test_insert_cursor_hook_preserves_existing ... ok
+  sz1 | test hooks::init::tests::test_default_mode_creates_hook_and_rtk_md ... ok
+  sz1 | test hooks::init::tests::test_insert_hook_entry_empty_root ... ok
+  sz1 | test hooks::init::tests::test_insert_hook_entry_preserves_existing ... ok
+  sz1 | test hooks::init::tests::test_insert_hook_preserves_other_keys ... ok
+  sz1 | test hooks::init::tests::test_init_is_idempotent ... ok
+  sz1 | test hooks::init::tests::test_migration_removes_old_block ... ok
+  sz1 | test hooks::init::tests::test_migration_warns_on_missing_end_marker ... ok
+  sz1 | test hooks::init::tests::test_preserve_order_round_trip ... ok
+  sz1 | test hooks::init::tests::test_remove_cursor_hook_from_json ... ok
+  sz1 | test hooks::init::tests::test_local_init_unchanged ... ok
+  sz1 | test hooks::init::tests::test_remove_cursor_hook_not_present ... ok
+  sz1 | test hooks::init::tests::test_remove_hook_from_json ... ok
+  sz1 | test hooks::init::tests::test_remove_hook_when_not_present ... ok
+  sz1 | test hooks::init::tests::test_upsert_rtk_block_appends_when_missing ... ok
+  sz1 | test hooks::init::tests::test_upsert_rtk_block_detects_malformed_block ... ok
+  sz1 | test hooks::init::tests::test_upsert_rtk_block_noop_when_already_current ... ok
+  sz1 | test hooks::init::tests::test_upsert_rtk_block_updates_stale_block ... ok
+  sz1 | test hooks::init::tests::test_opencode_plugin_remove ... ok
+  sz1 | test hooks::init::tests::test_patch_agents_md_creates_missing_file ... ok
+  sz1 | test hooks::init::tests::test_opencode_plugin_install_and_update ... ok
+  sz1 | test hooks::init::tests::test_patch_agents_md_adds_reference_once ... ok
+  sz1 | test hooks::init::tests::test_patch_agents_md_migrates_inline_block ... ok
+  sz1 | test hooks::init::tests::test_uninstall_codex_at_is_idempotent ... ok
+  sz1 | test hooks::integrity::tests::test_compute_hash_changes_on_modification ... ok
+  sz1 | test hooks::integrity::tests::test_compute_hash_deterministic ... ok
+  sz1 | test hooks::integrity::tests::test_hash_file_permissions ... ok
+  sz1 | test hooks::integrity::tests::test_remove_hash_not_found ... ok
+  sz1 | test hooks::integrity::tests::test_hash_format_compatible_with_sha256sum ... ok
+  sz1 | test hooks::integrity::tests::test_hash_only_no_filename_rejected ... ok
+  sz1 | test hooks::integrity::tests::test_remove_hash ... ok
+  sz1 | test hooks::permissions::tests::test_ask_verdict ... ok
+  sz1 | test hooks::integrity::tests::test_invalid_hash_file_rejected ... ok
+  sz1 | test hooks::permissions::tests::test_compound_command_ask ... ok
+  sz1 | test hooks::permissions::tests::test_compound_command_deny ... ok
+  sz1 | test hooks::permissions::tests::test_compound_command_deny_overrides_ask ... ok
+  sz1 | test hooks::permissions::tests::test_deny_precedence_over_ask ... ok
+  sz1 | test hooks::permissions::tests::test_deny_star_colon_star ... ok
+  sz1 | test hooks::permissions::tests::test_deny_with_leading_wildcard ... ok
+  sz1 | test hooks::permissions::tests::test_empty_permissions ... ok
+  sz1 | test hooks::integrity::tests::test_store_and_verify_ok ... ok
+  sz1 | test hooks::permissions::tests::test_exact_match ... ok
+  sz1 | test hooks::permissions::tests::test_leading_wildcard ... ok
+  sz1 | test hooks::permissions::tests::test_leading_wildcard_no_partial ... ok
+  sz1 | test hooks::permissions::tests::test_middle_wildcard ... ok
+  sz1 | test hooks::permissions::tests::test_middle_wildcard_no_match ... ok
+  sz1 | test hooks::integrity::tests::test_store_hash_creates_sha256sum_format ... ok
+  sz1 | test hooks::permissions::tests::test_multiple_wildcards ... ok
+  sz1 | test hooks::integrity::tests::test_verify_not_installed ... ok
+  sz1 | test hooks::permissions::tests::test_no_match ... ok
+  sz1 | test hooks::permissions::tests::test_no_partial_word_match ... ok
+  sz1 | test hooks::integrity::tests::test_verify_no_baseline ... ok
+  sz1 | test hooks::permissions::tests::test_non_bash_rules_ignored ... ok
+  sz1 | test hooks::integrity::tests::test_store_hash_overwrites_existing ... ok
+  sz1 | test hooks::permissions::tests::test_parse_bash_pattern ... ok
+  sz1 | test hooks::permissions::tests::test_prefix_match ... ok
+  sz1 | test hooks::integrity::tests::test_verify_orphaned_hash ... ok
+  sz1 | test hooks::permissions::tests::test_star_colon_star_matches_everything ... ok
+  sz1 | test hooks::integrity::tests::test_verify_detects_tampering ... ok
+  sz1 | test hooks::permissions::tests::test_sudo_wildcard_no_false_positive ... ok
+  sz1 | test hooks::integrity::tests::test_wrong_separator_rejected ... ok
+  sz1 | test hooks::permissions::tests::test_wildcard_all ... ok
+  sz1 | test hooks::permissions::tests::test_wildcard_colon ... ok
+  sz1 | test hooks::rewrite_cmd::tests::test_run_already_rtk_returns_some ... ok
+  sz1 | test hooks::rewrite_cmd::tests::test_run_supported_command_succeeds ... ok
+  sz1 | test hooks::rewrite_cmd::tests::test_run_unsupported_returns_none ... ok
+  sz1 | test hooks::trust::tests::test_risk_summary_detects_match_output ... ok
+  sz1 | test hooks::trust::tests::test_risk_summary_detects_replace ... ok
+  sz1 | test hooks::trust::tests::test_canonical_key_works ... ok
+  sz1 | test learn::detector::tests::test_command_similarity_same_base ... ok
+  sz1 | test hooks::trust::tests::test_env_override_with_ci ... ok
+  sz1 | test learn::detector::tests::test_deduplicate_corrections_keeps_distinct ... ok
+  sz1 | test hooks::trust::tests::test_env_override_without_ci_is_ignored ... ok
+  sz1 | test learn::detector::tests::test_deduplicate_corrections_merges_same ... ok
+  sz1 | test hooks::trust::tests::test_missing_store_is_untrusted ... ok
+  sz1 | test learn::detector::tests::test_extract_base_command ... ok
+  sz1 | test hooks::trust::tests::test_untrusted_by_default ... ok
+  sz1 | test hooks::trust::tests::test_content_change_detected ... ok
+  sz1 | test hooks::trust::tests::test_trust_then_check ... ok
+  sz1 | test hooks::trust::tests::test_untrust_revokes ... ok
+  sz1 | test learn::detector::tests::test_classify_error_unknown_flag ... ok
+  sz1 | test learn::report::tests::test_format_console_report_empty ... ok
+  sz1 | test learn::report::tests::test_format_console_report_with_rules ... ok
+  sz1 | test learn::detector::tests::test_find_corrections_path_exploration ... ok
+  sz1 | test learn::detector::tests::test_is_command_error_requires_error_flag ... ok
+  sz1 | test learn::detector::tests::test_is_command_error_requires_error_content ... ok
+  sz1 | test learn::detector::tests::test_find_corrections_basic ... ok
+  sz1 | test learn::detector::tests::test_find_corrections_min_confidence ... ok
+  sz1 | test learn::detector::tests::test_find_corrections_window_limit ... ok
+  sz1 | test learn::detector::tests::test_is_command_error_filters_user_rejection ... ok
+  sz1 | test parser::formatter::tests::test_compact_all_pass_is_one_line ... ok
+  sz1 | test learn::detector::tests::test_classify_error_command_not_found ... ok
+  sz1 | test parser::formatter::tests::test_compact_shows_full_error_message ... ok
+  sz1 | test parser::formatter::tests::test_compact_single_line_error_no_trailing_noise ... ok
+  sz1 | test learn::report::tests::test_write_rules_file_markdown ... ok
+  sz1 | test parser::formatter::tests::test_compact_summary_line_is_concise ... ok
+  sz1 | test parser::tests::test_extract_json_object_clean ... ok
+  sz1 | test parser::tests::test_extract_json_object_nested_braces ... ok
+  sz1 | test parser::tests::test_extract_json_object_no_json ... ok
+  sz1 | test parser::tests::test_extract_json_object_string_with_braces ... ok
+  sz1 | test parser::tests::test_extract_json_object_with_dotenv_prefix ... ok
+  sz1 | test parser::tests::test_extract_json_object_with_pnpm_prefix ... ok
+  sz1 | test parser::tests::test_parse_result_map ... ok
+  sz1 | test parser::tests::test_parse_result_tier ... ok
+  sz1 | test parser::tests::test_truncate_output ... ok
+  sz1 | test parser::tests::test_truncate_output_emoji ... ok
+  sz1 | test parser::tests::test_truncate_output_multibyte ... ok
+  sz1 | test learn::detector::tests::test_find_corrections_excludes_tdd_cycle ... ok
+  sz1 | test learn::detector::tests::test_classify_error_all_types ... ok
+  sz1 | test tests::test_git_commit_single_message ... ok
+  sz1 | test tests::test_git_commit_am_flag ... ok
+  sz1 | test tests::test_git_commit_amend ... ok
+  sz1 | test tests::test_git_global_options_parsing ... ok
+  sz1 | test tests::test_git_commit_long_flag_multiple ... ok
+  sz1 | test tests::test_git_commit_multiple_messages ... ok
+  sz1 | test tests::test_gain_failures_flag_parses ... ok
+  sz1 | test tests::test_gain_failures_short_flag_parses ... ok
+  sz1 | test tests::test_shell_split_double_quotes ... ok
+  sz1 | test tests::test_shell_split_empty ... ok
+  sz1 | test tests::test_shell_split_simple ... ok
+  sz1 | test tests::test_shell_split_single_quotes ... ok
+  sz1 | test tests::test_shell_split_single_word ... ok
+  sz1 | test tests::test_rewrite_clap_quoted_single_arg ... ok
+  sz1 | test tests::test_try_parse_git_with_dash_c_succeeds ... ok
+  sz1 | test cmds::system::find_cmd::tests::find_rs_files_in_src ... ok
+  sz1 | test tests::test_try_parse_unknown_subcommand_is_error ... ok
+  sz1 | test tests::test_try_parse_valid_git_status ... ok
+  sz1 | test tests::test_rewrite_clap_multi_args ... ok
+  sz1 | test tests::test_try_parse_version_is_display_version ... ok
+  sz1 | test tests::test_try_parse_help_is_display_help ... ok
+  sz1 | test tests::test_meta_command_list_is_complete ... ok
+  sz1 | test tests::test_meta_commands_reject_bad_flags ... ok
+  sz1 | test core::tracking::tests::test_parse_failure_recovery_rate ... ok
+  sz1 | test core::telemetry::tests::test_get_stats_returns_tuple ... ok
+  sz1 | test cmds::system::read::tests::test_read_rust_file ... ok
+  sz1 | test core::tracking::tests::test_parse_failure_roundtrip ... ok
+  sz1 | test core::tracking::tests::test_timed_execution_passthrough ... ok
+  sz1 | test cmds::system::find_cmd::tests::find_respects_max ... ok
+  sz1 | test cmds::system::find_cmd::tests::find_dot_pattern_works ... ok
+  sz1 | test cmds::system::find_cmd::tests::find_no_matches ... ok
+  sz1 | test cmds::system::find_cmd::tests::run_from_args_iname_case_insensitive ... ok
+  sz1 | test core::tracking::tests::test_tracker_record_and_recent ... ok
+  sz1 | test core::tracking::tests::test_timed_execution_records_time ... ok
+  sz1 | test cmds::system::find_cmd::tests::run_from_args_native_find_syntax ... ok
+  sz1 | 
+  sz1 | test result: ok. 1253 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.22s
+  sz1 | 
+  sz1 | Finished cargoCheckHook
+  sz1 | checkPhase completed in 2 minutes 5 seconds
+  sz1 | Running phase: installPhase
+  sz1 | Executing cargoInstallHook
+  sz1 | Finished cargoInstallHook
+  sz1 | Running phase: fixupPhase
+  sz1 | shrinking RPATHs of ELF executables and libraries in /nix/store/pblgxdjm0ldj1xhy2r99lin0yygqi851-rtk-0.34.3
+  sz1 | shrinking /nix/store/pblgxdjm0ldj1xhy2r99lin0yygqi851-rtk-0.34.3/bin/rtk
+  sz1 | checking for references to /build/ in /nix/store/pblgxdjm0ldj1xhy2r99lin0yygqi851-rtk-0.34.3...
+  sz1 | patching script interpreter paths in /nix/store/pblgxdjm0ldj1xhy2r99lin0yygqi851-rtk-0.34.3
+  sz1 | stripping (with command strip and flags -S -p) in  /nix/store/pblgxdjm0ldj1xhy2r99lin0yygqi851-rtk-0.34.3/bin
+  sz1 | building '/nix/store/xb8mb93hmqx3sg2272fv9h4q5d04s29i-home-manager-path.drv'...
+  sz1 | created 1289 symlinks in user environment
+  sz1 | building '/nix/store/r610pqp3a1zvqyfrnmfky5r2rj4s48jz-activation-script.drv'...
+  sz1 | building '/nix/store/sgkp984dc1xpfqqjg08vi6admq03rp6a-home-manager-generation.drv'...
+  sz1 | building '/nix/store/r6zjs36mg3vw05yhphx03z0zli9pmwlf-unit-home-manager-vringar.service.drv'...
+  sz1 | building '/nix/store/9zlslmls8jnxxbiair92gp1ildhw06dc-system-units.drv'...
+  sz1 | building '/nix/store/bidizsbj086bwaviknmrjx2n28qg5cbj-etc.drv'...
+  sz1 | building '/nix/store/qhczhndl7ssr3k0hknhx7phqwcfcic1w-activate.drv'...
+  sz1 | building '/nix/store/01j5kx91lf9xmnw9xlg08g6r8l7ddh9w-nixos-system-sz1-26.05pre972949.6201e203d095.drv'...
+  sz1 | /nix/store/hyi57kwxgkn2870jk96r3v40f8g6a37q-nixos-system-sz1-26.05pre972949.6201e203d095
+  sz1 | Built "/nix/store/hyi57kwxgkn2870jk96r3v40f8g6a37q-nixos-system-sz1-26.05pre972949.6201e203d095"
+      | All done!

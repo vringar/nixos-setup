@@ -1,0 +1,8 @@
+building '/nix/store/drv1-source.drv'...
+error: hash mismatch in fixed-output derivation '/nix/store/drv1-source':
+         specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+            got:    sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=
+building '/nix/store/drv2-source.drv'...
+error: hash mismatch in fixed-output derivation '/nix/store/drv2-source':
+         specified: sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=
+            got:    sha256-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=

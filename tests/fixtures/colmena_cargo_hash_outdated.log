@@ -1,0 +1,10 @@
+[INFO ] Using configuration: /home/vringar/nixos-setup/hive.nix
+[INFO ] Enumerating nodes...
+[INFO ] Selected 1 out of 3 hosts.
+  sz1 | Evaluating sz1
+  sz1 | Building sz1
+  sz1 | error: cargoHash or cargoSha256 is out of date
+  sz1 |
+  sz1 |        Cargo.lock has been modified. Please update cargoHash or cargoSha256 to:
+  sz1 |        sha256-NEWCARGOHASHNEWCARGOHASHNEWCARGOHASH=
+  sz1 | Build failed: Child process exited with error code: 1

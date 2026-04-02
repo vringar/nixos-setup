@@ -29,12 +29,13 @@ in {
 
   config = {
     home.packages = [
+      pkgs.alejandra
       pkgs.gh
       pkgs.git-cinnabar
       pkgs.mergiraf
       pkgs.pre-commit
+      pkgs.ripgrep
       pkgs.shellcheck
-      pkgs.alejandra
     ];
 
     programs.bash = {
