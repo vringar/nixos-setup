@@ -51,7 +51,13 @@ in {
       ./modules/ghidra-server.nix
     ];
 
-    services.ghidra-server.enable = true;
+    services.ghidra-server = {
+      enable = true;
+      tailscaleCert = {
+        enable = true;
+        hostname = "t20.tailbaace.ts.net";
+      };
+    };
     services.tailscale.enable = true;
 
     boot.kernel.sysctl = {
