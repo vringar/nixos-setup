@@ -5,9 +5,10 @@
 # launch.sh/GhidraLauncher framework used by other Ghidra tools.
 # We generate a mutable server.conf at startup and invoke YAJSW directly.
 #
-# After first boot, add users with:
-#   GHIDRA=$(systemctl cat ghidra-server | grep -oP '/nix/store/[^/]+-ghidra-[^/]+')
-#   sudo -u ghidra-server $GHIDRA/lib/ghidra/server/svrAdmin -add <username>
+# After first boot, manage users with ghidra-svrAdmin (exposed by this module):
+#   ghidra-svrAdmin -add <username>
+#   ghidra-svrAdmin -list
+#   ghidra-svrAdmin -users
 {
   config,
   lib,
@@ -21,6 +22,8 @@
   classpathFrag = "${dataDir}/classpath.frag";
   # YAJSW is bundled with Ghidra — version matches the Ghidra release.
   wrapperJar = "${dataDir}/yajsw-stable-13.18/wrapper.jar";
+
+  keystorePath = "/var/lib/ghidra-server/keystore.p12";
 
   # Convert "256M" / "1G" to an integer number of MB for wrapper.java.maxmemory.
   maxMemoryMB =
@@ -43,12 +46,55 @@
       -e '/^wrapper\.app\.parameter\./d' \
       /var/lib/ghidra-server/server.conf
 
-    # GhidraServer args: [-a<auth>] [-p<port>] <repository_path>
+    # GhidraServer args: [-ip <host>] [-a<auth>] [-p<port>] <repository_path>
     printf '%s\n' \
-      'wrapper.app.parameter.1=-a${toString cfg.authMode}' \
-      'wrapper.app.parameter.2=-p${toString cfg.port}' \
-      'wrapper.app.parameter.3=${cfg.reposDir}' \
+      ${lib.optionalString cfg.tailscaleCert.enable
+      "'wrapper.app.parameter.1=-ip ${cfg.tailscaleCert.hostname}'"} \
+      'wrapper.app.parameter.2=-a${toString cfg.authMode}' \
+      'wrapper.app.parameter.3=-p${toString cfg.port}' \
+      'wrapper.app.parameter.4=${cfg.reposDir}' \
       >> /var/lib/ghidra-server/server.conf
+
+    ${lib.optionalString cfg.tailscaleCert.enable ''
+      # Keystore for the Tailscale-provisioned certificate.
+      printf '%s\n' \
+        'wrapper.java.additional.9=-Dghidra.keystore=${keystorePath}' \
+        'wrapper.java.additional.10=-Dghidra.password=' \
+        >> /var/lib/ghidra-server/server.conf
+    ''}
+  '';
+
+  # Provisions (or renews) the Tailscale certificate and converts to PKCS#12.
+  certScript = pkgs.writeShellScript "ghidra-server-cert" ''
+    set -euo pipefail
+    CERT=/var/lib/ghidra-server/cert.pem
+    KEY=/var/lib/ghidra-server/key.pem
+
+    ${pkgs.tailscale}/bin/tailscale cert \
+      --cert-file "$CERT" \
+      --key-file  "$KEY" \
+      ${cfg.tailscaleCert.hostname}
+
+    # tailscale cert.pem is a bundle (leaf + intermediates).
+    # openssl pkcs12 -export only takes the first cert from -in,
+    # so pass the chain explicitly via -certfile so Java can send the
+    # full chain during TLS and clients can validate against ISRG Root X1.
+    LEAF=/tmp/ghidra-leaf.pem
+    CHAIN=/tmp/ghidra-chain.pem
+    ${pkgs.openssl}/bin/openssl x509 -in "$CERT" -out "$LEAF"
+    ${pkgs.gawk}/bin/awk '/-----BEGIN CERTIFICATE-----/{n++} n>1{print}' "$CERT" > "$CHAIN"
+
+    ${pkgs.openssl}/bin/openssl pkcs12 -export \
+      -out      ${keystorePath} \
+      -inkey    "$KEY" \
+      -in       "$LEAF" \
+      -certfile "$CHAIN" \
+      -passout  pass:
+
+    rm -f "$LEAF" "$CHAIN"
+
+    chmod 640 ${keystorePath} "$CERT" "$KEY"
+    chown ghidra-server:ghidra-server ${keystorePath} "$CERT" "$KEY"
   '';
 in {
   options.services.ghidra-server = {
@@ -85,6 +131,15 @@ in {
       default = [];
       description = "Extra JVM flags for the YAJSW wrapper process.";
     };
+
+    tailscaleCert = {
+      enable = lib.mkEnableOption "Tailscale-provisioned TLS certificate for Ghidra Server";
+
+      hostname = lib.mkOption {
+        type = lib.types.str;
+        description = "Tailscale MagicDNS FQDN (e.g. t20.example.ts.net). Used for cert provisioning and the -ip server flag.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -100,10 +155,37 @@ in {
     };
     users.groups.ghidra-server = {};
 
+    # Certificate provisioning — only active when tailscaleCert is enabled.
+    systemd.services.ghidra-server-cert = lib.mkIf cfg.tailscaleCert.enable {
+      description = "Provision Tailscale TLS certificate for Ghidra Server";
+      after = ["tailscaled.service" "network-online.target"];
+      wants = ["network-online.target"];
+      # Run at boot and after each timer renewal.
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${certScript}";
+        # On renewal, restart ghidra-server so it picks up the new keystore.
+        ExecStartPost = "${pkgs.systemd}/bin/systemctl try-restart ghidra-server.service";
+      };
+    };
+
+    # Renew ~2 weeks before the 90-day Let's Encrypt expiry.
+    systemd.timers.ghidra-server-cert = lib.mkIf cfg.tailscaleCert.enable {
+      wantedBy = ["timers.target"];
+      description = "Renew Tailscale TLS certificate for Ghidra Server";
+      timerConfig = {
+        OnCalendar = "Mon *-*-* 03:00:00";
+        Persistent = true;
+      };
+    };
+
     systemd.services.ghidra-server = {
       description = "Ghidra Server";
       wantedBy = ["multi-user.target"];
-      after = ["network.target"];
+      after = ["network.target"]
+        ++ lib.optional cfg.tailscaleCert.enable "ghidra-server-cert.service";
+      requires = lib.optional cfg.tailscaleCert.enable "ghidra-server-cert.service";
 
       serviceConfig = {
         Type = "simple";
@@ -143,6 +225,19 @@ in {
         RestartSec = "10s";
       };
     };
+
+    # svrAdmin wrapper that uses the generated server.conf rather than the
+    # read-only Nix store copy (which points at the wrong repos directory).
+    environment.systemPackages = [
+      (pkgs.writeShellScriptBin "ghidra-svrAdmin" ''
+        exec sudo -u ghidra-server \
+          ${cfg.package}/lib/ghidra/support/launch.sh fg jre svrAdmin 128M \
+          '-DUserAdmin.invocation=svrAdmin -Djava.awt.headless=true' \
+          ghidra.server.ServerAdmin \
+          /var/lib/ghidra-server/server.conf \
+          "$@"
+      '')
+    ];
 
     networking.firewall.allowedTCPPorts = [cfg.port];
   };
