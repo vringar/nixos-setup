@@ -12,6 +12,19 @@
   cpitd = import ../apps/crosslink/cpitd.nix {inherit pkgs sources;};
   rtk = import ../apps/rtk {inherit pkgs sources;};
   claude-code = import ../apps/claude-code {inherit pkgs;};
+  nucleus = sources.nucleus;
+  mergedSkills = pkgs.runCommand "merged-skills" {} ''
+    mkdir -p $out
+    cp -r ${nucleus}/skills/. $out/
+    chmod -R u+w $out
+    cp -r ${skillsDir}/. $out/
+  '';
+  mergedAgents = pkgs.runCommand "merged-agents" {} ''
+    mkdir -p $out
+    cp -r ${nucleus}/agents/. $out/
+    chmod -R u+w $out
+    cp -r ${customAgentsDir}/. $out/
+  '';
 in {
   home.sessionVariables = {
     CLAUDE_CONFIG_DIR = "\${XDG_CONFIG_HOME:-$HOME/.config}/claude";
@@ -25,10 +38,10 @@ in {
       "claude/CLAUDE.md"
     ] (_: {source = agentsFile;})
     // {
-      "claude/skills".source = skillsDir;
-      "opencode/skills".source = skillsDir;
-      "claude/agents".source = customAgentsDir;
-      "opencode/agents".source = customAgentsDir;
+      "claude/skills".source = mergedSkills;
+      "opencode/skills".source = mergedSkills;
+      "claude/agents".source = mergedAgents;
+      "opencode/agents".source = mergedAgents;
     };
 
   home.packages = [crosslink cpitd rtk pkgs.jq pkgs.uv claude-code];

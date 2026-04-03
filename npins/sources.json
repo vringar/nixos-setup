@@ -102,6 +102,19 @@
       "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre972949.6201e203d095/nixexprs.tar.xz",
       "hash": "sha256-ByAX1LkhCwZ94+KnFAmnJSMAvui7kgCxjHgUHsWAbfI="
     },
+    "nucleus": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "michaelwhitford",
+        "repo": "nucleus"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "2668c5983740fe9b207ef6bcec1af88305c63004",
+      "url": "https://github.com/michaelwhitford/nucleus/archive/2668c5983740fe9b207ef6bcec1af88305c63004.tar.gz",
+      "hash": "sha256-ct/21dsbOvw0csHD4cylVWOQQ5YqEagBxcGksPaWfcA="
+    },
     "rtk": {
       "type": "GitRelease",
       "repository": {
