@@ -25,9 +25,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "41f4433e894fc4117aa2b2c3f0abe8874f981805",
-      "url": "https://github.com/scythia-marrow/cpitd/archive/41f4433e894fc4117aa2b2c3f0abe8874f981805.tar.gz",
-      "hash": "sha256-3rwXzoI3kSgaONfgpLJxgLeQzYqPdPgW3Q1PnzTiIo4="
+      "revision": "5d89f4d71b26f21976022a9c7c0690544abd0b1e",
+      "url": "https://github.com/scythia-marrow/cpitd/archive/5d89f4d71b26f21976022a9c7c0690544abd0b1e.tar.gz",
+      "hash": "sha256-KzLYUtZjzuBPPBWIPwCEwE1Tge26hXAtS+UQMgDiP+0="
     },
     "crosslink": {
       "type": "Git",
@@ -51,9 +51,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "d166a078541982a76f14d3e06e9665fa5c9ed85e",
-      "url": "https://github.com/nix-community/home-manager/archive/d166a078541982a76f14d3e06e9665fa5c9ed85e.tar.gz",
-      "hash": "sha256-S0RqAyDPMTcv9vASMaE8eY1QexFysAOdnxUxFHIPOyE="
+      "revision": "5ee3b3ef63e469c84639c2c9e282726352c86069",
+      "url": "https://github.com/nix-community/home-manager/archive/5ee3b3ef63e469c84639c2c9e282726352c86069.tar.gz",
+      "hash": "sha256-pIDPHus8udcxO4lT+zUULBfvue2D08E73abzVEJNE+8="
     },
     "lix-module": {
       "type": "Git",

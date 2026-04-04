@@ -183,7 +183,8 @@ in {
     systemd.services.ghidra-server = {
       description = "Ghidra Server";
       wantedBy = ["multi-user.target"];
-      after = ["network.target"]
+      after =
+        ["network.target"]
         ++ lib.optional cfg.tailscaleCert.enable "ghidra-server-cert.service";
       requires = lib.optional cfg.tailscaleCert.enable "ghidra-server-cert.service";
 

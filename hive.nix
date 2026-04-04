@@ -41,7 +41,7 @@ in {
     deployment.tags = ["personal"];
     deployment.allowLocalDeployment = true;
     deployment.targetUser = "vringar";
-
+    services.teamviewer.enable = true;
     system.stateVersion = "25.05";
   };
 
