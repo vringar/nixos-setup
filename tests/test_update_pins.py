@@ -10,7 +10,7 @@ import importlib.util
 
 _spec = importlib.util.spec_from_file_location(
     "update_pins",
-    Path(__file__).parent.parent / "update-pins.py",
+    Path(__file__).parent.parent / "scripts" / "update-pins.py",
 )
 _mod = importlib.util.module_from_spec(_spec)
 sys.modules["update_pins"] = _mod  # required before exec for @dataclass
@@ -343,5 +343,5 @@ def test_fill_empty_cargo_hash_scoped_to_pin(tmp_path):
 
 # ── Real log fixtures from actual builds (add as you capture them) ────────────
 # To capture a real log:
-#   ./update-pins.py --capture-logs tests/fixtures/captured <pin>
+#   ./scripts/update-pins.py --capture-logs tests/fixtures/captured <pin>
 # Then write a test here that exercises the parsing on that log.

@@ -182,7 +182,11 @@ def fix_mismatch_in_files(
 
 
 def run_npins_update(pin: str) -> None:
-    subprocess.run(["npins", "update", pin], check=True, cwd=REPO_ROOT)
+    subprocess.run(
+        ["nix-shell", "-p", "npins", "--run", f"npins update {pin}"],
+        check=True,
+        cwd=REPO_ROOT,
+    )
 
 
 def run_colmena_build(hostname: str) -> tuple[bool, str]:
@@ -192,7 +196,7 @@ def run_colmena_build(hostname: str) -> tuple[bool, str]:
     Returns (success, combined_stdout_stderr).
     """
     proc = subprocess.Popen(
-        ["colmena", "build", "--on", hostname],
+        ["nix-shell", "-p", "colmena", "--run", f"colmena build --on {hostname}"],
         cwd=REPO_ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
