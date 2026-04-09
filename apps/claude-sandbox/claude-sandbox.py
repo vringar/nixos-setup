@@ -91,7 +91,7 @@ def parse_args():
     return args
 
 
-def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile):
+def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     claude_config_dir = os.environ.get(
         "CLAUDE_CONFIG_DIR",
         os.path.join(home_dir, ".config", "claude"),
@@ -119,6 +119,8 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile):
     args += [
         # /bin/sh (needed by programs like Claude Code that spawn /bin/sh)
         "--symlink", BASH, "/bin/sh",
+        # Ensure tools inside the sandbox see a usable shell path
+        "--setenv", "SHELL", shell_path,
         # Python (needed by hooks and tools invoked inside the sandbox)
         "--setenv", "PATH", PYTHON3_BIN_DIR + ":" + os.environ.get("PATH", ""),
         # Nix store and var (read-only)
@@ -235,6 +237,41 @@ def resolve_nix_file(project_dir, nix_file_arg):
     return None, False
 
 
+def path_is_visible_in_sandbox(path, home_dir):
+    real = os.path.realpath(path)
+    profile_dir = os.path.join(home_dir, ".nix-profile")
+    return (
+        path == "/bin/sh"
+        or path.startswith(profile_dir + os.sep)
+        or real.startswith("/nix/store/")
+    )
+
+
+def resolve_shell(home_dir):
+    shell = os.environ.get("SHELL")
+    candidates = []
+    if shell:
+        candidates.append(shell)
+        shell_name = os.path.basename(shell)
+        candidates.append(os.path.join(home_dir, ".nix-profile", "bin", shell_name))
+
+    candidates += [
+        os.path.join(home_dir, ".nix-profile", "bin", "zsh"),
+        os.path.join(home_dir, ".nix-profile", "bin", "bash"),
+        BASH,
+    ]
+
+    seen = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if os.path.exists(candidate) and path_is_visible_in_sandbox(candidate, home_dir):
+            return candidate
+
+    return BASH
+
+
 def main():
     args = parse_args()
 
@@ -266,12 +303,12 @@ def main():
         with open(histfile, "w") as f:
             f.write(seed + "\n")
 
-    bwrap_args = build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile)
+    shell_path = resolve_shell(home_dir)
+    bwrap_args = build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path)
 
     if args.shell:
         print(f"Entering sandboxed shell in {project_dir}")
-        shell = os.environ.get("SHELL", BASH)
-        os.execvp(BWRAP, [BWRAP] + bwrap_args + ["--", shell])
+        os.execvp(BWRAP, [BWRAP] + bwrap_args + ["--", shell_path])
     else:
         launch_cmd = args.launch_cmd
         print(f"Starting sandboxed {launch_cmd.split()[0]} in {project_dir}")
