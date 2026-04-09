@@ -1,5 +1,5 @@
 {pkgs, ...}: {
-  home-manager.users.vringar = {imports = [../home-manager/graphical.nix ../home-manager/workstation.nix];};
+  home-manager.users.vringar = {imports = [../home-manager/graphical.nix ../home-manager/workstation.nix ../home-manager/ai.nix];};
   users.users.vringar.packages = import ../user/desktop.nix {inherit pkgs;};
 
   # Enable the X11 windowing system.

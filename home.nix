@@ -17,6 +17,7 @@ in {
   imports = [
     ./home-manager/baseline.nix
     ./home-manager/graphical.nix
+    ./home-manager/ai.nix
   ];
 
   nixpkgs.config.allowUnfree = true;
