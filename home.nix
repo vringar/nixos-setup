@@ -36,6 +36,7 @@ in {
   my.user.email = "stefan.zabka@camunda.com";
   my.user.sshKeyName = "id_ed25519";
   my.nixGL.enable = true;
+  my.work.enable = true;
 
   home.sessionVariables.GIT_SSH = "/usr/bin/ssh";
 

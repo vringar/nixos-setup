@@ -5,6 +5,44 @@
   ...
 }: let
   agentsFile = ./files/ai/AGENTS.md;
+  claudeSettings =
+    {
+      hooks = {
+        PreToolUse = [
+          {
+            matcher = "Bash";
+            hooks = [
+              {
+                type = "command";
+                command = "~/.claude/hooks/rtk-rewrite.sh";
+              }
+            ];
+          }
+        ];
+        Stop = [
+          {
+            hooks = [
+              {
+                type = "command";
+                command = "~/.claude/hooks/jj-describe-reminder.sh";
+              }
+            ];
+          }
+        ];
+      };
+    }
+    // lib.optionalAttrs config.my.work.enable {
+      mcpServers = {
+        camunda-docs = {
+          type = "http";
+          url = "https://camunda-docs.mcp.kapa.ai";
+        };
+        context7 = {
+          command = "npx";
+          args = ["-y" "@upstash/context7-mcp"];
+        };
+      };
+    };
   skillsDir = ./files/ai/skills;
   customAgentsDir = ./files/ai/agents;
   sources = import ../npins;
@@ -26,6 +64,8 @@
     cp -r ${customAgentsDir}/. $out/
   '';
 in {
+  options.my.work.enable = lib.mkEnableOption "work machine configuration";
+
   home.sessionVariables = {
     CLAUDE_CONFIG_DIR = "\${XDG_CONFIG_HOME:-$HOME/.config}/claude";
     UV_PYTHON_PREFERENCE = "only-system";
@@ -67,5 +107,5 @@ in {
   # CLAUDE_CONFIG_DIR doesn't fully support skill discovery
   home.file.".claude/skills".source = config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/skills";
   home.file.".claude/agents".source = config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/agents";
-  home.file.".claude/settings.json".source = ./files/ai/claude-settings.json;
+  home.file.".claude/settings.json".text = builtins.toJSON claudeSettings;
 }
