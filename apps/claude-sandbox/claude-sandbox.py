@@ -92,6 +92,12 @@ def parse_args():
 
 
 def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile):
+    claude_config_dir = os.environ.get(
+        "CLAUDE_CONFIG_DIR",
+        os.path.join(home_dir, ".config", "claude"),
+    )
+    claude_dot_dir = os.path.join(home_dir, ".claude")
+
     args = [
         # Empty HOME
         "--tmpfs", home_dir,
@@ -138,11 +144,6 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile):
         # Seed history with launch command (ephemeral, on sandbox tmp)
         "--bind", histfile, os.path.join(home_dir, ".zsh_history"),
         "--setenv", "HISTFILE", os.path.join(home_dir, ".zsh_history"),
-        # Claude config and auth (read-write)
-        "--bind", os.path.join(home_dir, ".config", "claude"),
-                  os.path.join(home_dir, ".config", "claude"),
-        "--bind", os.path.join(home_dir, ".claude"),
-                  os.path.join(home_dir, ".claude"),
         # Git config (read-only)
         "--ro-bind", os.path.join(home_dir, ".config", "git"),
                      os.path.join(home_dir, ".config", "git"),
@@ -162,6 +163,17 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile):
         # Work inside the project directory
         "--chdir", project_dir,
     ]
+
+    # Claude config and auth (read-write)
+    if os.path.isdir(claude_config_dir):
+        args += ["--bind", claude_config_dir, claude_config_dir]
+    if os.path.isdir(claude_dot_dir):
+        args += ["--bind", claude_dot_dir, claude_dot_dir]
+
+    legacy_credentials = os.path.join(claude_dot_dir, ".credentials.json")
+    config_credentials = os.path.join(claude_config_dir, ".credentials.json")
+    if os.path.isfile(legacy_credentials) and not os.path.exists(config_credentials):
+        args += ["--bind", legacy_credentials, config_credentials]
 
     # D-Bus user socket (needed for KWallet/keyring access, e.g. gh credentials)
     uid = os.getuid()
