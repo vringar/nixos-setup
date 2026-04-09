@@ -32,6 +32,14 @@ in {
     UV_PYTHON_PATH = "${pkgs.python3}/bin/python3";
   };
 
+  programs.bash.initExtra = lib.mkAfter ''
+    export CLAUDE_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/claude"
+  '';
+
+  programs.zsh.initContent = lib.mkAfter ''
+    export CLAUDE_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/claude"
+  '';
+
   xdg.configFile =
     lib.genAttrs [
       "opencode/AGENTS.md"
@@ -41,7 +49,6 @@ in {
       "claude/skills".source = mergedSkills;
       "opencode/skills".source = mergedSkills;
       "claude/agents".source = mergedAgents;
-      "opencode/agents".source = mergedAgents;
     };
 
   home.packages = [crosslink cpitd rtk pkgs.jq pkgs.uv claude-code];
