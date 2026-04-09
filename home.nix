@@ -19,6 +19,7 @@ in {
     ./home-manager/baseline.nix
     ./home-manager/graphical.nix
     ./home-manager/ai.nix
+    ./home-manager/claude-sandbox.nix
   ];
 
   nixpkgs.config.allowUnfree = true;
