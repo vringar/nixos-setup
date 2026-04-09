@@ -4,21 +4,13 @@
   config,
   ...
 }: {
-  imports = [./libreoffice.nix];
-
   home.packages = [
-    pkgs.kdePackages.ksshaskpass
     pkgs.meld
-    pkgs.jetbrains.pycharm
     pkgs.vscode-langservers-extracted
     # Kate looks for this name; vscode-langservers-extracted provides the binary as vscode-json-language-server
     (pkgs.writeShellScriptBin "vscode-json-languageserver" ''
       exec ${lib.getExe' pkgs.vscode-langservers-extracted "vscode-json-language-server"} "$@"
     '')
-  ];
-
-  home.sessionPath = [
-    "$HOME/.local/share/JetBrains/Toolbox/scripts"
   ];
 
   programs.alacritty = {
@@ -61,8 +53,6 @@
       };
     };
   };
-
-  programs.obsidian.enable = true;
 
   programs.jujutsu.settings = {
     ui.merge-editor = "meld3";
