@@ -131,6 +131,18 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
         "--ro-bind", "/run", "/run",
         # Block most of desktop session (Wayland, PipeWire, etc.)
         "--tmpfs", "/run/user",
+    ]
+
+    # Non-NixOS system paths (absent or /nix-backed on NixOS, real on distros).
+    # Symlinked compat paths (e.g. /lib64 -> usr/lib64 on Fedora usrmerge) are
+    # recreated as --symlink so ELF interpreter paths resolve correctly.
+    for sys_path in ["/usr", "/opt", "/lib", "/lib64", "/lib32", "/sbin"]:
+        if os.path.islink(sys_path):
+            args += ["--symlink", os.readlink(sys_path), sys_path]
+        elif os.path.isdir(sys_path):
+            args += ["--ro-bind", sys_path, sys_path]
+
+    args += [
         # Kernel filesystems
         "--proc", "/proc",
         "--dev", "/dev",
