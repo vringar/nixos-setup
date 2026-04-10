@@ -4,7 +4,7 @@
 }:
 pkgs.rustPlatform.buildRustPackage {
   pname = "rtk";
-  version = "0.34.3";
+  version = "v0.35.0";
 
   src = sources.rtk;
 
