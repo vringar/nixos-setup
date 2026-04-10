@@ -58,6 +58,10 @@ in {
       enable = true;
       initContent = ''
         [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+
+        if ! command -v code >/dev/null 2>&1 && command -v code-insiders >/dev/null 2>&1; then
+          alias code='code-insiders'
+        fi
       '';
       shellAliases = {
         tmux = "tmux -u";
