@@ -16,6 +16,19 @@
       "url": "https://api.github.com/repos/ryantm/agenix/tarball/refs/tags/0.15.0",
       "hash": "sha256-ipqShkBmHKC9ft1ZAsA6aeKps32k7+XZSPwfxeHLsAU="
     },
+    "camunda-ai-dev-kit": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "camunda",
+        "repo": "camunda-ai-dev-kit"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "2ef2f4c2e786fcccc5ec9269f2252b741140a8c1",
+      "url": "https://github.com/camunda/camunda-ai-dev-kit/archive/2ef2f4c2e786fcccc5ec9269f2252b741140a8c1.tar.gz",
+      "hash": "sha256-kXPk1iTqOho9+zuXEQghI4uEPwcyS/w25EBX7H1VWVE="
+    },
     "cpitd": {
       "type": "Git",
       "repository": {

@@ -41,6 +41,9 @@
           command = "npx";
           args = ["-y" "@upstash/context7-mcp"];
         };
+        feel-validator = {
+          command = "${feel-mcp-server}/bin/feel-mcp-server";
+        };
       };
     };
   skillsDir = ./files/ai/skills;
@@ -50,10 +53,15 @@
   cpitd = import ../apps/crosslink/cpitd.nix {inherit pkgs sources;};
   rtk = import ../apps/rtk {inherit pkgs sources;};
   claude-code = import ../apps/claude-code {inherit pkgs;};
+  element-templates-cli = import ../apps/element-templates-cli {inherit pkgs;};
+  feel-mcp-server = import ../apps/feel-mcp-server {inherit pkgs sources;};
   nucleus = sources.nucleus;
+  camundaAiDevKit = sources.camunda-ai-dev-kit;
   mergedSkills = pkgs.runCommand "merged-skills" {} ''
     mkdir -p $out
     cp -r ${nucleus}/skills/. $out/
+    chmod -R u+w $out
+    cp -r ${camundaAiDevKit}/.claude/skills/. $out/
     chmod -R u+w $out
     cp -r ${skillsDir}/. $out/
   '';
@@ -61,11 +69,14 @@
     mkdir -p $out
     cp -r ${nucleus}/agents/. $out/
     chmod -R u+w $out
+    cp -r ${camundaAiDevKit}/.claude/agents/. $out/
+    chmod -R u+w $out
     cp -r ${customAgentsDir}/. $out/
   '';
 in {
   options.my.work.enable = lib.mkEnableOption "work machine configuration";
 
+  config = {
   home.sessionVariables = {
     CLAUDE_CONFIG_DIR = "\${XDG_CONFIG_HOME:-$HOME/.config}/claude";
     UV_PYTHON_PREFERENCE = "only-system";
@@ -91,7 +102,9 @@ in {
       "claude/agents".source = mergedAgents;
     };
 
-  home.packages = [crosslink cpitd rtk pkgs.jq pkgs.uv claude-code];
+  home.packages =
+    [crosslink cpitd rtk pkgs.jq pkgs.uv claude-code]
+    ++ lib.optionals config.my.work.enable [element-templates-cli feel-mcp-server];
 
   home.file.".claude/hooks/rtk-rewrite.sh" = {
     source = ./files/ai/hooks/rtk-rewrite.sh;
@@ -108,4 +121,5 @@ in {
   home.file.".claude/skills".source = config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/skills";
   home.file.".claude/agents".source = config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/agents";
   home.file.".claude/settings.json".text = builtins.toJSON claudeSettings;
+  }; # config
 }
