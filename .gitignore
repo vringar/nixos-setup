@@ -3,3 +3,4 @@ chat-dump.txt
 result
 __pycache__/
 *.pyc
+.direnv
