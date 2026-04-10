@@ -5,47 +5,48 @@
   ...
 }: let
   agentsFile = ./files/ai/AGENTS.md;
-  claudeSettings =
-    {
-      hooks = {
-        PreToolUse = [
-          {
-            matcher = "Bash";
-            hooks = [
-              {
-                type = "command";
-                command = "~/.claude/hooks/rtk-rewrite.sh";
-              }
-            ];
-          }
-        ];
-        Stop = [
-          {
-            hooks = [
-              {
-                type = "command";
-                command = "~/.claude/hooks/jj-describe-reminder.sh";
-              }
-            ];
-          }
-        ];
-      };
-    }
-    // lib.optionalAttrs config.my.work.enable {
-      mcpServers = {
-        camunda-docs = {
-          type = "http";
-          url = "https://camunda-docs.mcp.kapa.ai";
-        };
-        context7 = {
-          command = "npx";
-          args = ["-y" "@upstash/context7-mcp"];
-        };
-        feel-validator = {
-          command = "${feel-mcp-server}/bin/feel-mcp-server";
-        };
-      };
+  claudeSettings = {
+    hooks = {
+      PreToolUse = [
+        {
+          matcher = "Bash";
+          hooks = [
+            {
+              type = "command";
+              command = "~/.claude/hooks/rtk-rewrite.sh";
+            }
+          ];
+        }
+      ];
+      Stop = [
+        {
+          hooks = [
+            {
+              type = "command";
+              command = "~/.claude/hooks/jj-describe-reminder.sh";
+            }
+          ];
+        }
+      ];
     };
+  };
+  workMcpServers = {
+    camunda-docs = {
+      transport = "http";
+      commandOrUrl = "https://camunda-docs.mcp.kapa.ai";
+      args = [];
+    };
+    context7 = {
+      transport = "stdio";
+      commandOrUrl = "npx";
+      args = ["-y" "@upstash/context7-mcp"];
+    };
+    feel-validator = {
+      transport = "stdio";
+      commandOrUrl = "${feel-mcp-server}/bin/feel-mcp-server";
+      args = [];
+    };
+  };
   skillsDir = ./files/ai/skills;
   customAgentsDir = ./files/ai/agents;
   sources = import ../npins;
@@ -121,5 +122,27 @@ in {
   home.file.".claude/skills".source = config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/skills";
   home.file.".claude/agents".source = config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/agents";
   home.file.".claude/settings.json".text = builtins.toJSON claudeSettings;
+
+  # Register work MCP servers via `claude mcp add` so they appear in `claude mcp list`.
+  # Uses home.activation to avoid clobbering Claude's own runtime state in .claude.json.
+  home.activation.claudeMcpServers = lib.mkIf config.my.work.enable (
+    lib.hm.dag.entryAfter ["writeBoundary"] (
+      let
+        claude = "${claude-code}/bin/claude";
+        addServer = name: cfg:
+          let
+            # Use -- separator when args contain flags (start with -) to prevent
+            # claude mcp add from parsing them as its own options.
+            hasFlags = builtins.any (a: lib.hasPrefix "-" a) cfg.args;
+            sep = lib.optionalString hasFlags " --";
+            extraArgs = lib.optionalString (cfg.args != []) " ${lib.concatStringsSep " " cfg.args}";
+          in ''
+            ${claude} mcp remove ${name} --scope user 2>/dev/null || true
+            ${claude} mcp add --transport ${cfg.transport} --scope user ${name}${sep} ${cfg.commandOrUrl}${extraArgs}
+          '';
+      in
+        lib.concatStrings (lib.mapAttrsToList addServer workMcpServers)
+    )
+  );
   }; # config
 }

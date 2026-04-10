@@ -96,6 +96,19 @@
       "url": "https://git.lix.systems/lix-project/lix/archive/bc9fb560ac2d36cd317a856ee96785ea2055fbff.tar.gz",
       "hash": "sha256-bONRPjhk5OZdnkQZexZNJzlvwIPg31Gy7fNiwGoX3BQ="
     },
+    "mcp": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "camunda",
+        "repo": "mcp"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "e442f5ac8a46c4f36c4828b3baf0c694dd8e0f04",
+      "url": "https://github.com/camunda/mcp/archive/e442f5ac8a46c4f36c4828b3baf0c694dd8e0f04.tar.gz",
+      "hash": "sha256-6+AVydKYtQd64/KiZeCZRZgySLSAQuAgkY2dgWq8rgo="
+    },
     "nixGL": {
       "type": "Git",
       "repository": {
