@@ -92,6 +92,7 @@ in {
     programs.direnv = {
       enable = true;
       nix-direnv.enable = true;
+      enableNixDirenvIntegration = true;
     };
     programs.delta = {
       enable = true;
