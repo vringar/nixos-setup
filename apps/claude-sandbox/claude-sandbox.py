@@ -4,7 +4,11 @@
 import argparse
 import os
 import shlex
+import shutil
+import subprocess
 import sys
+import tempfile
+import time
 
 BWRAP = "@bwrap@"
 NIX_SHELL = "@nix_shell@"
@@ -91,6 +95,61 @@ def parse_args():
     return args
 
 
+def start_podman_service(sandbox_tmp):
+    """Start a per-sandbox rootless Podman service.
+
+    Storage is kept under sandbox_tmp so images are cached between runs of the
+    same project but fully isolated from other sandboxes.  The runtime root is
+    wiped on each start to avoid stale lock files from a previous crashed run.
+
+    Returns (proc, socket_path) on success, (None, None) if Podman is absent.
+    The socket is placed inside sandbox_tmp, which is already bind-mounted as
+    /tmp inside the sandbox, so it appears at /tmp/podman/podman.sock there —
+    no extra --bind is needed.
+    """
+    podman = shutil.which("podman")
+    if not podman:
+        return None, None
+
+    podman_dir = os.path.join(sandbox_tmp, "podman")
+    storage_root = os.path.join(podman_dir, "storage")
+    run_root = os.path.join(podman_dir, "run")
+    socket_path = os.path.join(podman_dir, "podman.sock")
+
+    # Wipe runtime state to avoid stale locks from a previous crash.
+    # Leave storage intact so pulled images are reused across runs.
+    if os.path.exists(run_root):
+        shutil.rmtree(run_root)
+    os.makedirs(run_root, exist_ok=True)
+    os.makedirs(storage_root, exist_ok=True)
+
+    if os.path.exists(socket_path):
+        os.unlink(socket_path)
+
+    proc = subprocess.Popen(
+        [podman, "--root", storage_root, "--runroot", run_root,
+         "system", "service", "--time=0", f"unix://{socket_path}"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    deadline = time.monotonic() + 10
+    while not os.path.exists(socket_path):
+        if time.monotonic() > deadline:
+            proc.terminate()
+            proc.wait()
+            print("Warning: Podman service did not start in time; containers unavailable",
+                  file=sys.stderr)
+            return None, None
+        if proc.poll() is not None:
+            print("Warning: Podman service exited early; containers unavailable",
+                  file=sys.stderr)
+            return None, None
+        time.sleep(0.05)
+
+    return proc, socket_path
+
+
 def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     claude_config_dir = os.environ.get(
         "CLAUDE_CONFIG_DIR",
@@ -127,11 +186,22 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
         "--ro-bind", "/nix", "/nix",
         # System config (DNS, passwd, nix profiles)
         "--ro-bind", "/etc", "/etc",
-        # Nix daemon socket, current-system binaries, wrappers
-        "--ro-bind", "/run", "/run",
-        # Block most of desktop session (Wayland, PipeWire, etc.)
-        "--tmpfs", "/run/user",
+        # Shadow SSH system drop-ins — they appear owned by 'nobody' inside the
+        # sandbox (bwrap user namespace maps root→nobody) and SSH refuses them.
+        # The base /etc/ssh/ssh_config is kept; only the .d/ snippet dir is emptied.
+        "--tmpfs", "/etc/ssh/ssh_config.d",
+        # Empty /run — avoids exposing docker socket, mounted media, etc.
+        "--tmpfs", "/run",
     ]
+
+    # Selective /run binds — only what's actually needed:
+    #   systemd/resolve: resolv.conf on systemd distros (Fedora etc.) is a symlink here
+    #   current-system, booted-system, wrappers: NixOS runtime paths (no-op on non-NixOS)
+    for run_path in ["/run/systemd/resolve", "/run/current-system", "/run/booted-system", "/run/wrappers"]:
+        if os.path.islink(run_path):
+            args += ["--symlink", os.readlink(run_path), run_path]
+        elif os.path.isdir(run_path):
+            args += ["--ro-bind", run_path, run_path]
 
     # Non-NixOS system paths (absent or /nix-backed on NixOS, real on distros).
     # Symlinked compat paths (e.g. /lib64 -> usr/lib64 on Fedora usrmerge) are
@@ -189,8 +259,9 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     if os.path.isfile(legacy_credentials) and not os.path.exists(config_credentials):
         args += ["--bind", legacy_credentials, config_credentials]
 
-    # D-Bus user socket (needed for KWallet/keyring access, e.g. gh credentials)
     uid = os.getuid()
+
+    # D-Bus user socket (needed for KWallet/keyring access, e.g. gh credentials)
     dbus_socket = f"/run/user/{uid}/bus"
     if os.path.exists(dbus_socket):
         args += ["--bind", dbus_socket, dbus_socket]
@@ -284,6 +355,26 @@ def resolve_shell(home_dir):
     return BASH
 
 
+def exec_bwrap(bwrap_args, inner_cmd, podman_proc, tmpdir):
+    """Fork, exec bwrap in the child, then clean up in the parent on exit."""
+    full_cmd = [BWRAP] + bwrap_args + ["--"] + inner_cmd
+
+    pid = os.fork()
+    if pid == 0:
+        os.execvp(BWRAP, full_cmd)
+        sys.exit(1)  # unreachable unless execvp fails
+
+    try:
+        _, status = os.waitpid(pid, 0)
+    finally:
+        if podman_proc is not None:
+            podman_proc.terminate()
+            podman_proc.wait()
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    sys.exit(os.waitstatus_to_exitcode(status))
+
+
 def main():
     args = parse_args()
 
@@ -303,8 +394,7 @@ def main():
 
     project_name = os.path.basename(project_dir)
     script_name = get_script_name()
-    sandbox_tmp = f"/tmp/{script_name}-{project_name}"
-    os.makedirs(sandbox_tmp, exist_ok=True)
+    sandbox_tmp = tempfile.mkdtemp(prefix=f"{script_name}-{project_name}-")
 
     home_dir = os.environ["HOME"]
 
@@ -318,9 +408,23 @@ def main():
     shell_path = resolve_shell(home_dir)
     bwrap_args = build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path)
 
+    # Per-sandbox Podman: isolated storage root and socket under sandbox_tmp.
+    # The socket ends up at sandbox_tmp/podman/podman.sock, which is visible
+    # inside the sandbox as /tmp/podman/podman.sock via the existing /tmp bind.
+    # Testcontainers: set TESTCONTAINERS_RYUK_DISABLED=true in your project if
+    # Ryuk complains (it requests a privileged container; JVM hooks still clean up).
+    podman_proc, podman_socket = start_podman_service(sandbox_tmp)
+    if podman_socket:
+        # Inside the sandbox, sandbox_tmp == /tmp, so rewrite the path.
+        inner_socket = "/tmp" + podman_socket[len(sandbox_tmp):]
+        bwrap_args += [
+            "--setenv", "DOCKER_HOST", f"unix://{inner_socket}",
+            "--setenv", "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", inner_socket,
+        ]
+
     if args.shell:
         print(f"Entering sandboxed shell in {project_dir}")
-        os.execvp(BWRAP, [BWRAP] + bwrap_args + ["--", shell_path])
+        exec_bwrap(bwrap_args, [shell_path], podman_proc, sandbox_tmp)
     else:
         launch_cmd = args.launch_cmd
         print(f"Starting sandboxed {launch_cmd.split()[0]} in {project_dir}")
@@ -331,11 +435,9 @@ def main():
             if use_attr:
                 nix_args += ["-A", "shell"]
             nix_args += ["--run", launch_cmd]
-            os.execvp(BWRAP, [BWRAP] + bwrap_args + ["--"] + nix_args)
+            exec_bwrap(bwrap_args, nix_args, podman_proc, sandbox_tmp)
         else:
-            os.execvp(BWRAP, [BWRAP] + bwrap_args + [
-                "--", BASH, "-c", launch_cmd,
-            ])
+            exec_bwrap(bwrap_args, [BASH, "-c", launch_cmd], podman_proc, sandbox_tmp)
 
 
 if __name__ == "__main__":
