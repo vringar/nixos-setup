@@ -35,22 +35,23 @@
   # Strip the git dep from package.json and package-lock.json so that
   # fetchNpmDeps (which runs npm ci in a FOD) doesn't try to clone over SSH.
   # We inject the pre-built package into node_modules in preBuild instead.
-  src = pkgs.runCommand "element-templates-cli-src" {
-    nativeBuildInputs = [pkgs.jq];
-  } ''
-    cp -r ${rawSrc} $out
-    chmod -R u+w $out
+  src =
+    pkgs.runCommand "element-templates-cli-src" {
+      nativeBuildInputs = [pkgs.jq];
+    } ''
+      cp -r ${rawSrc} $out
+      chmod -R u+w $out
 
-    jq 'del(.devDependencies["bpmn-js-element-templates"])' \
-      $out/package.json > $out/package.json.tmp
-    mv $out/package.json.tmp $out/package.json
+      jq 'del(.devDependencies["bpmn-js-element-templates"])' \
+        $out/package.json > $out/package.json.tmp
+      mv $out/package.json.tmp $out/package.json
 
-    jq '
-      del(.packages[""].devDependencies["bpmn-js-element-templates"])
-      | del(.packages["node_modules/bpmn-js-element-templates"])
-    ' $out/package-lock.json > $out/package-lock.json.tmp
-    mv $out/package-lock.json.tmp $out/package-lock.json
-  '';
+      jq '
+        del(.packages[""].devDependencies["bpmn-js-element-templates"])
+        | del(.packages["node_modules/bpmn-js-element-templates"])
+      ' $out/package-lock.json > $out/package-lock.json.tmp
+      mv $out/package-lock.json.tmp $out/package-lock.json
+    '';
 in
   pkgs.buildNpmPackage {
     pname = "element-templates-cli";
