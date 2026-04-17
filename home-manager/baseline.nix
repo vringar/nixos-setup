@@ -36,6 +36,7 @@ in {
       pkgs.pre-commit
       pkgs.ripgrep
       pkgs.shellcheck
+      (pkgs.writeShellScriptBin "jj-precommit" (builtins.readFile ../scripts/jj-precommit.sh))
     ];
 
     programs.bash = {
@@ -92,7 +93,6 @@ in {
     programs.direnv = {
       enable = true;
       nix-direnv.enable = true;
-      enableNixDirenvIntegration = true;
     };
     programs.delta = {
       enable = true;
@@ -261,7 +261,7 @@ in {
                   exit 0
                 fi
                 echo "Running pre-commit on commits since trunk..."
-                pre-commit run --all-files
+                jj-precommit
                 echo "Pre-commit passed, pushing..."
                 exec jj git push "$@"
               ''
