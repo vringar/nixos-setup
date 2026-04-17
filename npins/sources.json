@@ -19,14 +19,13 @@
     "camunda-ai-dev-kit": {
       "type": "Git",
       "repository": {
-        "type": "GitHub",
-        "owner": "camunda",
-        "repo": "camunda-ai-dev-kit"
+        "type": "Git",
+        "url": "git+ssh://git@github.com/camunda/camunda-ai-dev-kit"
       },
       "branch": "main",
       "submodules": false,
       "revision": "2ef2f4c2e786fcccc5ec9269f2252b741140a8c1",
-      "url": "https://github.com/camunda/camunda-ai-dev-kit/archive/2ef2f4c2e786fcccc5ec9269f2252b741140a8c1.tar.gz",
+      "url": null,
       "hash": "sha256-kXPk1iTqOho9+zuXEQghI4uEPwcyS/w25EBX7H1VWVE="
     },
     "cpitd": {
@@ -64,9 +63,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "c975a66a56306b38eaa3108f54bbc11e213f42f6",
-      "url": "https://github.com/nix-community/home-manager/archive/c975a66a56306b38eaa3108f54bbc11e213f42f6.tar.gz",
-      "hash": "sha256-e7BhggoWhg3Ok7dDI5kY1XZzORBQc0Rclcs3IWzux3w="
+      "revision": "3c7524c68348ef79ce48308e0978611a050089b2",
+      "url": "https://github.com/nix-community/home-manager/archive/3c7524c68348ef79ce48308e0978611a050089b2.tar.gz",
+      "hash": "sha256-No6QGBmIv5ChiwKCcbkxjdEQ/RO2ZS1gD7SFy6EZ7rc="
     },
     "lix-module": {
       "type": "Git",
@@ -92,22 +91,21 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "bc9fb560ac2d36cd317a856ee96785ea2055fbff",
-      "url": "https://git.lix.systems/lix-project/lix/archive/bc9fb560ac2d36cd317a856ee96785ea2055fbff.tar.gz",
-      "hash": "sha256-bONRPjhk5OZdnkQZexZNJzlvwIPg31Gy7fNiwGoX3BQ="
+      "revision": "526bcac44a365648acf5302c147772e40cff6b89",
+      "url": "https://git.lix.systems/lix-project/lix/archive/526bcac44a365648acf5302c147772e40cff6b89.tar.gz",
+      "hash": "sha256-ByK+/+KrmSVOC0RPMvQbyhGxl3CfOMD95RJG0Blo430="
     },
     "mcp": {
       "type": "Git",
       "repository": {
-        "type": "GitHub",
-        "owner": "camunda",
-        "repo": "mcp"
+        "type": "Git",
+        "url": "git+ssh://git@github.com/camunda/mcp"
       },
       "branch": "main",
       "submodules": false,
-      "revision": "e442f5ac8a46c4f36c4828b3baf0c694dd8e0f04",
-      "url": "https://github.com/camunda/mcp/archive/e442f5ac8a46c4f36c4828b3baf0c694dd8e0f04.tar.gz",
-      "hash": "sha256-6+AVydKYtQd64/KiZeCZRZgySLSAQuAgkY2dgWq8rgo="
+      "revision": "6cde8f6b659a3314450126200cfa467fb59c5223",
+      "url": null,
+      "hash": "sha256-J7cVYMCnXejtaO1Xs5OKu01OVxkXLzGeZKlfwWsjEsU="
     },
     "nixGL": {
       "type": "Git",
@@ -125,8 +123,8 @@
     "nixpkgs": {
       "type": "Channel",
       "name": "nixos-unstable",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre975402.68d8aa3d661f/nixexprs.tar.xz",
-      "hash": "sha256-hvNLo3SaIwi6+Cm5NMLyFQYJrYagpsYap4EfQe9CQpc="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre977467.4c1018dae018/nixexprs.tar.xz",
+      "hash": "sha256-WGjBfvXv/mcg5yBg+AtK1Q3FHyXfjAAeJROmg7DLYfM="
     },
     "nucleus": {
       "type": "Git",
@@ -152,10 +150,10 @@
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "v0.35.0",
-      "revision": "8a7106c8f2996ebc75b38a71c5f342f17811ce39",
-      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.35.0",
-      "hash": "sha256-7DAL4dsnq2ZWmkyoI+BeN21ouK0VyLvSxOCt5hPWCl4="
+      "version": "v0.36.0",
+      "revision": "a69935746172d913fcbd282d720d2daf5025e5e9",
+      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.36.0",
+      "hash": "sha256-QmjuAFyM4Bgl1ZY4SrWijSuiQvusZ5+9aq4lvLMnUF4="
     }
   },
   "version": 7
