@@ -37,6 +37,7 @@ in {
       pkgs.ripgrep
       pkgs.shellcheck
       (pkgs.writeShellScriptBin "jj-precommit" (builtins.readFile ../scripts/jj-precommit.sh))
+      (pkgs.writeShellScriptBin "jj-check-ac" (builtins.readFile ../scripts/jj-check-ac.sh))
     ];
 
     programs.bash = {
@@ -262,7 +263,8 @@ in {
                 fi
                 echo "Running pre-commit on commits since trunk..."
                 jj-precommit
-                echo "Pre-commit passed, pushing..."
+                jj-check-ac
+                echo "All checks passed, pushing..."
                 exec jj git push "$@"
               ''
               ""

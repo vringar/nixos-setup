@@ -9,12 +9,18 @@ pkgs.rustPlatform.buildRustPackage {
   src = sources.crosslink;
   sourceRoot = "source/crosslink";
 
-  cargoHash = "sha256-cAZi6atfZWXOmt05jwiREQIrTh/Gm2VOf81HEgtZTyc=";
+  cargoHash = "sha256-WSf2aYZitB0majhnirAqZNzjcv+Kwk5+uWj05jgI4eo=";
 
-  nativeBuildInputs = [pkgs.pkg-config pkgs.installShellFiles];
-  buildInputs = [pkgs.sqlite];
+  nativeBuildInputs = [
+    pkgs.pkg-config
+    pkgs.installShellFiles
+  ];
+  buildInputs = [ pkgs.sqlite ];
 
-  nativeCheckInputs = [pkgs.git pkgs.which];
+  nativeCheckInputs = [
+    pkgs.git
+    pkgs.which
+  ];
 
   postInstall = ''
     bash ${./generate-completions.sh} $out/bin/crosslink > _crosslink

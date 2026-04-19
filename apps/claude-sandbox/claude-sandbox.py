@@ -189,7 +189,8 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
         # Shadow SSH system drop-ins — they appear owned by 'nobody' inside the
         # sandbox (bwrap user namespace maps root→nobody) and SSH refuses them.
         # The base /etc/ssh/ssh_config is kept; only the .d/ snippet dir is emptied.
-        "--tmpfs", "/etc/ssh/ssh_config.d",
+        # Only applied when the directory exists (absent on NixOS).
+        *(["--tmpfs", "/etc/ssh/ssh_config.d"] if os.path.isdir("/etc/ssh/ssh_config.d") else []),
         # Empty /run — avoids exposing docker socket, mounted media, etc.
         "--tmpfs", "/run",
     ]
