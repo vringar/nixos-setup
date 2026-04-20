@@ -37,6 +37,11 @@ in {
     };
   };
 
+  # Disable systemd-ssh-proxy Include in /etc/ssh/ssh_config — the included
+  # file lives in the nix store (owned by nobody:nogroup) and SSH refuses to
+  # read config files not owned by root or the current user.
+  programs.ssh.systemd-ssh-proxy.enable = false;
+
   # Allow passwordless sudo for colmena remote deployment
   # See: https://github.com/zhaofengli/colmena/blob/main/src/nix/host/ssh.rs
   security.sudo.extraRules = [
