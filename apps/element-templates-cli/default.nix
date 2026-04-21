@@ -25,11 +25,16 @@
     env.PUPPETEER_SKIP_DOWNLOAD = "1";
   };
 
+  # Update by setting both hashes to "" and rebuilding.
+  etCliRev = "feat/query-set-subcommands";
+  etCliHash = "sha256-MDIHDsckjqrYB6zGmLiVDClMuNRZu+2hrJxTtP6nWZQ=";
+  etCliNpmDepsHash = "sha256-WkYlgSsaHbmE0nvO857WBKltTKmAB1kcROqaDTKoyJc=";
+
   rawSrc = pkgs.fetchFromGitHub {
     owner = "vringar";
     repo = "element-templates-cli";
-    rev = "229132458848505e9a84ee8f59566457c3fb0b57";
-    hash = "sha256-zypbi3pQ3pmk3KEqvUQF+cUoFnxv/0Du8IAiaM0t03Y=";
+    rev = etCliRev;
+    hash = etCliHash;
   };
 
   # Strip the git dep from package.json and package-lock.json so that
@@ -58,7 +63,7 @@ in
     version = "0.5.0-pr44";
     inherit src;
 
-    npmDepsHash = "sha256-WkYlgSsaHbmE0nvO857WBKltTKmAB1kcROqaDTKoyJc=";
+    npmDepsHash = etCliNpmDepsHash;
     npmBuildScript = "build";
 
     preBuild = ''

@@ -38,6 +38,8 @@ in {
       pkgs.shellcheck
       (pkgs.writeShellScriptBin "jj-precommit" (builtins.readFile ../scripts/jj-precommit.sh))
       (pkgs.writeShellScriptBin "jj-check-ac" (builtins.readFile ../scripts/jj-check-ac.sh))
+      (pkgs.writeShellScriptBin "jj-check-wip" (builtins.readFile ../scripts/jj-check-wip.sh))
+      (pkgs.writeShellScriptBin "jj-push-revset" (builtins.readFile ../scripts/jj-push-revset.sh))
     ];
 
     programs.bash = {
@@ -54,6 +56,7 @@ in {
       vimAlias = true;
       withPython3 = false;
       withRuby = false;
+      initLua = builtins.readFile ./nvim.lua;
     };
 
     programs.zsh = {
@@ -72,6 +75,7 @@ in {
       };
       sessionVariables = {
         RUST_BACKTRACE = "1";
+        JAVA_HOME = "/etc/alternatives/java-sdk";
       };
       oh-my-zsh = {
         enable = true;
@@ -264,6 +268,7 @@ in {
                 echo "Running pre-commit on commits since trunk..."
                 jj-precommit
                 jj-check-ac
+                jj-check-wip "$(jj-push-revset "$@")"
                 echo "All checks passed, pushing..."
                 exec jj git push "$@"
               ''

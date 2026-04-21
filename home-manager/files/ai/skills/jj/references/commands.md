@@ -32,7 +32,20 @@ jj op restore <previous-op-id>
 
 The `jj push` alias (defined in home-manager jujutsu config):
 1. Checks if `.pre-commit-config.yaml` exists in the repo
-2. If yes, runs `pre-commit run --all-files` on commits in `trunk()..@-`
+2. If yes, runs `jj-precommit` on commits in `trunk()..@-`
 3. Only pushes if pre-commit passes
 
 If no `.pre-commit-config.yaml` exists, it just runs `jj git push` directly.
+
+`jj push` works correctly from inside jj workspaces — `jj-precommit` handles workspace path resolution.
+
+## jj-precommit
+
+`jj-precommit` is a workspace-aware wrapper around `pre-commit`. Use it instead of `pre-commit` directly whenever running hooks manually:
+
+```bash
+jj-precommit run --all-files   # instead of: pre-commit run --all-files
+jj-precommit run               # instead of: pre-commit run
+```
+
+It resolves the correct repo root even from inside a `.workspace/<name>/` directory, where plain `pre-commit` would walk up to the wrong `.git`.

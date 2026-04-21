@@ -412,8 +412,8 @@ def main():
     # Per-sandbox Podman: isolated storage root and socket under sandbox_tmp.
     # The socket ends up at sandbox_tmp/podman/podman.sock, which is visible
     # inside the sandbox as /tmp/podman/podman.sock via the existing /tmp bind.
-    # Testcontainers: set TESTCONTAINERS_RYUK_DISABLED=true in your project if
-    # Ryuk complains (it requests a privileged container; JVM hooks still clean up).
+    # Testcontainers: TESTCONTAINERS_RYUK_DISABLED is always set (Ryuk requests a
+    # privileged container which fails in rootless Podman; JVM hooks still clean up).
     podman_proc, podman_socket = start_podman_service(sandbox_tmp)
     if podman_socket:
         # Inside the sandbox, sandbox_tmp == /tmp, so rewrite the path.
@@ -421,6 +421,7 @@ def main():
         bwrap_args += [
             "--setenv", "DOCKER_HOST", f"unix://{inner_socket}",
             "--setenv", "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", inner_socket,
+            "--setenv", "TESTCONTAINERS_RYUK_DISABLED", "true",
         ]
 
     if args.shell:

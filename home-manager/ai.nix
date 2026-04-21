@@ -38,6 +38,7 @@
   rtk = import ../apps/rtk {inherit pkgs sources;};
   claude-sandbox = import ../apps/claude-sandbox {inherit pkgs;};
   element-templates-cli = import ../apps/element-templates-cli {inherit pkgs;};
+  bpmnlint = import ../apps/bpmnlint {inherit pkgs sources;};
   nucleus = sources.nucleus;
 
   # Private repos — only forced when my.work.enable = true
@@ -148,6 +149,7 @@ in {
       ]
       ++ lib.optionals config.my.work.enable [
         element-templates-cli
+        bpmnlint
         feel-mcp-server
       ];
 

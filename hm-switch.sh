@@ -10,8 +10,9 @@ fi
 cd "$(dirname "$0")" || exit
 
 nixpkgs="$(nix eval --raw --impure --expr '(import ./npins).nixpkgs')"
+home_manager="$(nix eval --raw --impure --expr '(import ./npins).home-manager')"
 
 exec nix-shell \
   -I "nixpkgs=$nixpkgs" \
   -p home-manager \
-  --run "home-manager -f '$(pwd)/home.nix' -I 'nixpkgs=$nixpkgs' switch --show-trace"
+  --run "home-manager -f '$(pwd)/home.nix' -I 'nixpkgs=$nixpkgs' -I 'home-manager=$home_manager' switch --show-trace"

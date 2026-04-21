@@ -41,6 +41,18 @@
       "url": null,
       "hash": "sha256-nD5UPvDrbho9cr6Uyge8BIPmpQgFwu7l6DssOPDeaFE="
     },
+    "camunda-ai-dev-kit": {
+      "type": "Git",
+      "repository": {
+        "type": "Git",
+        "url": "git+ssh://git@github.com/camunda/camunda-ai-dev-kit"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "38fe7e9720a0ecf94bc60107878de4c3eaf71aa9",
+      "url": null,
+      "hash": "sha256-jv2+DVVhYEz36OfHbzsC7op5z893zNqe9Bq6bfAmaEc="
+    },
     "cpitd": {
       "type": "Git",
       "repository": {
@@ -76,9 +88,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "5b56ad02dc643808b8af6d5f3ff179e2ce9593f4",
-      "url": "https://github.com/nix-community/home-manager/archive/5b56ad02dc643808b8af6d5f3ff179e2ce9593f4.tar.gz",
-      "hash": "sha256-Lh5Ns9DI67E+lSMOCGK0S+mFPy0mz0yOGiJTUXiR9JI="
+      "revision": "6012cf1fed3eba66115f3fd117b9be6bd2a15b2f",
+      "url": "https://github.com/nix-community/home-manager/archive/6012cf1fed3eba66115f3fd117b9be6bd2a15b2f.tar.gz",
+      "hash": "sha256-SV+9PgNwZ8jHVCjK6YaCBzaheLSW7cDnm5DpOYrD8Vw="
     },
     "lix-module": {
       "type": "Git",
@@ -104,9 +116,21 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "5afda956a76690ab1d27d6552b94960cc0ac9792",
-      "url": "https://git.lix.systems/lix-project/lix/archive/5afda956a76690ab1d27d6552b94960cc0ac9792.tar.gz",
-      "hash": "sha256-ccasWsQFJL7XXMURz1Hh0jiHEPwO/XDUt2xE0rqQnT8="
+      "revision": "bb8bc31e58e09ddc9f278fb848dfa30faddfd625",
+      "url": "https://git.lix.systems/lix-project/lix/archive/bb8bc31e58e09ddc9f278fb848dfa30faddfd625.tar.gz",
+      "hash": "sha256-MheSE/ezR8UDgRrgmRlteNEAX/hBCM74oIh++co3AgU="
+    },
+    "mcp": {
+      "type": "Git",
+      "repository": {
+        "type": "Git",
+        "url": "git+ssh://git@github.com/camunda/mcp"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "bba0c2f664c0906b9a7e1aa23bad0c8de03d5306",
+      "url": null,
+      "hash": "sha256-AF0gqnH+snBxAip7I6UeJbIEkGixNgJmL9/p5Q6dVc8="
     },
     "nixGL": {
       "type": "Git",
@@ -124,8 +148,8 @@
     "nixpkgs": {
       "type": "Channel",
       "name": "nixos-unstable",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre980183.4bd9165a9165/nixexprs.tar.xz",
-      "hash": "sha256-Gk2T0tDDDAs319hp/ak+bAIUG5bPMvnNEjPV8CS86Fg="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre982522.b12141ef619e/nixexprs.tar.xz",
+      "hash": "sha256-qH3mBrZnNsPdwpAgvG2Olgzsp5kt+Sibpm1tx1pxkcQ="
     },
     "nucleus": {
       "type": "Git",
@@ -151,10 +175,10 @@
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "v0.37.1",
-      "revision": "5c9e1ac6d72500bcb6283cf9a287a6778b7747f1",
-      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.37.1",
-      "hash": "sha256-uKf3GLabsZ094VviTXF90FohLiyXFqTV/hHlm/l+ICQ="
+      "version": "v0.37.2",
+      "revision": "80a6fe606f73b19e52b0b330d242e62a6c07be42",
+      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.37.2",
+      "hash": "sha256-rNuu8B5TnKZHrbVSV8HkcTeTdcol26259GGJEPEMPZY="
     }
   },
   "version": 7

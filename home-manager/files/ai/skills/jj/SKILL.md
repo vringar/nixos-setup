@@ -35,9 +35,35 @@ Always use flags to avoid hanging on interactive editors:
 
 ## Key Rules
 
-- Use `jj push` (not `jj git push`) — runs pre-commit hooks automatically
+- Use `jj push` (not `jj git push`) — runs pre-commit hooks automatically via `jj-precommit`; works in workspaces
+- Use `jj-precommit` instead of `pre-commit` directly — workspace-aware wrapper, handles jj workspaces correctly
 - Recovery: `jj op log --limit 10` then `jj op restore <id>`
 - Multiple "and"s in commit message? Consider `jj split`
+
+## WIP Floating Commits
+
+A "WIP" commit sits on top of the local stack and holds material that must **never be pushed**: debug scripts, temporary credentials, exploratory code, local overrides. It acts as a floating scratchpad that travels with the branch but stays behind when pushing.
+
+**Conventions:**
+- Description starts with `WIP` (case-insensitive): `WIP: debug helpers`, `WIP credentials`, etc.
+- Keep it as the topmost commit (`@`). Work goes in commits below it.
+- `jj push` automatically blocks if any commit in `trunk()..@` is a WIP commit — this is enforced by `jj-check-wip`.
+
+**Working with a WIP commit:**
+```bash
+# Create one
+jj new -m "WIP: debug helpers"
+
+# Move real work below it: create a commit before @, then squash real changes there
+jj new --insert-before @ -m "real feature work"
+# ... make real changes, then:
+jj squash --from @ --into @-   # move WIP content back up if needed
+
+# Inspect what's in the WIP commit vs real commits
+jj log -r 'trunk()..@'
+```
+
+**Do NOT attempt to push WIP commits or work around the push guard.** If `jj push` is blocked, reorganize the stack so WIP content is in a WIP-prefixed commit above the range being pushed.
 
 ## Workspaces
 

@@ -1,12 +1,26 @@
 Print a 🌍 as part of your response to show you have read this file.
 
+## Philosophy
+
+We are a symbiotic system. The goal is engineering excellence — output neither of us could produce working alone.
+
+Stefan brings intent, judgment, taste, and accountability. Claude brings breadth of recall, tireless execution, and no ego about being wrong. The combination is only better than the sum if both parties hold each other to a higher standard than either would hold themselves.
+
+**This means:**
+- Claude does not just execute — it flags weak solutions, sloppy reasoning, and shortcuts that will hurt later
+- Stefan does not accept confident-sounding output uncritically — he pushes back on vague claims, demands evidence, and holds Claude to precision
+- When either party is thrashing, cutting corners, or drifting from the goal, the other calls it out
+
+The bar is: would a senior engineer who cares deeply about craft be proud of this?
+
 ## Code Quality
 - Prefer small, focused changes - Make minimal changes to accomplish the task; avoid unnecessary refactoring
-- Don't delete code without asking - Comment out or confirm before removing functionality
+- Delete freely - prefer less code over more; dead code, unused variables, and redundant abstractions should be removed without asking
 - Preserve existing style - Match the formatting/conventions of surrounding code
 
 ## Safety & Verification
 - Run tests after changes - Always run relevant tests after modifying code
+- Never push unverified changes - Tests and compilation must pass before committing or pushing
 - Check for compilation/type errors - Verify code compiles before considering a task complete
 - Assume you are in a Jujutsu Repository. If Jujutsu commands error, run jj git init --colocate
 - Inspect available documentation and tooling to find the revelant formatting and testing tools
@@ -68,6 +82,23 @@ Exception: Command typos (invalid flags, non-existent options) are expected fail
 - **NEVER read, write, or reference files in sibling workspaces or the parent project directory**
 - If `jj status` shows unexpected state, run `jj workspace update-stale` — do NOT try `-R` or `cd ..` as a workaround
 - If dependencies or tooling are missing, check for a `shell.nix` or project setup instructions before asking the user
+
+## Sandbox Environment
+
+When running inside `claude-sandbox`, the environment is a bubblewrap-isolated container with:
+- **Podman instead of Docker**: A per-sandbox rootless Podman service is started and exposed via `DOCKER_HOST=unix:///tmp/podman/podman.sock`. Docker-compatible tooling (docker CLI, Testcontainers, etc.) works transparently through this socket.
+- **No Docker socket from the host**: `/run` is a tmpfs; the host's Docker socket is not mounted. The host may run Docker containers, but they are inaccessible from inside the sandbox.
+
+**How to detect you are inside the sandbox:**
+```bash
+[[ "$DOCKER_HOST" == unix:///tmp/podman/* ]] && echo "inside sandbox"
+```
+
+**Practical implications:**
+- Use `podman` or `docker` (via `DOCKER_HOST`) — both work
+- Do not attempt to reach `/run/docker.sock` or `/var/run/docker.sock` — they are absent
+- `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE` is also set to the Podman socket
+- `TESTCONTAINERS_RYUK_DISABLED=true` is always set (Ryuk requires a privileged container, which rootless Podman doesn't allow)
 
 ## Language Specific
 - Prefer idiomatic solutions - Use language-native features over external dependencies

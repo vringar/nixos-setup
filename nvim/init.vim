@@ -1,0 +1,1 @@
+/home/stefan/projects/other/dotfiles/other/.vimrc
