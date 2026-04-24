@@ -6,6 +6,7 @@
 }: let
   sources = import ./npins;
   c8ctl = import ./apps/c8ctl {inherit pkgs;};
+  camunda-modeler = import ./apps/camunda-modeler {inherit pkgs sources;};
   username = builtins.getEnv "USER";
 in {
   assertions = [
@@ -43,7 +44,7 @@ in {
     c8ctl
     pkgs.auth0-cli
     (pkgs.writeShellScriptBin "camunda-modeler" ''
-      exec ${lib.getExe' pkgs.nixgl.auto.nixGLDefault "nixGL"} ${lib.getExe pkgs.camunda-modeler} "$@"
+      exec ${lib.getExe' pkgs.nixgl.auto.nixGLDefault "nixGL"} ${lib.getExe camunda-modeler} "$@"
     '')
   ];
 

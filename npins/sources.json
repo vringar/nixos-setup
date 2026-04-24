@@ -16,6 +16,31 @@
       "url": "https://api.github.com/repos/ryantm/agenix/tarball/refs/tags/0.15.0",
       "hash": "sha256-ipqShkBmHKC9ft1ZAsA6aeKps32k7+XZSPwfxeHLsAU="
     },
+    "bpmnlint": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "bpmn-io",
+        "repo": "bpmnlint"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "c9366a0dbdda80be7e2e0b944a5892c46c249f0d",
+      "url": "https://github.com/bpmn-io/bpmnlint/archive/c9366a0dbdda80be7e2e0b944a5892c46c249f0d.tar.gz",
+      "hash": "sha256-qvsjRwAMmw426CNW4BRTB4gnQXKAH5VGQ2nQ882LCQQ="
+    },
+    "bpmnlint-aitools": {
+      "type": "Git",
+      "repository": {
+        "type": "Git",
+        "url": "git+ssh://git@github.com/vringar/bpmnlint-aitools.git"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "0c400526047109b9d1e0677c24c91c02f564acb8",
+      "url": null,
+      "hash": "sha256-nD5UPvDrbho9cr6Uyge8BIPmpQgFwu7l6DssOPDeaFE="
+    },
     "cpitd": {
       "type": "Git",
       "repository": {
