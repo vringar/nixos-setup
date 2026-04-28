@@ -88,9 +88,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "6012cf1fed3eba66115f3fd117b9be6bd2a15b2f",
-      "url": "https://github.com/nix-community/home-manager/archive/6012cf1fed3eba66115f3fd117b9be6bd2a15b2f.tar.gz",
-      "hash": "sha256-SV+9PgNwZ8jHVCjK6YaCBzaheLSW7cDnm5DpOYrD8Vw="
+      "revision": "c1140540536d483e2730320100f6835d62c94fdf",
+      "url": "https://github.com/nix-community/home-manager/archive/c1140540536d483e2730320100f6835d62c94fdf.tar.gz",
+      "hash": "sha256-PGKgo2dO6fK603QGI+DWXdKmS09pbJjjTxwRHdhkGZA="
     },
     "lix-module": {
       "type": "Git",
@@ -116,9 +116,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "bb8bc31e58e09ddc9f278fb848dfa30faddfd625",
-      "url": "https://git.lix.systems/lix-project/lix/archive/bb8bc31e58e09ddc9f278fb848dfa30faddfd625.tar.gz",
-      "hash": "sha256-MheSE/ezR8UDgRrgmRlteNEAX/hBCM74oIh++co3AgU="
+      "revision": "68834b7841e37a902f1e4bdd3577a4a825e62e2f",
+      "url": "https://git.lix.systems/lix-project/lix/archive/68834b7841e37a902f1e4bdd3577a4a825e62e2f.tar.gz",
+      "hash": "sha256-D75XcSj/0Okj2V/XWVvj4ZyoQlgUBbVuiQTilBRf3gk="
     },
     "mcp": {
       "type": "Git",
@@ -128,9 +128,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "bba0c2f664c0906b9a7e1aa23bad0c8de03d5306",
+      "revision": "522fba057fa514dbfc0dc2b4c15ee0a4c56163ca",
       "url": null,
-      "hash": "sha256-AF0gqnH+snBxAip7I6UeJbIEkGixNgJmL9/p5Q6dVc8="
+      "hash": "sha256-XZNYsCaf8kN3aD+W6sFk128dxOlEB68gCcJcoOgS4+M="
     },
     "nixGL": {
       "type": "Git",
@@ -148,8 +148,8 @@
     "nixpkgs": {
       "type": "Channel",
       "name": "nixos-unstable",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre982522.b12141ef619e/nixexprs.tar.xz",
-      "hash": "sha256-qH3mBrZnNsPdwpAgvG2Olgzsp5kt+Sibpm1tx1pxkcQ="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre985613.0726a0ecb6d4/nixexprs.tar.xz",
+      "hash": "sha256-wMN1gM00sUQ2KC9CNr/XEOGdfOrl67PabIRv9AYayTo="
     },
     "nucleus": {
       "type": "Git",

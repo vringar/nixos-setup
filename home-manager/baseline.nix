@@ -75,7 +75,7 @@ in {
       };
       sessionVariables = {
         RUST_BACKTRACE = "1";
-        JAVA_HOME = "/etc/alternatives/java-sdk";
+        JAVA_HOME = "/etc/alternatives/java_sdk";
       };
       oh-my-zsh = {
         enable = true;

@@ -25,6 +25,17 @@ Always use flags to avoid hanging on interactive editors:
 | `jj squash` | `jj squash -m "message"` |
 | `jj new` | `jj new -m "message"` (optional) |
 
+## Critical Recovery — `jj op restore` is the panic button
+
+If a `jj` command produced unexpected state (a wrong `jj restore` wiped your work, a rebase landed sideways, a snapshot ate uncommitted edits), do NOT chain more "fix" commands. Rewind:
+
+```bash
+jj op log --limit 10        # find the op id from before things broke
+jj op restore <op-id>       # rewinds the entire repo, including the working copy
+```
+
+This is itself an op, so it's reversible. Reach for it the moment the working state stops matching expectation — every extra command after a bad op makes recovery harder.
+
 ## Conflict Resolution
 
 **Never** use sed, awk, or Edit on conflict markers. Always use `jj resolve`:
@@ -35,10 +46,17 @@ Always use flags to avoid hanging on interactive editors:
 
 ## Key Rules
 
-- Use `jj push` (not `jj git push`) — runs pre-commit hooks automatically via `jj-precommit`; works in workspaces
+- Use `jj push` (not `jj git push`) — runs pre-commit hooks automatically via `jj-precommit`; works in workspaces. Flags pass through, so `jj push --allow-new` and `jj push --bookmark <name>` work.
 - Use `jj-precommit` instead of `pre-commit` directly — workspace-aware wrapper, handles jj workspaces correctly
-- Recovery: `jj op log --limit 10` then `jj op restore <id>`
+- `jj edit <change_id>` (no `-r` needed) and `jj describe @-` work from any position — operating on revisions other than `@` is just normal usage, not a special case
 - Multiple "and"s in commit message? Consider `jj split`
+
+## Bookmark Gotchas
+
+- **First push of a new bookmark:** `jj push --bookmark <name> --allow-new`. Plain `jj push` refuses with *Refusing to create new remote bookmark*.
+- **Moving a bookmark backwards or sideways after a history rewrite:** `jj bookmark set <name> -r @ --allow-backwards`. Required when the new tip is not strictly ahead of the old.
+- **Diff against the pushed state:** the revset `<bookmark>@origin` references the remote tip — `jj diff --from main@origin --to @` shows local-vs-pushed; `jj restore --from feat/x@origin <paths>` resets paths to whatever is on origin.
+- **Tangled stack?** See the snapshot-rewrite workflow in [references/commands.md](references/commands.md) — often cleaner than chained interactive splits.
 
 ## WIP Floating Commits
 
@@ -76,5 +94,16 @@ If you're inside a `.workspace/<name>/` directory, you're in a jj workspace.
 - `jj workspace list` — see all workspaces (informational only, don't operate on others)
 
 **Why this matters:** Each workspace has its own `@` revision and working copy. The repo history is shared, but in-progress changes are isolated. Using `-R` to point at the root repo puts you in the `default` workspace's context, where you'll see unrelated changes and potentially corrupt another workspace's state.
+
+### Sandbox sessions: prefer a fresh workspace
+
+When you're invoked from inside `claude-sandbox` (or any agent context that shares a jj repo with the user's interactive editor), prefer creating a new workspace over mutating the default `@`:
+
+```bash
+jj workspace add .workspace/<task-name>
+cd .workspace/<task-name>
+```
+
+This isolates your churn (rebases, squashes, snapshot commits, `jj op restore` rewinds) from whatever the user has open live in the default workspace. The user's uncommitted edits stay untouched, and you can rewrite history aggressively without fear of clobbering their state. Tear down with `jj workspace forget <name>` when done.
 
 See [references/commands.md](references/commands.md) and [references/conflicts.md](references/conflicts.md).

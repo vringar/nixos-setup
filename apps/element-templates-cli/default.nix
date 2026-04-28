@@ -5,6 +5,11 @@
 # The fork depends on a sibling GitHub fork of bpmn-js-element-templates
 # (feat/export-util-subpath), which is not on npm yet. We build it separately
 # and inject it into node_modules before the esbuild bundling step.
+#
+# bpmn-js@18.x uses a DOM-dependent TextRenderer (via diagram-js/lib/util/Text).
+# We overwrite node_modules/bpmn-js/lib/draw/TextRenderer.js with the headless
+# version from vringar/bpmn-js-headless before esbuild runs, replacing the
+# document.createElement call with a pure-JS text estimator.
 {pkgs, ...}: let
   # vringar/bpmn-js-element-templates at feat/export-util-subpath
   # Needed because the PR uses subpath exports not yet in the published 2.23.0.
@@ -25,8 +30,15 @@
     env.PUPPETEER_SKIP_DOWNLOAD = "1";
   };
 
+  # Headless TextRenderer from vringar/bpmn-js-headless.
+  # Replaces the DOM-dependent bpmn-js TextRenderer with a pure-JS estimator.
+  headlessTextRenderer = pkgs.fetchurl {
+    url = "https://raw.githubusercontent.com/vringar/bpmn-js-headless/1acba2a3555c9b63aab079ec6466c18925a1597d/src/overrides/bpmn-js/lib/draw/TextRenderer.js";
+    hash = "sha256-lPcL8gJFAxzgpCZeA+0ro3ikN57BjDA09pJ+jXQw+Ds=";
+  };
+
   # Update by setting both hashes to "" and rebuilding.
-  etCliRev = "feat/query-set-subcommands";
+  etCliRev = "8bec16d35963de72732484cb8aba326a9c5500fb";
   etCliHash = "sha256-MDIHDsckjqrYB6zGmLiVDClMuNRZu+2hrJxTtP6nWZQ=";
   etCliNpmDepsHash = "sha256-WkYlgSsaHbmE0nvO857WBKltTKmAB1kcROqaDTKoyJc=";
 
@@ -70,6 +82,13 @@ in
       mkdir -p node_modules/bpmn-js-element-templates
       cp -r ${bpmnJsElementTemplates}/lib/node_modules/bpmn-js-element-templates/. \
         node_modules/bpmn-js-element-templates/
+
+      # Overwrite the DOM-dependent TextRenderer with the headless version.
+      # bpmn-js-element-templates pulls in bpmn-js@18.x which calls
+      # document.createElement in its TextRenderer. The headless override
+      # replaces this with a pure-JS character-width estimator.
+      cp ${headlessTextRenderer} \
+        node_modules/bpmn-js/lib/draw/TextRenderer.js
     '';
 
     meta = with pkgs.lib; {
