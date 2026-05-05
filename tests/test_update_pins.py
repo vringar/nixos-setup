@@ -341,6 +341,36 @@ def test_fill_empty_cargo_hash_scoped_to_pin(tmp_path):
     assert crosslink.read_text() == 'cargoHash = "";'  # crosslink untouched
 
 
+# ── update_pin strict/non-strict behavior ────────────────────────────────────
+
+update_pin = _mod.update_pin
+
+
+def test_update_pin_skips_on_npins_failure(tmp_path, monkeypatch):
+    """Default (non-strict): npins update failure skips the pin gracefully."""
+    monkeypatch.setattr(_mod, "run_npins_update", lambda pin: False)
+
+    result = update_pin("broken-pin", hostname="sz1", root=tmp_path)
+    assert result is True
+
+
+def test_update_pin_strict_fails_on_npins_failure(tmp_path, monkeypatch):
+    """Strict mode: npins update failure is treated as a real failure."""
+    monkeypatch.setattr(_mod, "run_npins_update", lambda pin: False)
+
+    result = update_pin("broken-pin", hostname="sz1", root=tmp_path, strict=True)
+    assert result is False
+
+
+def test_update_pin_proceeds_to_build_on_npins_success(tmp_path, monkeypatch):
+    """When npins update succeeds, build is attempted regardless of strict flag."""
+    monkeypatch.setattr(_mod, "run_npins_update", lambda pin: True)
+    monkeypatch.setattr(_mod, "run_colmena_build", lambda hostname: (True, ""))
+
+    result = update_pin("good-pin", hostname="sz1", root=tmp_path)
+    assert result is True
+
+
 # ── Real log fixtures from actual builds (add as you capture them) ────────────
 # To capture a real log:
 #   ./scripts/update-pins.py --capture-logs tests/fixtures/captured <pin>

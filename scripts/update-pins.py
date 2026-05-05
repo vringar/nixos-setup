@@ -181,12 +181,13 @@ def fix_mismatch_in_files(
 # -- Subprocess layer ----------------------------------------------------------
 
 
-def run_npins_update(pin: str) -> None:
-    subprocess.run(
+def run_npins_update(pin: str) -> bool:
+    """Run npins update for a single pin. Returns True on success."""
+    result = subprocess.run(
         ["nix-shell", "-p", "npins", "--run", f"npins update {pin}"],
-        check=True,
         cwd=REPO_ROOT,
     )
+    return result.returncode == 0
 
 
 def run_colmena_build(hostname: str) -> tuple[bool, str]:
@@ -252,13 +253,19 @@ def update_pin(
     root: Path,
     max_rounds: int = DEFAULT_MAX_ROUNDS,
     capture_dir: Optional[Path] = None,
+    strict: bool = False,
 ) -> bool:
     """
     Update *pin* and converge the build by fixing hash mismatches.
     Returns True on success.
     """
     print(f"==> Updating pin: {pin}")
-    run_npins_update(pin)
+    if not run_npins_update(pin):
+        if strict:
+            print(f"==> FATAL: npins update failed for pin: {pin}")
+            return False
+        print(f"==> Skipping pin: {pin} (npins update failed)")
+        return True
 
     nix_files = find_nix_files(root)
 
@@ -324,6 +331,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=default_hostname(),
         help="Colmena target host (default: current host on NixOS, otherwise sz1)",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail on npins update errors instead of skipping (default: skip and continue)",
+    )
     return parser
 
 
@@ -353,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
             root=REPO_ROOT,
             max_rounds=args.max_rounds,
             capture_dir=capture_dir,
+            strict=args.strict,
         )
         if not ok:
             failed.append(pin)
