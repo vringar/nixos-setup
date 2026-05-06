@@ -88,9 +88,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "c1140540536d483e2730320100f6835d62c94fdf",
-      "url": "https://github.com/nix-community/home-manager/archive/c1140540536d483e2730320100f6835d62c94fdf.tar.gz",
-      "hash": "sha256-PGKgo2dO6fK603QGI+DWXdKmS09pbJjjTxwRHdhkGZA="
+      "revision": "00ed86e58bb6979a7921859fd1615d19382eac5c",
+      "url": "https://github.com/nix-community/home-manager/archive/00ed86e58bb6979a7921859fd1615d19382eac5c.tar.gz",
+      "hash": "sha256-nUoQtf4Zq7DRYJrfv904hjrxjAlWVP6a1pNNFKx3FCg="
     },
     "lix-module": {
       "type": "Git",
@@ -116,9 +116,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "68834b7841e37a902f1e4bdd3577a4a825e62e2f",
-      "url": "https://git.lix.systems/lix-project/lix/archive/68834b7841e37a902f1e4bdd3577a4a825e62e2f.tar.gz",
-      "hash": "sha256-D75XcSj/0Okj2V/XWVvj4ZyoQlgUBbVuiQTilBRf3gk="
+      "revision": "2b409ad322c35c196bbf77ea5ea00312a74b8a6a",
+      "url": "https://git.lix.systems/lix-project/lix/archive/2b409ad322c35c196bbf77ea5ea00312a74b8a6a.tar.gz",
+      "hash": "sha256-GznBT8z7EPunmOhb3b4SJINzhN90jovvTyIuIqGl50Y="
     },
     "mcp": {
       "type": "Git",
@@ -160,9 +160,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "2668c5983740fe9b207ef6bcec1af88305c63004",
-      "url": "https://github.com/michaelwhitford/nucleus/archive/2668c5983740fe9b207ef6bcec1af88305c63004.tar.gz",
-      "hash": "sha256-ct/21dsbOvw0csHD4cylVWOQQ5YqEagBxcGksPaWfcA="
+      "revision": "93c171adb7cf1314d90bad3250f29aee91976b8d",
+      "url": "https://github.com/michaelwhitford/nucleus/archive/93c171adb7cf1314d90bad3250f29aee91976b8d.tar.gz",
+      "hash": "sha256-qyHuwO7xfxbsoKho3DzKz9ci3qvghR88neynoQMmvn8="
     },
     "rtk": {
       "type": "GitRelease",
@@ -175,10 +175,10 @@
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "v0.37.2",
-      "revision": "80a6fe606f73b19e52b0b330d242e62a6c07be42",
-      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.37.2",
-      "hash": "sha256-rNuu8B5TnKZHrbVSV8HkcTeTdcol26259GGJEPEMPZY="
+      "version": "v0.39.0",
+      "revision": "2fbc7514f6964acabcfac65501b8bb6b525e3aa8",
+      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.39.0",
+      "hash": "sha256-TX4MtR/rq61wxHWYJAO2x3CYvZtkCoXynf45dRC+MVo="
     }
   },
   "version": 7
