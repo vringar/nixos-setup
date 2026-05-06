@@ -164,9 +164,11 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
         "--bind", project_dir, project_dir,
     ]
 
-    # If inside a .workspace/ folder, expose parent project's .jj and .git
+    # If inside a .workspace/ or .worktrees/ folder, expose parent project's
+    # .jj and .git so that worktree gitlinks (and jj workspace pointers) can
+    # be followed inside the sandbox.
     parent_dir = os.path.dirname(project_dir)
-    if os.path.basename(parent_dir) == ".workspace":
+    if os.path.basename(parent_dir) in (".workspace", ".worktrees"):
         repo_root = os.path.dirname(parent_dir)
         jj_dir = os.path.join(repo_root, ".jj")
         git_dir = os.path.join(repo_root, ".git")
