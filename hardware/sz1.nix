@@ -19,6 +19,7 @@
   };
   boot.zfs.extraPools = ["zpool"];
   boot.zfs.devNodes = "/dev/disk/by-uuid/15679710222853114018";
+  boot.zfs.forceImportRoot = false;
   imports = [
     (modulesPath + "/installer/scan/not-detected.nix")
   ];
