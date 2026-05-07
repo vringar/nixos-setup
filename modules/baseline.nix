@@ -37,6 +37,9 @@ in {
     };
   };
 
+  # Mosh: roaming-tolerant shell over UDP 60000-61000 (firewall opened by module)
+  programs.mosh.enable = true;
+
   # Disable systemd-ssh-proxy Include in /etc/ssh/ssh_config — the included
   # file lives in the nix store (owned by nobody:nogroup) and SSH refuses to
   # read config files not owned by root or the current user.
