@@ -2,6 +2,15 @@
 set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
+
+# Re-exec under nix-shell so npm (and friends) are available with the pinned
+# nodejs version, regardless of what's on the host PATH.
+if [[ -z "${_C8CTL_UPDATE_IN_NIX_SHELL:-}" ]]; then
+  nixpkgs="$(nix eval --raw --impure --expr "(import $repo_root/npins).nixpkgs")"
+  export _C8CTL_UPDATE_IN_NIX_SHELL=1
+  exec nix-shell -I "nixpkgs=$nixpkgs" -p nodejs_22 jq python3 --run "bash $0"
+fi
+
 app_dir="$repo_root/apps/c8ctl"
 default_nix="$app_dir/default.nix"
 lockfile="$app_dir/package-lock.json"
