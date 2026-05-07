@@ -2,6 +2,7 @@
 """Run commands in a bubblewrap sandbox with filesystem isolation."""
 
 import argparse
+import glob
 import os
 import shlex
 import shutil
@@ -287,6 +288,17 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     ssh_config = os.path.join(home_dir, ".ssh", "config")
     if os.path.isfile(ssh_config):
         args += ["--ro-bind", ssh_config, ssh_config]
+
+    # SSH public keys (read-only) — required for git/jj SSH commit signing,
+    # which references the pub key path via user.signingkey. Private keys are
+    # never bound; signing goes through the SSH agent socket.
+    for pub_key in glob.glob(os.path.join(home_dir, ".ssh", "*.pub")):
+        args += ["--ro-bind", pub_key, pub_key]
+
+    # Allowed signers file (read-only) — used for `git log --show-signature`.
+    ssh_allowed_signers = os.path.join(home_dir, ".ssh", "allowed_signers")
+    if os.path.isfile(ssh_allowed_signers):
+        args += ["--ro-bind", ssh_allowed_signers, ssh_allowed_signers]
 
     return args
 
