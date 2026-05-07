@@ -15,6 +15,10 @@
               type = "command";
               command = "~/.claude/hooks/rtk-rewrite.sh";
             }
+            {
+              type = "command";
+              command = "~/.claude/hooks/gh-body-file-nudge.sh";
+            }
           ];
         }
       ];
@@ -160,6 +164,11 @@ in {
 
     home.file.".claude/hooks/jj-describe-reminder.sh" = {
       source = ./files/ai/hooks/jj-describe-reminder.sh;
+      executable = true;
+    };
+
+    home.file.".claude/hooks/gh-body-file-nudge.sh" = {
+      source = ./files/ai/hooks/gh-body-file-nudge.sh;
       executable = true;
     };
 
