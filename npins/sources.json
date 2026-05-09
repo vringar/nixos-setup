@@ -66,6 +66,19 @@
       "url": "https://github.com/scythia-marrow/cpitd/archive/5d89f4d71b26f21976022a9c7c0690544abd0b1e.tar.gz",
       "hash": "sha256-KzLYUtZjzuBPPBWIPwCEwE1Tge26hXAtS+UQMgDiP+0="
     },
+    "crossbridge": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "vringar",
+        "repo": "crossbridge"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "7ec785e70a9994865f494e03370ffca0bfc77f45",
+      "url": "https://github.com/vringar/crossbridge/archive/7ec785e70a9994865f494e03370ffca0bfc77f45.tar.gz",
+      "hash": "sha256-bXDb8gcGWCJ87/60R7EmZgAmDyUOJAX8va/zWc9mbFQ="
+    },
     "crosslink": {
       "type": "Git",
       "repository": {

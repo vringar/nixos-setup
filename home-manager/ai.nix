@@ -38,6 +38,7 @@
   customAgentsDir = ./files/ai/agents;
   sources = import ../npins;
   crosslink = import ../apps/crosslink {inherit pkgs sources;};
+  crossbridge = import ../apps/crossbridge {inherit pkgs sources;};
   cpitd = import ../apps/crosslink/cpitd.nix {inherit pkgs sources;};
   rtk = import ../apps/rtk {inherit pkgs sources;};
   claude-sandbox = import ../apps/claude-sandbox {inherit pkgs;};
@@ -73,6 +74,8 @@
     mkdir -p $out
     cp -r ${nucleus}/skills/. $out/
     chmod -R u+w $out
+    cp -r ${sources.crossbridge}/skill/. $out/
+    chmod -R u+w $out
     cp -r ${skillsDir}/. $out/
   '';
   mergedSkills = pkgs.runCommand "merged-skills" {} ''
@@ -80,6 +83,8 @@
     cp -r ${nucleus}/skills/. $out/
     chmod -R u+w $out
     cp -r ${camundaAiDevKit}/.claude/skills/. $out/
+    chmod -R u+w $out
+    cp -r ${sources.crossbridge}/skill/. $out/
     chmod -R u+w $out
     cp -r ${skillsDir}/. $out/
   '';
@@ -98,9 +103,13 @@
     cp -r ${customAgentsDir}/. $out/
   '';
 in {
+  imports = [./crossbridge-supervisor.nix];
+
   options.my.work.enable = lib.mkEnableOption "work machine configuration";
 
   config = {
+    services.crossbridge-supervisor.enable = true;
+
     home.sessionVariables = {
       CLAUDE_CONFIG_DIR = "\${XDG_CONFIG_HOME:-$HOME/.config}/claude";
       UV_PYTHON_PREFERENCE = "only-system";
@@ -144,6 +153,7 @@ in {
     home.packages =
       [
         crosslink
+        crossbridge
         cpitd
         rtk
         pkgs.jq
