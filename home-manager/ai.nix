@@ -22,6 +22,17 @@
           ];
         }
       ];
+      SessionStart = [
+        {
+          matcher = "startup|clear";
+          hooks = [
+            {
+              type = "command";
+              command = "~/.claude/hooks/jj-dirty-wc-reminder.sh";
+            }
+          ];
+        }
+      ];
       Stop = [
         {
           hooks = [
@@ -179,6 +190,11 @@ in {
 
     home.file.".claude/hooks/jj-describe-reminder.sh" = {
       source = ./files/ai/hooks/jj-describe-reminder.sh;
+      executable = true;
+    };
+
+    home.file.".claude/hooks/jj-dirty-wc-reminder.sh" = {
+      source = ./files/ai/hooks/jj-dirty-wc-reminder.sh;
       executable = true;
     };
 
