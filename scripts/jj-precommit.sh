@@ -11,17 +11,20 @@
 # to satisfy pre-commit's requirement for a git root.
 #
 # Usage:
-#   jj-precommit              # diff vs trunk (all branch changes + working copy)
-#   jj-precommit --working    # working copy changes only
-#   jj-precommit -- <hook>    # run a specific hook
+#   jj-precommit                     # diff vs trunk (all branch changes + working copy)
+#   jj-precommit --working           # working copy changes only
+#   jj-precommit --revset <revset>   # diff against an explicit revset
+#   jj-precommit -- <hook>           # run a specific hook
 set -euo pipefail
 
 WORKING_ONLY=0
+REVSET="trunk()..@"
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --working) WORKING_ONLY=1; shift ;;
+    --revset) REVSET="$2"; shift 2 ;;
     --) shift; EXTRA_ARGS+=("$@"); break ;;
     *) EXTRA_ARGS+=("$1"); shift ;;
   esac
@@ -30,12 +33,9 @@ done
 # Workspace root (where .jj lives for this workspace)
 WORKSPACE_ROOT=$(jj root 2>/dev/null) || { echo "Not in a jj repo" >&2; exit 1; }
 
-# Changed files: branch diff vs trunk, or working copy only
+# --working overrides any --revset
 if [[ $WORKING_ONLY -eq 1 ]]; then
   REVSET="@"
-else
-  # trunk()..@ = all commits from trunk to @ (inclusive of working copy)
-  REVSET="trunk()..@"
 fi
 
 mapfile -t CHANGED < <(

@@ -9,6 +9,14 @@ set -euo pipefail
 
 REVSET="trunk()..@"
 AC_PATTERN='AC-[0-9]+'
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --revset) REVSET="$2"; shift 2 ;;
+    --) break ;;
+    *) shift ;;
+  esac
+done
 found=0
 
 # --- Check commit descriptions ---

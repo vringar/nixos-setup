@@ -265,10 +265,11 @@ in {
                   echo "No commits to push"
                   exit 0
                 fi
-                echo "Running pre-commit on commits since trunk..."
-                jj-precommit
-                jj-check-ac
-                jj-check-wip "$(jj-push-revset "$@")"
+                PUSH_REVSET=$(jj-push-revset "$@")
+                echo "Running pre-commit checks on push revset: $PUSH_REVSET"
+                jj-precommit --revset "$PUSH_REVSET"
+                jj-check-ac --revset "$PUSH_REVSET"
+                jj-check-wip "$PUSH_REVSET"
                 echo "All checks passed, pushing..."
                 exec jj git push "$@"
               ''
