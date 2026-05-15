@@ -8,7 +8,7 @@ pkgs.rustPlatform.buildRustPackage {
 
   src = sources.rtk;
 
-  cargoHash = "sha256-s3AtUftUZtzhlep8R/ZuxwmGELIZpqbQXqLTD+aS4Ro=";
+  cargoHash = "sha256-DJazpSx1FCt9pjFjqsoL3MLEQLdFvLwEj3UsP0aYHmc=";
 
   nativeBuildInputs = [pkgs.pkg-config];
   buildInputs = [pkgs.sqlite];
