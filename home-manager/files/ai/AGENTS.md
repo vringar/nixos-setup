@@ -35,6 +35,9 @@ The bar is: would a senior engineer who cares deeply about craft be proud of thi
 - **NEVER use `jj abandon` unless explicitly instructed** - Abandoning commits can cause data loss. Ask the user for help instead.
 - Use `/jj` skill for operational details (non-interactive commands, recovery, workflows)
 
+### Produced Artifacts
+Never mention jj, Jujutsu, or any jj-specific concepts (working copy, change IDs, floating changes, etc.) in any produced artifact — commit messages, PR descriptions, code comments, documentation, hook messages, or error text. Use version-control-neutral language instead (e.g. "scratch/debug artifacts" not "floating jj change" or "working copy").
+
 ### Merge Conflicts
 **ABSOLUTELY NEVER attempt to resolve merge conflicts automatically.**
 
