@@ -15,8 +15,10 @@ if jj log -r @ --no-graph -T 'description' 2>/dev/null | grep -q .; then
   exit 0
 fi
 
-# If @ has no changes either, nothing to do
-if ! jj diff --stat -r @ 2>/dev/null | grep -q .; then
+# If @ has no changes either, nothing to do.
+# Use the `empty` template, not `jj diff --stat`: the latter always prints a
+# "0 files changed" summary line, which a content check would misread as work.
+if [ "$(jj log -r @ --no-graph -T 'empty' 2>/dev/null)" = "true" ]; then
   exit 0
 fi
 
