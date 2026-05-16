@@ -75,9 +75,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "7cb859a38f63030b2edd99fcc31a19dc50b15d6d",
-      "url": "https://github.com/vringar/crossbridge/archive/7cb859a38f63030b2edd99fcc31a19dc50b15d6d.tar.gz",
-      "hash": "sha256-2n4otqyzbPjcizK9duMel9Ot+WsCWh99Y7qugbokOxQ="
+      "revision": "39e2ba4a63d2f4662ef400651e3e57865a6e477d",
+      "url": "https://github.com/vringar/crossbridge/archive/39e2ba4a63d2f4662ef400651e3e57865a6e477d.tar.gz",
+      "hash": "sha256-WUy44qVyPwdEzFwoZsGbeQou7tSn/v7aY7mpZonqHzw="
     },
     "crosslink": {
       "type": "Git",
@@ -101,9 +101,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "c7fad8197070948d8aa02cb8922240ee129cab2e",
-      "url": "https://github.com/nix-community/home-manager/archive/c7fad8197070948d8aa02cb8922240ee129cab2e.tar.gz",
-      "hash": "sha256-9XOIxYLBp+sJsPWNnNyk1aVfYXuuRJZ4Anpplm9Tn8g="
+      "revision": "26aaab785b0bab4af60a2c42b22760fa906ef22a",
+      "url": "https://github.com/nix-community/home-manager/archive/26aaab785b0bab4af60a2c42b22760fa906ef22a.tar.gz",
+      "hash": "sha256-oaNyOr05lblaQdtbkbN1wO0b2KLIL2O1LkmwDgdQp4I="
     },
     "lix-module": {
       "type": "Git",
@@ -161,8 +161,8 @@
     "nixpkgs": {
       "type": "Channel",
       "name": "nixos-unstable",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre995699.da5ad661ba4e/nixexprs.tar.xz",
-      "hash": "sha256-rNDJzV2JTV5SUTwv1cgKZYMdyoUYU9/YfegSaUf3QfY="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.05pre998534.d233902339c0/nixexprs.tar.xz",
+      "hash": "sha256-VdRy3A14M5vIE882DJcaaR+5wrss9Qsg4YNVbr7uj3k="
     },
     "nucleus": {
       "type": "Git",
