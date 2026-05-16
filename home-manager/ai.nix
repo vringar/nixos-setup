@@ -34,6 +34,11 @@
       ];
     };
   };
+  # Hooks are merged into the CLAUDE_CONFIG_DIR settings.json at activation
+  # time (see home.activation.claudeHooksSettings) rather than written as a
+  # standalone file, because Claude Code reads $CLAUDE_CONFIG_DIR/settings.json
+  # — not ~/.claude/settings.json — and also writes its own state into it.
+  claudeHooksJson = pkgs.writeText "claude-hooks.json" (builtins.toJSON claudeSettings.hooks);
   skillsDir = ./files/ai/skills;
   customAgentsDir = ./files/ai/agents;
   sources = import ../npins;
@@ -188,7 +193,23 @@ in {
       config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/skills";
     home.file.".claude/agents".source =
       config.lib.file.mkOutOfStoreSymlink "${config.xdg.configHome}/claude/agents";
-    home.file.".claude/settings.json".text = builtins.toJSON claudeSettings;
+
+    # Merge our hooks into $CLAUDE_CONFIG_DIR/settings.json — the file Claude
+    # Code actually reads. It is not written as a managed file because Claude
+    # writes its own runtime state (enabledPlugins, effortLevel, ...) there;
+    # jq merge preserves those keys while asserting our hooks block.
+    home.activation.claudeHooksSettings = lib.hm.dag.entryAfter ["writeBoundary"] ''
+      _settings="${config.xdg.configHome}/claude/settings.json"
+      mkdir -p "$(dirname "$_settings")"
+      if [ -e "$_settings" ]; then
+        _merged=$(${pkgs.jq}/bin/jq --slurpfile h ${claudeHooksJson} \
+          '.hooks = $h[0]' "$_settings")
+      else
+        _merged=$(${pkgs.jq}/bin/jq -n --slurpfile h ${claudeHooksJson} \
+          '{hooks: $h[0]}')
+      fi
+      printf '%s\n' "$_merged" > "$_settings"
+    '';
 
     # Register work MCP servers via `claude mcp add` so they appear in `claude mcp list`.
     # Uses home.activation to avoid clobbering Claude's own runtime state in .claude.json.
