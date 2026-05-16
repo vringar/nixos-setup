@@ -11,7 +11,40 @@
     (pkgs.writeShellScriptBin "vscode-json-languageserver" ''
       exec ${lib.getExe' pkgs.vscode-langservers-extracted "vscode-json-language-server"} "$@"
     '')
+    pkgs.ruff
   ];
+
+  programs.zed-editor = {
+    enable = true;
+    # Auto-installed by Zed on first launch (fetched + compiled at runtime).
+    extensions = [
+      "nix"
+      "toml"
+      "dockerfile"
+    ];
+    userSettings = {
+      telemetry = {
+        diagnostics = false;
+        metrics = false;
+      };
+      vim_mode = false;
+      theme = "One Dark";
+      buffer_font_family = "JetBrainsMono Nerd Font Mono";
+      buffer_font_size = 14;
+      ui_font_size = 15;
+      format_on_save = "on";
+      # Zed bundles Copilot; opt out unless explicitly enabled.
+      edit_predictions.provider = "none";
+      # Zed's auto-downloaded language servers are dynamically linked against a
+      # standard loader and fail to start on NixOS. Point ruff at the Nix-built
+      # binary and forbid the internet fetch.
+      lsp.ruff.binary = {
+        path = lib.getExe pkgs.ruff;
+        arguments = ["server"];
+        ignore_system_version = true;
+      };
+    };
+  };
 
   programs.alacritty = {
     enable = true;
