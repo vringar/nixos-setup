@@ -28,6 +28,9 @@
         metrics = false;
       };
       vim_mode = false;
+      base_keymap = "JetBrains";
+      cli_default_open_behavior = "new_window";
+      agent_servers.claude-acp.type = "registry";
       theme = "One Dark";
       buffer_font_family = "JetBrainsMono Nerd Font Mono";
       buffer_font_size = 14;
