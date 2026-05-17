@@ -160,6 +160,11 @@ in {
       export CLAUDE_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/claude"
     '';
 
+    # crossbridge ships a direnv helper exposing the `crossbridge_up`
+    # function; loading it into the user's direnvrc lets any crosslink
+    # repo's .envrc bootstrap a per-repo server with a single line.
+    programs.direnv.stdlib = builtins.readFile "${sources.crossbridge}/nix/direnvrc.sh";
+
     xdg.configFile =
       lib.genAttrs
       [
