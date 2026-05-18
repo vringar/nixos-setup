@@ -6,3 +6,4 @@ cd "$repo_root"
 
 scripts/update-pins.py
 apps/c8ctl/update.sh
+apps/element-templates-cli/update.sh
