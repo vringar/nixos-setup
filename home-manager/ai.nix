@@ -49,11 +49,23 @@
       ];
     };
   };
-  # Hooks are merged into the CLAUDE_CONFIG_DIR settings.json at activation
+  # Plugins to enable — format: "name@marketplace" (e.g. "typescript-lsp@claude-plugins-official").
+  # The official marketplace is auto-downloaded by Claude on first run; declaring a plugin here
+  # activates it without requiring a manual /plugin install.
+  basePlugins = [];
+  workPlugins = [];
+  enabledPlugins = basePlugins ++ lib.optionals config.my.work.enable workPlugins;
+  # settings.json expects a record: {"name@marketplace": true}, not an array
+  enabledPluginsRecord = builtins.listToAttrs (
+    map (id: {name = id; value = true;}) enabledPlugins
+  );
+
+  # Hooks + plugins are merged into the CLAUDE_CONFIG_DIR settings.json at activation
   # time (see home.activation.claudeHooksSettings) rather than written as a
   # standalone file, because Claude Code reads $CLAUDE_CONFIG_DIR/settings.json
   # — not ~/.claude/settings.json — and also writes its own state into it.
   claudeHooksJson = pkgs.writeText "claude-hooks.json" (builtins.toJSON claudeSettings.hooks);
+  claudePluginsJson = pkgs.writeText "claude-plugins.json" (builtins.toJSON enabledPluginsRecord);
   skillsDir = ./files/ai/skills;
   customAgentsDir = ./files/ai/agents;
   sources = import ../npins;
@@ -227,11 +239,15 @@ in {
       _settings="${config.xdg.configHome}/claude/settings.json"
       mkdir -p "$(dirname "$_settings")"
       if [ -e "$_settings" ]; then
-        _merged=$(${pkgs.jq}/bin/jq --slurpfile h ${claudeHooksJson} \
-          '.hooks = $h[0]' "$_settings")
+        _merged=$(${pkgs.jq}/bin/jq \
+          --slurpfile h ${claudeHooksJson} \
+          --slurpfile p ${claudePluginsJson} \
+          '.hooks = $h[0] | .enabledPlugins = $p[0]' "$_settings")
       else
-        _merged=$(${pkgs.jq}/bin/jq -n --slurpfile h ${claudeHooksJson} \
-          '{hooks: $h[0]}')
+        _merged=$(${pkgs.jq}/bin/jq -n \
+          --slurpfile h ${claudeHooksJson} \
+          --slurpfile p ${claudePluginsJson} \
+          '{hooks: $h[0], enabledPlugins: $p[0]}')
       fi
       printf '%s\n' "$_merged" > "$_settings"
     '';
