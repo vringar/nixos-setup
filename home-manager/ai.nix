@@ -19,6 +19,10 @@
               type = "command";
               command = "~/.claude/hooks/gh-body-file-nudge.sh";
             }
+            {
+              type = "command";
+              command = "~/.claude/hooks/jj-squash-stat.sh";
+            }
           ];
         }
       ];
@@ -200,6 +204,11 @@ in {
 
     home.file.".claude/hooks/gh-body-file-nudge.sh" = {
       source = ./files/ai/hooks/gh-body-file-nudge.sh;
+      executable = true;
+    };
+
+    home.file.".claude/hooks/jj-squash-stat.sh" = {
+      source = ./files/ai/hooks/jj-squash-stat.sh;
       executable = true;
     };
 
