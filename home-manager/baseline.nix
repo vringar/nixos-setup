@@ -30,6 +30,7 @@ in {
   config = {
     home.packages = [
       pkgs.alejandra
+      pkgs.difftastic
       pkgs.gh
       pkgs.git-cinnabar
       pkgs.mergiraf
@@ -127,6 +128,7 @@ in {
         };
         alias = {
           root = "rev-parse --show-toplevel";
+          difft = "-c diff.external=difft diff";
         };
         rerere.enable = true;
         fetch.prune = true;
@@ -248,7 +250,12 @@ in {
       enable = true;
       settings =
         {
+          merge-tools.difft = {
+            program = lib.getExe pkgs.difftastic;
+            diff-args = ["--color=always" "$left" "$right"];
+          };
           aliases = {
+            difft = ["diff" "--tool" "difft"];
             push = [
               "util"
               "exec"

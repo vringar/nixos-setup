@@ -57,7 +57,11 @@
   enabledPlugins = basePlugins ++ lib.optionals config.my.work.enable workPlugins;
   # settings.json expects a record: {"name@marketplace": true}, not an array
   enabledPluginsRecord = builtins.listToAttrs (
-    map (id: {name = id; value = true;}) enabledPlugins
+    map (id: {
+      name = id;
+      value = true;
+    })
+    enabledPlugins
   );
 
   # Hooks + plugins are merged into the CLAUDE_CONFIG_DIR settings.json at activation

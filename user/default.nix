@@ -7,6 +7,7 @@
     alejandra
     bat
     delta
+    difftastic
     direnv
     file
     fzf
