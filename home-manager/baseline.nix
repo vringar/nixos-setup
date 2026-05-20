@@ -198,36 +198,36 @@ in {
         IdentityFile = "~/.ssh/${cfg.sshKeyName}";
         AddKeysToAgent = "yes";
       };
-      matchBlocks = {
+      settings = {
         "jannis-gogs" = {
-          hostname = "omniskop.de";
-          user = "gogs";
+          HostName = "omniskop.de";
+          User = "gogs";
         };
         "hg.mozilla.org" = {
-          user = "szabka@mozilla.com";
-          identityFile = "~/.ssh/mozilla";
+          User = "szabka@mozilla.com";
+          IdentityFile = "~/.ssh/mozilla";
         };
         "b8" = {
-          hostname = "100.127.109.161";
-          user = "homeserver";
+          HostName = "100.127.109.161";
+          User = "homeserver";
         };
         "tischtennis" = {
-          hostname = "tischtennis.einetollewebsite.de";
-          identityFile = "~/.ssh/${cfg.sshKeyName}";
-          user = "ubuntu";
+          HostName = "tischtennis.einetollewebsite.de";
+          IdentityFile = "~/.ssh/${cfg.sshKeyName}";
+          User = "ubuntu";
         };
         "sect" = {
-          hostname = "192.168.140.52";
-          identityFile = "~/.ssh/${cfg.sshKeyName}";
-          user = "root";
+          HostName = "192.168.140.52";
+          IdentityFile = "~/.ssh/${cfg.sshKeyName}";
+          User = "root";
         };
         "tompute" = {
-          hostname = "tompute.sect.tu-berlin.de";
-          user = "vringar";
+          HostName = "tompute.sect.tu-berlin.de";
+          User = "vringar";
         };
         "dmh" = {
-          hostname = "dmh-neu.tailbaace.ts.net";
-          user = "kleing";
+          HostName = "dmh-neu.tailbaace.ts.net";
+          User = "kleing";
         };
       };
     };
