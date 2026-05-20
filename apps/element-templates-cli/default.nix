@@ -47,8 +47,8 @@
   };
 
   # Update by setting both hashes to "" and rebuilding.
-  etCliRev = "8bec16d35963de72732484cb8aba326a9c5500fb";
-  etCliHash = "sha256-MDIHDsckjqrYB6zGmLiVDClMuNRZu+2hrJxTtP6nWZQ=";
+  etCliRev = "1d77af5ce84e4b08b249b0e1c092e25c5128b80f";
+  etCliHash = "sha256-g4soI6VPFZH/k7GxB69+PQAOOYr8NGTsCPKXZQxEtcg=";
   etCliNpmDepsHash = "sha256-w4YQ/V/tcWtmKFed6uT7TGHr+IqaeWBFP9D4b1Ygm0c=";
 
   rawSrc = pkgs.fetchFromGitHub {
