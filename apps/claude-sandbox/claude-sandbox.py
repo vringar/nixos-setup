@@ -151,6 +151,61 @@ def start_podman_service(sandbox_tmp):
     return proc, socket_path
 
 
+def crossbridge_socket_root():
+    """Mirror crossbridge's socket-root precedence:
+    $CROSSBRIDGE_SOCKET_ROOT > $XDG_RUNTIME_DIR/crossbridge > /run/crossbridge.
+    """
+    root = os.environ.get("CROSSBRIDGE_SOCKET_ROOT")
+    if root:
+        return root
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        return os.path.join(xdg, "crossbridge")
+    return "/run/crossbridge"
+
+
+def crossbridge_own_slug(project_dir):
+    """Derive the repo's crossbridge slug the way crossbridge-client does:
+    $CROSSBRIDGE_OWN_SLUG, else the last path segment of the origin remote URL
+    with an optional .git suffix stripped. Returns None if it can't be found.
+
+    Must stay in lockstep with crossbridge-client's slug.rs — if the launcher
+    and the in-sandbox client disagree, the bound directory won't match the
+    path the client looks up.
+    """
+    slug = os.environ.get("CROSSBRIDGE_OWN_SLUG", "").strip()
+    if slug:
+        return slug
+
+    url = None
+    if os.path.isdir(os.path.join(project_dir, ".jj")):
+        try:
+            out = subprocess.run(
+                ["jj", "--repository", project_dir, "git", "remote", "list"],
+                capture_output=True, text=True, check=True,
+            ).stdout
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == "origin":
+                    url = parts[1]
+                    break
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if not url:
+        try:
+            url = subprocess.run(
+                ["git", "-C", project_dir, "remote", "get-url", "origin"],
+                capture_output=True, text=True, check=True,
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    # Last segment after the final '/' or ':', '.git' suffix stripped.
+    last = url.strip().replace(":", "/").rsplit("/", 1)[-1]
+    last = last[:-4] if last.endswith(".git") else last
+    return last or None
+
+
 def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     claude_config_dir = os.environ.get(
         "CLAUDE_CONFIG_DIR",
@@ -269,6 +324,19 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     dbus_socket = f"/run/user/{uid}/bus"
     if os.path.exists(dbus_socket):
         args += ["--bind", dbus_socket, dbus_socket]
+
+    # Crossbridge: expose only this repo's own per-peer socket directory
+    # (<root>/<own-slug>/), read-only. The crossbridge server and orchestrator
+    # run outside the sandbox; the sandboxed agent is a client only, so a
+    # read-only bind is enough — connect() does not write the filesystem.
+    # Binding just this repo's own-slug dir keeps every other repo's sockets
+    # hidden, and the isdir() guard doubles as a readiness gate: the directory
+    # exists only once the orchestrator and server for this repo are up.
+    crossbridge_slug = crossbridge_own_slug(project_dir)
+    if crossbridge_slug:
+        crossbridge_dir = os.path.join(crossbridge_socket_root(), crossbridge_slug)
+        if os.path.isdir(crossbridge_dir):
+            args += ["--ro-bind", crossbridge_dir, crossbridge_dir]
 
     # SSH agent passthrough
     ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
