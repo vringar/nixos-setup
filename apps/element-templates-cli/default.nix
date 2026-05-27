@@ -49,7 +49,7 @@
   # Update by setting both hashes to "" and rebuilding.
   etCliRev = "1d77af5ce84e4b08b249b0e1c092e25c5128b80f";
   etCliHash = "sha256-g4soI6VPFZH/k7GxB69+PQAOOYr8NGTsCPKXZQxEtcg=";
-  etCliNpmDepsHash = "sha256-w4YQ/V/tcWtmKFed6uT7TGHr+IqaeWBFP9D4b1Ygm0c=";
+  etCliNpmDepsHash = "sha256-TiSWM9Ye4JR+ovLzDBCkVgheQNZCD97WtF74ElVs9bY=";
 
   rawSrc = pkgs.fetchFromGitHub {
     owner = "vringar";
@@ -58,9 +58,18 @@
     hash = etCliHash;
   };
 
-  # Strip git deps from package.json and package-lock.json so that
-  # fetchNpmDeps (which runs npm ci in a FOD) doesn't try to clone over SSH.
-  # We inject the pre-built packages into node_modules in preBuild instead.
+  # Strip the two Git-hosted devDependencies (bpmn-js-element-templates and
+  # bpmn-js-headless) from package.json and package-lock.json so that
+  # fetchNpmDeps (which runs `npm ci` in a FOD) doesn't try to clone them over
+  # SSH; we inject the pre-built packages into node_modules in preBuild.
+  #
+  # bpmn-js and diagram-js were peer-only deps of bpmn-js-element-templates,
+  # so once we drop their direct consumer, npm 11+ (bundled with nodejs
+  # 24.15+) correctly prunes them as orphans. But the injected
+  # bpmn-js-element-templates/dist/core.esm.js still imports `bpmn-js/lib/...`
+  # and `diagram-js/lib/...` at bundle time. Promote both to direct
+  # devDependencies (pinned to whatever the lock already resolved) so they
+  # survive the strip and stay installed.
   src =
     pkgs.runCommand "element-templates-cli-src" {
       nativeBuildInputs = [pkgs.jq];
@@ -68,16 +77,26 @@
       cp -r ${rawSrc} $out
       chmod -R u+w $out
 
-      jq 'del(.devDependencies["bpmn-js-element-templates"])
-        | del(.devDependencies["bpmn-js-headless"])' \
-        $out/package.json > $out/package.json.tmp
+      bpmnJsVer=$(jq -r '.packages["node_modules/bpmn-js"].version' $out/package-lock.json)
+      diagramJsVer=$(jq -r '.packages["node_modules/diagram-js"].version' $out/package-lock.json)
+
+      jq --arg bjv "$bpmnJsVer" --arg djv "$diagramJsVer" '
+          del(.devDependencies["bpmn-js-element-templates"])
+        | del(.devDependencies["bpmn-js-headless"])
+        | .devDependencies["bpmn-js"] = $bjv
+        | .devDependencies["diagram-js"] = $djv
+      ' $out/package.json > $out/package.json.tmp
       mv $out/package.json.tmp $out/package.json
 
-      jq '
-        del(.packages[""].devDependencies["bpmn-js-element-templates"])
+      jq --arg bjv "$bpmnJsVer" --arg djv "$diagramJsVer" '
+          del(.packages[""].devDependencies["bpmn-js-element-templates"])
         | del(.packages["node_modules/bpmn-js-element-templates"])
         | del(.packages[""].devDependencies["bpmn-js-headless"])
         | del(.packages["node_modules/bpmn-js-headless"])
+        | .packages[""].devDependencies["bpmn-js"] = $bjv
+        | .packages[""].devDependencies["diagram-js"] = $djv
+        | del(.packages["node_modules/bpmn-js"].peer)
+        | del(.packages["node_modules/diagram-js"].peer)
       ' $out/package-lock.json > $out/package-lock.json.tmp
       mv $out/package-lock.json.tmp $out/package-lock.json
     '';
