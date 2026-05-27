@@ -10,7 +10,8 @@ description: Use when working with Jujutsu (jj) version control - commits, rebas
 ```bash
 jj new -m "start new work"    # create commit
 jj describe -m "update msg"   # set message
-jj squash -m "message"        # squash into parent
+jj squash --use-destination-message  # squash into parent (keep parent's msg)
+jj squash -m "message"        # squash into parent with new combined msg
 ```
 
 ## Non-Interactive Commands
@@ -22,7 +23,7 @@ Always use flags to avoid hanging on interactive editors:
 | `jj split` | `jj split -r <rev> -m "message" <files>` |
 | `jj describe` | `jj describe -m "message"` |
 | `jj commit` | `jj commit -m "message"` |
-| `jj squash` | `jj squash -m "message"` |
+| `jj squash` | `jj squash --use-destination-message` (or `-m "message"`) — without one of these flags jj opens `$EDITOR` to combine the source/destination descriptions and will hang under any non-TTY runner |
 | `jj new` | `jj new -m "message"` (optional) |
 
 ## Critical Recovery — `jj op restore` is the panic button
@@ -68,14 +69,25 @@ A "WIP" commit sits on top of the local stack and holds material that must **nev
 - `jj push` automatically blocks if any commit in `trunk()..@` is a WIP commit — this is enforced by `jj-check-wip`.
 
 **Working with a WIP commit:**
+
+When working with floating commits, keep the working copy on the floating commit and only split out the changes that you want to commit. If your current chunk and the previous chunk are related, use `jj squash` to fold them together and keep history compact.
+
 ```bash
 # Create one
 jj new -m "WIP: debug helpers"
 
-# Move real work below it: create a commit before @, then squash real changes there
-jj new --insert-before @ -m "real feature work"
-# ... make real changes, then:
-jj squash --from @ --into @-   # move WIP content back up if needed
+# Edit on the WIP — reference artifacts, debug scratch, and the in-progress
+# real work all live in your working copy together, so the WIP material stays
+# directly readable while you write.
+
+# When a coherent chunk is ready to land below the WIP, split it out:
+jj split -r @ -m "real commit description" <files-belonging-to-release>
+# `@` stays on the WIP; the named files move into a new commit below it.
+
+# If that new chunk extends the commit already below WIP, squash them together.
+# Always pass --use-destination-message (or -m "..."): otherwise jj opens
+# $EDITOR to combine the descriptions and hangs in a non-TTY runner.
+jj squash --from @- --into @-- --use-destination-message
 
 # Inspect what's in the WIP commit vs real commits
 jj log -r 'trunk()..@'

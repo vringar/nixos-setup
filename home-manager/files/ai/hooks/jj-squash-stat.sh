@@ -36,7 +36,16 @@ for ((i = 0; i < ${#TOKENS[@]}; i++)); do
   fi
 
   case "$tok" in
-    jj | squash | --keep-emptied | -i | --interactive | --quiet | --no-pager | --debug) ;;
+    jj | squash | -k | --keep-emptied | -i | --interactive | -u | --use-destination-message \
+      | --editor | --ignore-working-copy | --no-integrate-operation | --ignore-immutable \
+      | --quiet | --no-pager | --debug | -h | --help) ;;
+
+    # Flags that consume a value but don't change source/fileset semantics
+    --tool | -R | --repository)
+      SKIP_NEXT=true
+      ;;
+    --tool=* | -R=* | --repository=*)
+      ;;
 
     # Source: --from / -f (repeatable)
     --from | -f)

@@ -2,7 +2,7 @@
 
 - `jj new` - Create new commit on top of current
 - `jj describe -m "msg"` - Set commit message
-- `jj squash` - Squash into parent
+- `jj squash --use-destination-message` - Squash into parent, keeping parent's description (use this or `-m "..."` non-interactively — without one of them jj opens `$EDITOR` and hangs in a non-TTY runner)
 - `jj split -r REV -m "msg" FILES` - Split commit (first part gets the message)
 - `jj duplicate REV` - Duplicate a commit
 - `jj rebase -r REV --after TARGET` - Move commit after target

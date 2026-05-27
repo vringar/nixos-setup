@@ -30,6 +30,7 @@ in {
   config = {
     home.packages = [
       pkgs.alejandra
+      pkgs.asdf-vm
       pkgs.difftastic
       pkgs.gh
       pkgs.git-cinnabar
@@ -47,6 +48,9 @@ in {
       enable = true;
       initExtra = ''
         [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+
+        # asdf-vm shim path (Go-based asdf needs no shell hook, only PATH).
+        export PATH="''${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
       '';
     };
 
@@ -64,6 +68,9 @@ in {
       enable = true;
       initContent = ''
         [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+
+        # asdf-vm shim path (Go-based asdf needs no shell hook, only PATH).
+        export PATH="''${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
 
         if ! command -v code >/dev/null 2>&1 && command -v code-insiders >/dev/null 2>&1; then
           alias code='code-insiders'
