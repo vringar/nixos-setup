@@ -68,6 +68,21 @@ in {
         if ! command -v code >/dev/null 2>&1 && command -v code-insiders >/dev/null 2>&1; then
           alias code='code-insiders'
         fi
+
+        # Forward completions for the `jj push` alias to `jj git push`.
+        # Clap's dynamic completer doesn't see user-defined jj aliases, so
+        # rewrite the words array before delegating.
+        _jj_alias_complete() {
+          if [[ ''${words[2]:-} == push ]]; then
+            words=("''${words[1]}" git "''${words[@]:1}")
+            (( CURRENT++ ))
+          fi
+          _clap_dynamic_completer_jj
+        }
+        if (( ! $+functions[_clap_dynamic_completer_jj] )); then
+          autoload -Uz _jj 2>/dev/null && _jj 2>/dev/null
+        fi
+        (( $+functions[_clap_dynamic_completer_jj] )) && compdef _jj_alias_complete jj
       '';
       shellAliases = {
         tmux = "tmux -u";
