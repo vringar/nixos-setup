@@ -44,6 +44,18 @@ in {
       (pkgs.writeShellScriptBin "jj-push-revset" (builtins.readFile ../scripts/jj-push-revset.sh))
     ];
 
+    # Global asdf defaults. Each plugin listed here resolves to `system`
+    # so the shim falls through to whatever's on PATH (Nix-provided, usually).
+    # Projects that need a pinned toolchain place their own .tool-versions
+    # in the repo root, which wins over this file.
+    home.file.".tool-versions".text = ''
+      java system
+      maven system
+      python system
+      terraform system
+      terraform-docs system
+    '';
+
     programs.bash = {
       enable = true;
       initExtra = ''
