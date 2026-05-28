@@ -56,25 +56,5 @@
   environment.systemPackages = with pkgs; [
     wl-clipboard
     nextcloud-client
-    (vscode-with-extensions.override {
-      vscodeExtensions = with vscode-extensions; [
-        bbenoist.nix
-        github.vscode-github-actions
-        ms-python.python
-        ms-azuretools.vscode-docker
-        ms-vscode-remote.remote-ssh
-        myriad-dreamin.tinymist
-        tamasfe.even-better-toml
-        # All the java nonsense
-        vscjava.vscode-java-pack
-        redhat.java
-        vscjava.vscode-java-debug
-        vscjava.vscode-java-test
-        vscjava.vscode-maven
-        vscjava.vscode-gradle
-        vscjava.vscode-java-dependency
-        visualstudioexptteam.vscodeintellicode
-      ];
-    })
   ];
 }
