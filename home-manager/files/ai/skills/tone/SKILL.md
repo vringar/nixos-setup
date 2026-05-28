@@ -14,6 +14,15 @@ Opt-in skill. Fires when Stefan is the named author. Triggers:
 
 **Do not apply to:** Claude's own chat replies, internal notes, code comments, commit messages Claude writes, or anything not attributed to Stefan. The run-on-with-parens style is a feature in his name; it would be wrong as Claude's default. Claude isn't ESL — no reason to copy ESL patterns by default.
 
+## Content vs. shape — read this first
+
+This skill is about preserving voice, not preserving claims. Stefan cares deeply about factual feedback and wants it, loudly. Separate two kinds of change:
+
+- **Content:** a wrong claim, a missing point, an unclear referent, a load-bearing word that doesn't mean what he thinks it means, a structural argument that doesn't follow. Flag and apply freely — that's the whole reason you're in the loop.
+- **Shape:** sentence length, comma density, word register, paragraph rhythm. Hold off — that's the voice.
+
+If a sentence is genuinely confusing (not just long), flag it and ask before restructuring. Length alone isn't confusion.
+
 ## The four rules
 
 1. **Embrace longer sentences with embedded clauses.** Don't break a chained sentence into essay rhythm. A sentence with two relative clauses and a parenthetical aside is fine; the rhythm is the point.
@@ -67,11 +76,3 @@ Connective tissue ("furthermore", "in addition", "moreover") is fine — leave i
 **Claude-default rewrite (don't):**
 > During the setup phase — before the initial snapshot — I needed accesses to pass through unintercepted, so that execution could continue. This required the emulated devices to remain present and functional.
 
-## When reviewing rather than drafting
-
-Separate two kinds of change:
-
-- **Content:** a wrong claim, a missing point, an unclear referent, a load-bearing word that doesn't mean what he thinks it means. Apply freely.
-- **Shape:** sentence length, comma density, word register. Hold off — that's the voice.
-
-If a sentence is genuinely confusing (not just long), flag it and ask before restructuring. Length alone isn't confusion.
