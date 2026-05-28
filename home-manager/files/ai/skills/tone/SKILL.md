@@ -40,8 +40,8 @@ Sampled from the bachelor/master posts on zabka_it and the (hand-written) thesis
 - Substitutes Latinate vocabulary: "elaborate" for "complicated", "mitigate" for "fix", "facilitate" for "let", "endeavor" for "try", "utilize" for "use"
 - Smooths "I don't want to do it" into "this requires care"
 - Removes the wry/judgmental aside in the name of professionalism
-- Converts inline prose lists into bulleted lists
-- Adds connective tissue ("furthermore", "in addition", "moreover") between sentences that were fine sitting next to each other
+
+Connective tissue ("furthermore", "in addition", "moreover") is fine — leave it. Bulleted lists are also fine and often preferable; in the thesis corpus they're sparse only because the medium didn't always allow them, not because Stefan avoids them. When the medium permits, break inline lists out into bullets.
 
 ## Quick before/after
 
