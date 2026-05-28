@@ -160,12 +160,18 @@ in {
       export CLAUDE_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/claude"
     '';
 
-    programs.bash.shellAliases = lib.mkIf config.my.work.enable {
-      etCli = "element-templates-cli";
-    };
-    programs.zsh.shellAliases = lib.mkIf config.my.work.enable {
-      etCli = "element-templates-cli";
-    };
+    programs.bash.shellAliases = lib.mkMerge [
+      { xl = "crosslink"; }
+      (lib.mkIf config.my.work.enable {
+        etCli = "element-templates-cli";
+      })
+    ];
+    programs.zsh.shellAliases = lib.mkMerge [
+      { xl = "crosslink"; }
+      (lib.mkIf config.my.work.enable {
+        etCli = "element-templates-cli";
+      })
+    ];
 
     # crossbridge ships a direnv helper exposing the `crossbridge_up`
     # function; loading it into the user's direnvrc lets any crosslink
