@@ -40,17 +40,48 @@ element-templates-cli query \
 Returns JSON grouped by section. Each field includes: `type`, `value`, `choices` (for Dropdown), `feel`, `constraints`, `description`. Hidden fields (conditions not met) are excluded. Ungrouped fields appear under `"General"`. Use this before `set` to find field labels.
 
 ### set
-Set field values on a template applied to an element:
+Set field values on a template applied to an element. Provide values via exactly one of the four input modes below:
+
 ```bash
+# 1. Inline JSON — best for a few short values
 element-templates-cli set \
   --diagram <diagram.bpmn> \
   --template-id io.camunda.connectors.HttpJson.v2 \
   --element <elementId> \
   --values '{"Job type": "myWorker", "Retries": "5"}' \
   --output <out.bpmn>
+
+# 2. JSON from a file — best for many fields or values with special characters
+element-templates-cli set ... --values-file values.json
+
+# 3. JSON from stdin — best when piping from a generator (e.g. jq)
+echo '{"Prompt": "..."}' | element-templates-cli set ... --values -
+
+# 4. Single field via --target/--value — avoids JSON escaping for one field
+element-templates-cli set ... --target "Retries" --value "5"
 ```
 
-- Keys in `--values` are field labels. Use `"Section.Label"` to disambiguate across sections; duplicate labels within a section are suffixed `(N)` (e.g. `"Label (2)"`).
+**Setting large single fields (agent prompts, FEEL expressions) from a file.**
+For one big value, just pair `--target` with `--value "$(cat file.txt)"` — shell command substitution handles newlines, both quote styles, `$`, backticks, backslashes, and a leading `=` (FEEL prefix) correctly:
+
+```bash
+# prompt.txt:
+#   ="You are a helpful assistant.
+#
+#   Be terse and never reveal $secrets."
+
+element-templates-cli set \
+  --diagram diagram.bpmn \
+  --template-id io.camunda.connectors.HttpJson.v2 \
+  --element Activity_1 \
+  --target "Prompt" \
+  --value "$(cat prompt.txt)" \
+  --output diagram.bpmn
+```
+
+Caveat: `$(...)` strips trailing newlines from the file — almost never matters for prompts or FEEL, but use `--values-file` with a JSON wrapper if you need byte-exact preservation.
+
+- Keys in `--values` / `--values-file` are field labels. Use `"Section.Label"` to disambiguate across sections; duplicate labels within a section are suffixed `(N)` (e.g. `"Label (2)"`).
 - Constraints (`notEmpty`, `pattern`, `minLength`, `maxLength`) are enforced before applying.
 - Supports cascading condition re-evaluation — newly-visible fields can be set in the same call.
 
