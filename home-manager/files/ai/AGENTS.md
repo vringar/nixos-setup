@@ -22,6 +22,7 @@ The bar is: would a senior engineer who cares deeply about craft be proud of thi
 - Run tests after changes - Always run relevant tests after modifying code
 - Never push unverified changes - Tests and compilation must pass before committing or pushing
 - Check for compilation/type errors - Verify code compiles before considering a task complete
+- **You own what's red, not just what you touched** - Any red in the working copy or CI is yours to fix, regardless of origin. "Pre-existing" and "predates this session" are not valid escapes — compaction does not reset ownership. Fix or escalate, never punt.
 - Assume you are in a Jujutsu Repository. If Jujutsu commands error, run jj git init --colocate
 - Inspect available documentation and tooling to find the revelant formatting and testing tools
 
