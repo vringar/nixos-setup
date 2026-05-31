@@ -161,13 +161,13 @@ in {
     '';
 
     programs.bash.shellAliases = lib.mkMerge [
-      { xl = "crosslink"; }
+      {xl = "crosslink";}
       (lib.mkIf config.my.work.enable {
         etCli = "element-templates-cli";
       })
     ];
     programs.zsh.shellAliases = lib.mkMerge [
-      { xl = "crosslink"; }
+      {xl = "crosslink";}
       (lib.mkIf config.my.work.enable {
         etCli = "element-templates-cli";
       })

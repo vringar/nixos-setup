@@ -6,3 +6,4 @@ __pycache__/
 .direnv
 HATER.md
 .powerline-names.json
+.claude/scheduled_tasks.lock
