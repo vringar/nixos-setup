@@ -1,18 +1,18 @@
 {pkgs}:
 pkgs.buildNpmPackage {
   pname = "c8ctl";
-  version = "3.2.0-alpha.3";
+  version = "3.2.0-alpha.7";
 
   src = pkgs.fetchurl {
-    url = "https://registry.npmjs.org/@camunda8/cli/-/cli-3.2.0-alpha.3.tgz";
-    hash = "sha256-w+1R/ybve+vHjPJBmRee8fjTvczYaG+KMdrOhLum/uU=";
+    url = "https://registry.npmjs.org/@camunda8/cli/-/cli-3.2.0-alpha.7.tgz";
+    hash = "sha256-2+KzyvBlBsQNZlRLCyr6gTnaBeMTsfRF4wIKzh7Q3QU=";
   };
   sourceRoot = "package";
 
   nodejs = pkgs.nodejs_22;
   nativeBuildInputs = [pkgs.python3];
   npmDepsFetcherVersion = 3;
-  npmDepsHash = "sha256-e+ccykcChltvI2iOUrSgz3bWIqOloSNHPDl9to3SS4Y=";
+  npmDepsHash = "sha256-J2/54G5yvkyMc/5O1q+Rxzqsx9xEa7qcMpWR9f+SgOo=";
   dontNpmBuild = true;
 
   postPatch = ''
