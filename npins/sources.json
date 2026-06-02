@@ -41,18 +41,6 @@
       "url": null,
       "hash": "sha256-nD5UPvDrbho9cr6Uyge8BIPmpQgFwu7l6DssOPDeaFE="
     },
-    "camunda-ai-dev-kit": {
-      "type": "Git",
-      "repository": {
-        "type": "Git",
-        "url": "git+ssh://git@github.com/camunda/camunda-ai-dev-kit"
-      },
-      "branch": "main",
-      "submodules": false,
-      "revision": "38fe7e9720a0ecf94bc60107878de4c3eaf71aa9",
-      "url": null,
-      "hash": "sha256-jv2+DVVhYEz36OfHbzsC7op5z893zNqe9Bq6bfAmaEc="
-    },
     "cpitd": {
       "type": "Git",
       "repository": {
@@ -176,6 +164,18 @@
       "revision": "93c171adb7cf1314d90bad3250f29aee91976b8d",
       "url": "https://github.com/michaelwhitford/nucleus/archive/93c171adb7cf1314d90bad3250f29aee91976b8d.tar.gz",
       "hash": "sha256-qyHuwO7xfxbsoKho3DzKz9ci3qvghR88neynoQMmvn8="
+    },
+    "process-os": {
+      "type": "Git",
+      "repository": {
+        "type": "Git",
+        "url": "git+ssh://git@github.com/camunda/process-os"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "06f68818aa242ba6d05ceaabad71cfe319617424",
+      "url": null,
+      "hash": "sha256-ijiBUqq+NdBvlaNtU4ml4EIiquYat3ENQ5YLPnp/Dwg="
     },
     "rtk": {
       "type": "GitRelease",

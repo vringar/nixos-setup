@@ -84,7 +84,7 @@
 
   # Private repos — only forced when my.work.enable = true
   feel-mcp-server = import ../apps/feel-mcp-server {inherit pkgs sources;};
-  camundaAiDevKit = sources.camunda-ai-dev-kit;
+  processOs = sources.process-os;
 
   workMcpServers = {
     camunda-docs = {
@@ -118,7 +118,7 @@
     mkdir -p $out
     cp -r ${nucleus}/skills/. $out/
     chmod -R u+w $out
-    cp -r ${camundaAiDevKit}/.claude/skills/. $out/
+    cp -r ${processOs}/skills/. $out/
     chmod -R u+w $out
     cp -r ${sources.crossbridge}/skill/. $out/
     chmod -R u+w $out
@@ -134,7 +134,7 @@
     mkdir -p $out
     cp -r ${nucleus}/agents/. $out/
     chmod -R u+w $out
-    cp -r ${camundaAiDevKit}/.claude/agents/. $out/
+    cp -r ${processOs}/.claude/agents/. $out/
     chmod -R u+w $out
     cp -r ${customAgentsDir}/. $out/
   '';
@@ -159,6 +159,13 @@ in {
     programs.zsh.initContent = lib.mkAfter ''
       export CLAUDE_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/claude"
     '';
+
+    programs.bash.shellAliases = lib.mkIf config.my.work.enable {
+      etCli = "element-templates-cli";
+    };
+    programs.zsh.shellAliases = lib.mkIf config.my.work.enable {
+      etCli = "element-templates-cli";
+    };
 
     # crossbridge ships a direnv helper exposing the `crossbridge_up`
     # function; loading it into the user's direnvrc lets any crosslink
