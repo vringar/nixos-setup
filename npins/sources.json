@@ -37,9 +37,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "0c400526047109b9d1e0677c24c91c02f564acb8",
+      "revision": "ff8c2588a71a1ae7716f268b71744b9d3b97ece1",
       "url": null,
-      "hash": "sha256-nD5UPvDrbho9cr6Uyge8BIPmpQgFwu7l6DssOPDeaFE="
+      "hash": "sha256-sy9NvpAL/zJz6J1W1ZK//veXjTgWNUKKQAdZC25dJcg="
     },
     "cpitd": {
       "type": "Git",
@@ -63,9 +63,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "b0423174665da1e7112e7b85fadf93e179f4d17a",
-      "url": "https://github.com/vringar/crossbridge/archive/b0423174665da1e7112e7b85fadf93e179f4d17a.tar.gz",
-      "hash": "sha256-inn02+uQJC8+I0ptHFHmnvNemB4EkU8KAoZkvfN2nlQ="
+      "revision": "cfbfc0f8408887f5574d4fd172f9407504458460",
+      "url": "https://github.com/vringar/crossbridge/archive/cfbfc0f8408887f5574d4fd172f9407504458460.tar.gz",
+      "hash": "sha256-MZl0zG6zxHItdzhJsljBQvCMHYBJS+KwRBd5AKhAxLk="
     },
     "crosslink": {
       "type": "Git",
@@ -89,9 +89,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "f384af1bec6423a0d4ba1855917ab948f64e5808",
-      "url": "https://github.com/nix-community/home-manager/archive/f384af1bec6423a0d4ba1855917ab948f64e5808.tar.gz",
-      "hash": "sha256-s7Tv6FUQThRAvW8En8XVC6HMb0uiikzVccCcCo9u/Bg="
+      "revision": "7dbd305f8b81050f223f00bcfbc8a6b74e048806",
+      "url": "https://github.com/nix-community/home-manager/archive/7dbd305f8b81050f223f00bcfbc8a6b74e048806.tar.gz",
+      "hash": "sha256-Hl0Pz/QIKpePSU7SdK3BMe5VNmUhFvfWyg57GyawxzE="
     },
     "lix-module": {
       "type": "Git",
@@ -117,9 +117,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "003946f062726dd1cb90ce90373e3a6fc362eaae",
-      "url": "https://git.lix.systems/lix-project/lix/archive/003946f062726dd1cb90ce90373e3a6fc362eaae.tar.gz",
-      "hash": "sha256-M8ivivtWNFGP8wPayoX/8RfcPLzNbLmP6o1bRKu5aQw="
+      "revision": "ab149a6cd8aef3f413c174e1763d0c7e8cd37970",
+      "url": "https://git.lix.systems/lix-project/lix/archive/ab149a6cd8aef3f413c174e1763d0c7e8cd37970.tar.gz",
+      "hash": "sha256-Ohyh30V52McomPfBk1QOmL0ZcReHhVswPKtcpu1b1is="
     },
     "mcp": {
       "type": "Git",
@@ -129,9 +129,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "72610ce4233ccb0bf95bab20b639fec9a3159772",
+      "revision": "a89ac595a912f45d24f2ffc2d2cd7cce1be6908d",
       "url": null,
-      "hash": "sha256-cm3W3Qsk1w/tyuc0yanwv8VVpyrKlFj2CW7NrEKPaRk="
+      "hash": "sha256-WG3mmZxe5OP5ZivypZI/7GRGoN1Hd2FwFUK2WgD4bio="
     },
     "nixGL": {
       "type": "Git",
@@ -150,8 +150,8 @@
       "type": "Channel",
       "name": "nixos-unstable",
       "artifact": "nixexprs.tar.xz",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1008282.331800de5053/nixexprs.tar.xz",
-      "hash": "sha256-2fYATYjjbsF2ri3reTWXgBkrmwK5Hpj23CsTEdLA2fo="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1011622.a799d3e3886d/nixexprs.tar.xz",
+      "hash": "sha256-G5B1h4sOH4DN/RZ85xYi6zPm2MHdOrNMeUmMslZ28Qs="
     },
     "nucleus": {
       "type": "Git",
@@ -174,9 +174,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "06f68818aa242ba6d05ceaabad71cfe319617424",
+      "revision": "8e8129720849202910c840fb574e3acd5a7aadbd",
       "url": null,
-      "hash": "sha256-ijiBUqq+NdBvlaNtU4ml4EIiquYat3ENQ5YLPnp/Dwg="
+      "hash": "sha256-meT8pvogS/vp0C5ZqH/3LFQz3ihUtkZfjUUWuvCfUiU="
     },
     "rtk": {
       "type": "GitRelease",
@@ -189,10 +189,10 @@
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "v0.42.0",
-      "revision": "39583cf22b0a73ef78f935d8ada1c87a9a10e852",
-      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.42.0",
-      "hash": "sha256-ZCDVS/AFljljMac+cAzQztYPQgvQrcEhKIHHRhkMsv8="
+      "version": "v0.42.3",
+      "revision": "de78d70aee86fe6b7b5c2462820a1b6c250d425b",
+      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.42.3",
+      "hash": "sha256-UWiu6y3Ci5F5OYQZIB0QuFmgv+tRUTouD9RZfX+PcsA="
     }
   },
   "version": 8
