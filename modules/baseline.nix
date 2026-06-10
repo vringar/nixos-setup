@@ -28,6 +28,9 @@ in {
     experimental-features = "nix-command flakes";
   };
 
+  # Clear /tmp on every boot
+  boot.tmp.cleanOnBoot = true;
+
   # SSH server
   services.openssh = {
     enable = true;
