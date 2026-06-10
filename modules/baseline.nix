@@ -1,6 +1,8 @@
 {pkgs, ...}: let
   sources = import ../npins;
 in {
+  imports = [./overlays.nix];
+
   nixpkgs.config.allowUnfree = true;
 
   # Enable networking
