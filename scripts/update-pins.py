@@ -2,6 +2,9 @@
 """
 Update npins pins and fix any resulting FOD hash mismatches.
 Updates one pin at a time so at most one cargoHash needs fixing per build cycle.
+Stops at the first pin whose build can't be auto-fixed, leaving that bump in
+place so the breakage can be resolved by rolling forward (re-run to resume the
+remaining pins).
 
 Usage:
     ./scripts/update-pins.py [--capture-logs DIR] [--max-rounds N] [pin ...]
@@ -357,8 +360,7 @@ def main(argv: list[str] | None = None) -> int:
 
     pins = args.pins or list_pins(REPO_ROOT / "npins" / "sources.json")
 
-    failed: list[str] = []
-    for pin in pins:
+    for idx, pin in enumerate(pins):
         ok = update_pin(
             pin,
             hostname=args.hostname,
@@ -368,11 +370,22 @@ def main(argv: list[str] | None = None) -> int:
             strict=args.strict,
         )
         if not ok:
-            failed.append(pin)
-
-    if failed:
-        print(f"==> FAILED pins: {', '.join(failed)}")
-        return 1
+            # Fail fast: a broken upgrade is left bumped in npins/sources.json so
+            # the breakage can be resolved by rolling forward rather than rolled
+            # back. Stopping here keeps the rest of the pins at their old, known-good
+            # revisions instead of piling more bumps on top of a red tree.
+            print(f"==> STOPPING at '{pin}': build broke and could not be auto-fixed.")
+            print(
+                "    Its bump is left in npins/sources.json — roll forward: resolve "
+                "the breakage, verify the build, then re-run."
+            )
+            remaining = pins[idx + 1 :]
+            if remaining:
+                print(
+                    "    The remaining pins are untouched; resume them with:\n"
+                    f"        scripts/update-pins.py {' '.join(remaining)}"
+                )
+            return 1
 
     print("==> All pins updated successfully")
     return 0
