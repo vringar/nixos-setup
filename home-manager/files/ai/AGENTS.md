@@ -40,21 +40,17 @@ The bar is: would a senior engineer who cares deeply about craft be proud of thi
 Never mention jj, Jujutsu, or any jj-specific concepts (working copy, change IDs, floating changes, etc.) in any produced artifact — commit messages, PR descriptions, code comments, documentation, hook messages, or error text. Use version-control-neutral language instead (e.g. "scratch/debug artifacts" not "floating jj change" or "working copy").
 
 ### Merge Conflicts
-**ABSOLUTELY NEVER attempt to resolve merge conflicts automatically.**
+You may resolve conflicts — but deliberately. **Don't thrash:** the failure mode to avoid is chaining blind fix attempts that corrupt jj's conflict state.
 
-When you encounter merge conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`):
-1. **STOP IMMEDIATELY** - Do not attempt any automated resolution
-2. **NEVER use sed, awk, or any text manipulation tools** on files with conflict markers
-3. **NEVER use Edit tool** to "fix" conflicts - this corrupts the markers and breaks jj's conflict detection
-4. **Report the conflict to the user** and ask for manual resolution
-5. **Wait for explicit user instruction** before proceeding
+When you hit a conflict:
+1. **Mechanical resolution first.** Reach for the tools before editing by hand: `jj resolve --tool mergiraf` (syntax-aware) first, then `:ours`/`:theirs` to take a side wholesale. For generated/lock files, restore the base version and regenerate. This is the default and usually enough.
+2. Only if mechanical resolution can't express the right answer, hand-resolve — read both sides, edit to the correct merged result, and remove ALL markers (`<<<<<<<`, `=======`, `>>>>>>>`).
+3. Verify after each resolution: markers gone, file sane, build/tests still pass.
+4. If two attempts don't converge, or the result stops matching expectation — STOP and ask. Don't stack more fixes.
 
-Attempting to automate conflict resolution has repeatedly resulted in:
-- Corrupted conflict markers that jj can no longer detect
-- Loss of important code from either side of the conflict
-- Broken repository state requiring manual recovery
+In a sandbox, a proven tactic for a gnarly conflict is to reconstruct rather than untangle: check out the two non-conflicting versions — e.g. the conflicting commit's counterpart on the remote branch and the merge base — into two separate tmp dirs, diff them to see each side's intent, then rebuild the combined change from scratch in the working tree.
 
-**There are NO exceptions to this rule.** Even if the conflict looks "simple" or "obvious", always defer to the user.
+Never leave a file half-resolved with markers still in it — partial edits corrupt jj's conflict detection and can lose a side. Resolve fully, or not at all.
 
 ### VCS Operation Protocol
 1. Execute ONE VCS operation (rebase, restore, abandon, etc.)
