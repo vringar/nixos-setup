@@ -10,8 +10,8 @@ pkgs.rustPlatform.buildRustPackage {
 
   cargoHash = "sha256-ryOxbRwtkmeVnV/oF33eAZu/WileUd18ucgdsOvb5QU=";
 
-  nativeBuildInputs = [pkgs.pkg-config];
-  buildInputs = [pkgs.sqlite];
+  nativeBuildInputs = [ pkgs.pkg-config ];
+  buildInputs = [ pkgs.sqlite ];
   nativeCheckInputs = [
     pkgs.git
     pkgs.which
