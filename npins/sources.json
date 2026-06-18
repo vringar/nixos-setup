@@ -92,6 +92,22 @@
       "url": "https://github.com/forecast-bio/crosslink/archive/dedce0628c8bd28fd83869fef2d5027f15c96227.tar.gz",
       "hash": "sha256-KhgNcIZ9ol0OU3BUGfFgjDTHPl7p2IORyGs6kfhU/Ns="
     },
+    "dmnlint": {
+      "type": "GitRelease",
+      "repository": {
+        "type": "GitHub",
+        "owner": "bpmn-io",
+        "repo": "dmnlint"
+      },
+      "pre_releases": false,
+      "version_upper_bound": null,
+      "release_prefix": null,
+      "submodules": false,
+      "version": "v1.0.0",
+      "revision": "7d1a2c478f5ba8f8ad7cec8e5201b54aca4775b9",
+      "url": "https://api.github.com/repos/bpmn-io/dmnlint/tarball/refs/tags/v1.0.0",
+      "hash": "sha256-cWkmOTo+V8g0Jq79XtVreDAwMHvzFIYbI71iaQ8xTs0="
+    },
     "home-manager": {
       "type": "Git",
       "repository": {

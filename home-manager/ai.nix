@@ -85,6 +85,8 @@
   # Private repos — only forced when my.work.enable = true
   feel-mcp-server = import ../apps/feel-mcp-server {inherit pkgs sources;};
   c8ctl-plugin-model = import ../apps/c8ctl-plugin-model {inherit pkgs sources;};
+  dmnlint = import ../apps/dmnlint {inherit pkgs sources;};
+  processOsSkillsDeps = import ../apps/process-os-skills-deps {inherit pkgs sources;};
   processOs = sources.process-os;
 
   workMcpServers = {
@@ -115,11 +117,25 @@
     chmod -R u+w $out
     cp -r ${skillsDir}/. $out/
   '';
+  # Cherry-picked subset of process-os skills — only the ones with clear
+  # utility for tooling/BPMN work. npx calls are replaced with direct binaries
+  # (BPMNLINT_BIN / dmnlint on PATH); npm-install-at-runtime patterns are
+  # replaced by local patched scripts that use NODE_PATH instead.
+  processOsSkills = pkgs.runCommand "process-os-skills-cherry-picked" {} ''
+    mkdir -p $out
+    for skill in lint-bpmn lint-dmn lint-camunda-compat lint-forms \
+                 bpmn-generate bpmn-diff bpmn-review view \
+                 deploy start status contribute-back; do
+      cp -r "${processOs}/skills/$skill" "$out/"
+      chmod -R u+w "$out/$skill"
+    done
+    sed -i 's/npx --yes dmnlint/dmnlint/g' "$out/lint-dmn/SKILL.md"
+  '';
   mergedSkills = pkgs.runCommand "merged-skills" {} ''
     mkdir -p $out
     cp -r ${nucleus}/skills/. $out/
     chmod -R u+w $out
-    cp -r ${processOs}/skills/. $out/
+    cp -r ${processOsSkills}/. $out/
     chmod -R u+w $out
     cp -r ${sources.crossbridge}/skill/. $out/
     chmod -R u+w $out
@@ -147,11 +163,21 @@ in {
   config = {
     services.crossbridge-supervisor.enable = true;
 
-    home.sessionVariables = {
-      CLAUDE_CONFIG_DIR = "\${XDG_CONFIG_HOME:-$HOME/.config}/claude";
-      UV_PYTHON_PREFERENCE = "only-system";
-      UV_PYTHON_PATH = "${pkgs.python3}/bin/python3";
-    };
+    home.sessionVariables =
+      {
+        CLAUDE_CONFIG_DIR = "\${XDG_CONFIG_HOME:-$HOME/.config}/claude";
+        UV_PYTHON_PREFERENCE = "only-system";
+        UV_PYTHON_PATH = "${pkgs.python3}/bin/python3";
+      }
+      // lib.optionalAttrs config.my.work.enable {
+        # Direct binary path for bpmnlint — avoids npx overhead (~370 ms → ~65 ms).
+        # Consumed by the lint-bpmn and bpmn-generate skills via $BPMNLINT_BIN.
+        BPMNLINT_BIN = "${bpmnlint}/bin/bpmnlint";
+        # Pre-installed node_modules for skills that previously did runtime npm install.
+        # Consumed by lint-camunda-compat/validate.cjs, lint-forms/validate.cjs,
+        # and bpmn-generate/scripts/bpmn-auto-layout.cjs.
+        NODE_PATH = "${processOsSkillsDeps}";
+      };
 
     programs.bash.initExtra = lib.mkAfter ''
       export CLAUDE_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/claude"
@@ -220,8 +246,10 @@ in {
       ++ lib.optionals config.my.work.enable [
         element-templates-cli
         bpmnlint
+        dmnlint
         feel-mcp-server
         c8ctl-plugin-model
+        processOsSkillsDeps
       ];
 
     home.file.".claude/hooks/rtk-rewrite.sh" = {
