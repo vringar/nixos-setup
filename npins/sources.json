@@ -49,9 +49,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "8d3691945102af4b884db448b3875bff1a4d44dd",
+      "revision": "dd2b116e8bc934c62aeac266cc13ad3b740fbe6a",
       "url": null,
-      "hash": "sha256-pQW+w0eyJLvPB7wdvr8TtZP4Xk66JAwsnQ71tZIL8uc="
+      "hash": "sha256-kbPcu32bd8Q1w9uw4v9hZn07EGyIwcb08ctUcdFV5Xo="
     },
     "cpitd": {
       "type": "Git",
@@ -117,9 +117,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "1285cd3d6882a9847f2d56ed5541b3350c8a6162",
-      "url": "https://github.com/nix-community/home-manager/archive/1285cd3d6882a9847f2d56ed5541b3350c8a6162.tar.gz",
-      "hash": "sha256-9GAF8sSsnkyCVCWkomXR0T+zdSxyUlfPt6neQidimdg="
+      "revision": "d456f483f157d4b706416005da226234b9c116ff",
+      "url": "https://github.com/nix-community/home-manager/archive/d456f483f157d4b706416005da226234b9c116ff.tar.gz",
+      "hash": "sha256-YqlTCRRhGvNjcJejPeMuHrYQ/TVhOO2MV/nEGMWb8nk="
     },
     "lix-module": {
       "type": "Git",
@@ -145,9 +145,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "c019a776e9ea34682f9e785547f5267d35173522",
-      "url": "https://git.lix.systems/lix-project/lix/archive/c019a776e9ea34682f9e785547f5267d35173522.tar.gz",
-      "hash": "sha256-QwXrhy4E+hcFqceqqbTPaLZpWTRykB5jf6a3bbXKw9k="
+      "revision": "cf0ce785b7de1acd9ae2cbfca23347efa7d7ff89",
+      "url": "https://git.lix.systems/lix-project/lix/archive/cf0ce785b7de1acd9ae2cbfca23347efa7d7ff89.tar.gz",
+      "hash": "sha256-yApTkvfstkJyxpieiL26MBwP0h6QvxhYJQOukUUZCNo="
     },
     "mcp": {
       "type": "Git",
@@ -178,8 +178,8 @@
       "type": "Channel",
       "name": "nixos-unstable",
       "artifact": "nixexprs.tar.xz",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1014179.9ae611a455b9/nixexprs.tar.xz",
-      "hash": "sha256-d34lhgOet4IqYMnCxbIvwFBMOyTV6PT4TyNEOP0/ZhU="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1017464.567a49d1913c/nixexprs.tar.xz",
+      "hash": "sha256-rcUHdUtJEvMdNEl2Wq+YpHraHKfcer3KsBscpZEF2Yg="
     },
     "nucleus": {
       "type": "Git",
@@ -202,9 +202,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "7f856d3d652844ce4c0d58ce3ce4e697298ed513",
+      "revision": "a7e456d75bd9d119e373afb194633e57c3ee9f16",
       "url": null,
-      "hash": "sha256-NZcTAGV9XVqEbVI/5kLOqJ+ZhpceJ8c9kFeS2enixOs="
+      "hash": "sha256-GtDNyznRTKSX+IVynw4APinckRi3wF+8ZeVCFptDJug="
     },
     "rtk": {
       "type": "GitRelease",
