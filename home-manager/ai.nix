@@ -84,6 +84,7 @@
 
   # Private repos — only forced when my.work.enable = true
   feel-mcp-server = import ../apps/feel-mcp-server {inherit pkgs sources;};
+  c8ctl-plugin-model = import ../apps/c8ctl-plugin-model {inherit pkgs sources;};
   processOs = sources.process-os;
 
   workMcpServers = {
@@ -220,6 +221,7 @@ in {
         element-templates-cli
         bpmnlint
         feel-mcp-server
+        c8ctl-plugin-model
       ];
 
     home.file.".claude/hooks/rtk-rewrite.sh" = {
@@ -294,6 +296,33 @@ in {
         in
           lib.concatStrings (lib.mapAttrsToList addServer workMcpServers)
       )
+    );
+    # Register c8ctl-plugin-model in the c8ctl global plugin registry.
+    # Plugin dir: ~/.config/c8ctl/plugins/node_modules/
+    # Registry:   ~/.config/c8ctl/plugins.json
+    home.activation.c8ctlPlugins = lib.mkIf config.my.work.enable (
+      lib.hm.dag.entryAfter ["writeBoundary"] ''
+        _c8ctl_plugins_dir="''${XDG_CONFIG_HOME:-$HOME/.config}/c8ctl/plugins/node_modules"
+        _c8ctl_plugins_json="''${XDG_CONFIG_HOME:-$HOME/.config}/c8ctl/plugins.json"
+
+        mkdir -p "$_c8ctl_plugins_dir"
+
+        rm -f "$_c8ctl_plugins_dir/c8ctl-plugin-model"
+        ln -s "${c8ctl-plugin-model}/lib/node_modules/c8ctl-plugin-model" \
+          "$_c8ctl_plugins_dir/c8ctl-plugin-model"
+
+        if [ -f "$_c8ctl_plugins_json" ]; then
+          _existing=$(cat "$_c8ctl_plugins_json")
+        else
+          _existing='{"plugins":[]}'
+        fi
+        printf '%s' "$_existing" \
+          | ${pkgs.jq}/bin/jq \
+            --arg src "file://${c8ctl-plugin-model}/lib/node_modules/c8ctl-plugin-model" \
+            '(.plugins // []) |= map(select(.name != "c8ctl-plugin-model"))
+             | .plugins += [{"name":"c8ctl-plugin-model","source":$src,"installedAt":"1970-01-01T00:00:00.000Z"}]' \
+          > "$_c8ctl_plugins_json"
+      ''
     );
   }; # config
 }

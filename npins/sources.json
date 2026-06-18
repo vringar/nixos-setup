@@ -41,6 +41,18 @@
       "url": null,
       "hash": "sha256-sy9NvpAL/zJz6J1W1ZK//veXjTgWNUKKQAdZC25dJcg="
     },
+    "c8ctl-plugin-model": {
+      "type": "Git",
+      "repository": {
+        "type": "Git",
+        "url": "git+ssh://git@github.com/camunda/c8ctl-plugin-model"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "8d3691945102af4b884db448b3875bff1a4d44dd",
+      "url": null,
+      "hash": "sha256-pQW+w0eyJLvPB7wdvr8TtZP4Xk66JAwsnQ71tZIL8uc="
+    },
     "cpitd": {
       "type": "Git",
       "repository": {
