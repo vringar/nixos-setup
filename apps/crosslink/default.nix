@@ -1,6 +1,7 @@
 {
   pkgs,
   sources,
+  doCheck ? true,
 }:
 pkgs.rustPlatform.buildRustPackage {
   pname = "crosslink";
@@ -16,6 +17,8 @@ pkgs.rustPlatform.buildRustPackage {
     pkgs.installShellFiles
   ];
   buildInputs = [pkgs.sqlite];
+
+  inherit doCheck;
 
   nativeCheckInputs = [
     pkgs.git

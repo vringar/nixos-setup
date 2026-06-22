@@ -221,6 +221,19 @@
       "revision": "8a7dd7e5570d7744d4b6508479a3674fe8c49286",
       "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.42.4",
       "hash": "sha256-8nLJ5PVefXmoXQyw6HERfCP06C+l4I+7XLwKFNVNpew="
+    },
+    "skills": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "camunda",
+        "repo": "skills"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "8279434bfb84556208ef801132d3e9698d2db8bd",
+      "url": "https://github.com/camunda/skills/archive/8279434bfb84556208ef801132d3e9698d2db8bd.tar.gz",
+      "hash": "sha256-9iK6cNoWfHZIDLPehjeofZEwFHvGOpc8ib/XayBoGYM="
     }
   },
   "version": 8

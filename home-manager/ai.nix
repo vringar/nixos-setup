@@ -73,7 +73,10 @@
   skillsDir = ./files/ai/skills;
   customAgentsDir = ./files/ai/agents;
   sources = import ../npins;
-  crosslink = import ../apps/crosslink {inherit pkgs sources;};
+  crosslink = import ../apps/crosslink {
+    inherit pkgs sources;
+    doCheck = config.my.crosslink.doCheck;
+  };
   crossbridge = import ../apps/crossbridge {inherit pkgs sources;};
   cpitd = import ../apps/crosslink/cpitd.nix {inherit pkgs sources;};
   rtk = import ../apps/rtk {inherit pkgs sources;};
@@ -88,6 +91,7 @@
   dmnlint = import ../apps/dmnlint {inherit pkgs sources;};
   processOsSkillsDeps = import ../apps/process-os-skills-deps {inherit pkgs sources;};
   processOs = sources.process-os;
+  camundaSkills = sources.skills;
 
   workMcpServers = {
     camunda-docs = {
@@ -135,6 +139,8 @@
     mkdir -p $out
     cp -r ${nucleus}/skills/. $out/
     chmod -R u+w $out
+    cp -r ${camundaSkills}/skills/. $out/
+    chmod -R u+w $out
     cp -r ${processOsSkills}/. $out/
     chmod -R u+w $out
     cp -r ${sources.crossbridge}/skill/. $out/
@@ -159,6 +165,12 @@ in {
   imports = [./crossbridge-supervisor.nix];
 
   options.my.work.enable = lib.mkEnableOption "work machine configuration";
+
+  options.my.crosslink.doCheck = lib.mkOption {
+    type = lib.types.bool;
+    default = true;
+    description = "Run crosslink test suite during build. Disable on slow machines.";
+  };
 
   config = {
     services.crossbridge-supervisor.enable = true;

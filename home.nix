@@ -37,6 +37,7 @@ in {
   my.user.sshKeyName = "id_ed25519";
   my.nixGL.enable = true;
   my.work.enable = true;
+  my.crosslink.doCheck = false;
 
   home.sessionVariables.GIT_SSH = "/usr/bin/ssh";
 
