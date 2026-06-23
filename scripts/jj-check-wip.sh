@@ -10,7 +10,7 @@
 # Pass the output of jj-push-revset to check only the commits being pushed.
 set -euo pipefail
 
-REVSET="${1:-trunk()..@}"
+REVSET="${1:-trunk()..@ ~ remote_bookmarks()}"
 found=0
 
 while IFS= read -r line; do

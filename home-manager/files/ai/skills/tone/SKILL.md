@@ -35,6 +35,7 @@ If a sentence is genuinely confusing (not just long), flag it and ask before res
 Sampled from the bachelor/master posts on zabka_it and the (hand-written) thesis:
 
 - **Wry self-aware openings.** "Configuration is hard, that's why I don't want to do it."
+- **Parens for inline qualifiers, not em-dashes.** When injecting a clarifier or an alternative into a phrase, Stefan wraps it in parentheses rather than em-dashes or expanding it into a full "either X or Y" clause. The parenthetical is also compressed — "both locally or in SaaS", not "either via c8ctl against a local instance or to SaaS".
 - **Direct judgment, no softening of the verdict.** "I think both X and Y are bad decisions as they lead to complicated and subtle code."
 - **Honest hedges on uncertainty.** "I am willing to blame this on…", "It seems unlikely that…", "This needs to be explored."
 - **Concrete verbs over abstract ones.** "destroy the JSON by unquoting a string", "save us an `eval`", "wrangle them into a usable structure".
@@ -49,6 +50,7 @@ Sampled from the bachelor/master posts on zabka_it and the (hand-written) thesis
 - Substitutes Latinate vocabulary: "elaborate" for "complicated", "mitigate" for "fix", "facilitate" for "let", "endeavor" for "try", "utilize" for "use"
 - Smooths "I don't want to do it" into "this requires care"
 - Removes the wry/judgmental aside in the name of professionalism
+- Replaces parenthetical qualifiers with em-dash phrases, or expands compressed alternatives ("both locally or in SaaS") into full "either X or Y" constructions
 
 Connective tissue ("furthermore", "in addition", "moreover") is fine — leave it. Bulleted lists are also fine and often preferable; in the thesis corpus they're sparse only because the medium didn't always allow them, not because Stefan avoids them. When the medium permits, break inline lists out into bullets.
 
@@ -75,4 +77,12 @@ Connective tissue ("furthermore", "in addition", "moreover") is fine — leave i
 
 **Claude-default rewrite (don't):**
 > During the setup phase — before the initial snapshot — I needed accesses to pass through unintercepted, so that execution could continue. This required the emulated devices to remain present and functional.
+
+---
+
+**Stefan:**
+> When I deploy the same file to a real cluster (both locally or in SaaS) I get the error:
+
+**Claude-default rewrite (don't):**
+> When I then deploy the same file to a real cluster — either via c8ctl against a local instance or to SaaS — it gets rejected immediately with:
 
