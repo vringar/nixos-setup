@@ -377,6 +377,11 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     if os.path.isfile(ssh_allowed_signers):
         args += ["--ro-bind", ssh_allowed_signers, ssh_allowed_signers]
 
+    # Maven settings (read-only — repository credentials and mirrors)
+    m2_settings = os.path.join(home_dir, ".m2", "settings.xml")
+    if os.path.isfile(m2_settings):
+        args += ["--ro-bind", m2_settings, m2_settings]
+
     return args
 
 
