@@ -129,7 +129,7 @@
     mkdir -p $out
     for skill in lint-bpmn lint-dmn lint-camunda-compat lint-forms \
                  bpmn-generate bpmn-diff bpmn-review view \
-                 deploy start status contribute-back; do
+                 deploy start status; do
       cp -r "${processOs}/skills/$skill" "$out/"
       chmod -R u+w "$out/$skill"
     done

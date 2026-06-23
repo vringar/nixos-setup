@@ -117,9 +117,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "d456f483f157d4b706416005da226234b9c116ff",
-      "url": "https://github.com/nix-community/home-manager/archive/d456f483f157d4b706416005da226234b9c116ff.tar.gz",
-      "hash": "sha256-YqlTCRRhGvNjcJejPeMuHrYQ/TVhOO2MV/nEGMWb8nk="
+      "revision": "471a1d2f840eb7fcbdfd541d99c13a64096f46db",
+      "url": "https://github.com/nix-community/home-manager/archive/471a1d2f840eb7fcbdfd541d99c13a64096f46db.tar.gz",
+      "hash": "sha256-SA7LyrayyZBvtzZnesnSLV7haciFuVLeZaX2hd5v4j4="
     },
     "lix-module": {
       "type": "Git",
@@ -145,9 +145,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "cf0ce785b7de1acd9ae2cbfca23347efa7d7ff89",
-      "url": "https://git.lix.systems/lix-project/lix/archive/cf0ce785b7de1acd9ae2cbfca23347efa7d7ff89.tar.gz",
-      "hash": "sha256-yApTkvfstkJyxpieiL26MBwP0h6QvxhYJQOukUUZCNo="
+      "revision": "63fb295ad8feba60af6dddebd470e022fefe7141",
+      "url": "https://git.lix.systems/lix-project/lix/archive/63fb295ad8feba60af6dddebd470e022fefe7141.tar.gz",
+      "hash": "sha256-IvzygTAVZAd0RCtMxj5RNpeSNqlPLHmHTgWL0WbYYWM="
     },
     "mcp": {
       "type": "Git",
@@ -157,9 +157,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "1997bf24bdc66f142e113876fba42ae259046dca",
+      "revision": "94b28c26b2a7e81154a064d43335651e7da8de78",
       "url": null,
-      "hash": "sha256-2OkwIsF2NBVJ2Et02MNVxLhWNGd3wHp0qpzSoAW0MO8="
+      "hash": "sha256-oVCQj17C9aHeM6HcO5HyIBiKw3oXWj5cVDAZEQyAr6Y="
     },
     "nixGL": {
       "type": "Git",
@@ -202,9 +202,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "a7e456d75bd9d119e373afb194633e57c3ee9f16",
+      "revision": "5a7b6754cacb7c9f01e0b8fb8ea2d9c2a5d44d8e",
       "url": null,
-      "hash": "sha256-GtDNyznRTKSX+IVynw4APinckRi3wF+8ZeVCFptDJug="
+      "hash": "sha256-IOpgRvXF0+jDYHpsJ3sgTAZucn8srk5w+nYodsEZcEI="
     },
     "rtk": {
       "type": "GitRelease",
