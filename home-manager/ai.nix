@@ -157,8 +157,10 @@
     mkdir -p $out
     cp -r ${nucleus}/agents/. $out/
     chmod -R u+w $out
-    cp -r ${processOs}/.claude/agents/. $out/
-    chmod -R u+w $out
+    if [ -d "${processOs}/.claude/agents" ]; then
+      cp -r ${processOs}/.claude/agents/. $out/
+      chmod -R u+w $out
+    fi
     cp -r ${customAgentsDir}/. $out/
   '';
 in {
