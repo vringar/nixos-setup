@@ -88,9 +88,9 @@
       },
       "branch": "develop",
       "submodules": false,
-      "revision": "dedce0628c8bd28fd83869fef2d5027f15c96227",
-      "url": "https://github.com/forecast-bio/crosslink/archive/dedce0628c8bd28fd83869fef2d5027f15c96227.tar.gz",
-      "hash": "sha256-KhgNcIZ9ol0OU3BUGfFgjDTHPl7p2IORyGs6kfhU/Ns="
+      "revision": "1501a4dea030077ea462c45b9f7136231aa6eb4b",
+      "url": "https://github.com/forecast-bio/crosslink/archive/1501a4dea030077ea462c45b9f7136231aa6eb4b.tar.gz",
+      "hash": "sha256-b4v3c5aVjb61y7qCLDRvKXOKtcpWnlubNraUyAhE2XY="
     },
     "dmnlint": {
       "type": "GitRelease",
