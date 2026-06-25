@@ -89,8 +89,6 @@
   feel-mcp-server = import ../apps/feel-mcp-server {inherit pkgs sources;};
   c8ctl-plugin-model = import ../apps/c8ctl-plugin-model {inherit pkgs sources;};
   dmnlint = import ../apps/dmnlint {inherit pkgs sources;};
-  processOsSkillsDeps = import ../apps/process-os-skills-deps {inherit pkgs sources;};
-  processOs = sources.process-os;
   camundaSkills = sources.skills;
 
   workMcpServers = {
@@ -121,27 +119,11 @@
     chmod -R u+w $out
     cp -r ${skillsDir}/. $out/
   '';
-  # Cherry-picked subset of process-os skills — only the ones with clear
-  # utility for tooling/BPMN work. npx calls are replaced with direct binaries
-  # (BPMNLINT_BIN / dmnlint on PATH); npm-install-at-runtime patterns are
-  # replaced by local patched scripts that use NODE_PATH instead.
-  processOsSkills = pkgs.runCommand "process-os-skills-cherry-picked" {} ''
-    mkdir -p $out
-    for skill in lint-bpmn lint-dmn lint-camunda-compat lint-forms \
-                 bpmn-generate bpmn-diff bpmn-review view \
-                 deploy start status; do
-      cp -r "${processOs}/skills/$skill" "$out/"
-      chmod -R u+w "$out/$skill"
-    done
-    sed -i 's/npx --yes dmnlint/dmnlint/g' "$out/lint-dmn/SKILL.md"
-  '';
   mergedSkills = pkgs.runCommand "merged-skills" {} ''
     mkdir -p $out
     cp -r ${nucleus}/skills/. $out/
     chmod -R u+w $out
     cp -r ${camundaSkills}/skills/. $out/
-    chmod -R u+w $out
-    cp -r ${processOsSkills}/. $out/
     chmod -R u+w $out
     cp -r ${sources.crossbridge}/skill/. $out/
     chmod -R u+w $out
@@ -157,10 +139,6 @@
     mkdir -p $out
     cp -r ${nucleus}/agents/. $out/
     chmod -R u+w $out
-    if [ -d "${processOs}/.claude/agents" ]; then
-      cp -r ${processOs}/.claude/agents/. $out/
-      chmod -R u+w $out
-    fi
     cp -r ${customAgentsDir}/. $out/
   '';
 in {
@@ -185,12 +163,8 @@ in {
       }
       // lib.optionalAttrs config.my.work.enable {
         # Direct binary path for bpmnlint — avoids npx overhead (~370 ms → ~65 ms).
-        # Consumed by the lint-bpmn and bpmn-generate skills via $BPMNLINT_BIN.
+        # Consumed by BPMN skills via $BPMNLINT_BIN.
         BPMNLINT_BIN = "${bpmnlint}/bin/bpmnlint";
-        # Pre-installed node_modules for skills that previously did runtime npm install.
-        # Consumed by lint-camunda-compat/validate.cjs, lint-forms/validate.cjs,
-        # and bpmn-generate/scripts/bpmn-auto-layout.cjs.
-        NODE_PATH = "${processOsSkillsDeps}";
       };
 
     programs.bash.initExtra = lib.mkAfter ''
@@ -263,7 +237,6 @@ in {
         dmnlint
         feel-mcp-server
         c8ctl-plugin-model
-        processOsSkillsDeps
       ];
 
     home.file.".claude/hooks/rtk-rewrite.sh" = {

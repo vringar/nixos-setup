@@ -29,12 +29,12 @@ in
       EOF
       cat >> Cargo.toml <<EOF
 
-      [patch."https://github.com/forecast-bio/crosslink.git"]
+      [patch."https://github.com/dollspace-gay/crosslink.git"]
       crosslink = { path = "./crosslink-src/crosslink" }
       EOF
     '';
 
-    cargoHash = "sha256-p075nMSLMN8ZOaAzJsl/Baoluv+0yuTfRVNWLgfpgK8=";
+    cargoHash = "sha256-5Y0OZSVQDtdA59FQqOpPsaLWMsgHw1vf/2/Z4UIkmKU=";
 
     nativeBuildInputs = [pkgs.pkg-config];
     buildInputs = [pkgs.sqlite];

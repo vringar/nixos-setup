@@ -10,7 +10,7 @@ pkgs.rustPlatform.buildRustPackage {
   src = sources.crosslink;
   sourceRoot = "source/crosslink";
 
-  cargoHash = "sha256-zRDnqD0XHx1JPEIpqGj4IonDhl6Dju3duF9rzNgwzWw=";
+  cargoHash = "sha256-Zx0M9HmnxQfRnp23v6yzQEqQbBowbTMfQ5YXtmcleRU=";
 
   nativeBuildInputs = [
     pkgs.pkg-config
@@ -25,12 +25,12 @@ pkgs.rustPlatform.buildRustPackage {
     pkgs.which
   ];
 
-  # Three smoke::coordination tests regressed on the bumped develop revision:
+  # Three smoke::coordination tests still regress on the current pinned
+  # revision from the canonical dollspace-gay/crosslink repo:
   # lock release leaves a STALE lock, and SQLite->JSON hydration writes 0 issues
   # to JSON while SQLite holds 2-3 (next_display_id also stuck at 1). These are
   # deterministic data-consistency failures upstream, not sandbox flakiness.
-  # Skipped to roll forward; drop once fixed upstream (issue to be filed against
-  # forecast-bio/crosslink).
+  # Skipped to roll forward; drop once fixed upstream.
   checkFlags = [
     "--skip=smoke::coordination::test_lock_claim_release"
     "--skip=smoke::coordination::test_integrity_after_sync"
