@@ -194,6 +194,19 @@
       "url": "https://github.com/michaelwhitford/nucleus/archive/93c171adb7cf1314d90bad3250f29aee91976b8d.tar.gz",
       "hash": "sha256-qyHuwO7xfxbsoKho3DzKz9ci3qvghR88neynoQMmvn8="
     },
+    "plasma-manager": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "nix-community",
+        "repo": "plasma-manager"
+      },
+      "branch": "trunk",
+      "submodules": false,
+      "revision": "a524a6160e6df89f7673ba293cf7d78b559eb1a5",
+      "url": "https://github.com/nix-community/plasma-manager/archive/a524a6160e6df89f7673ba293cf7d78b559eb1a5.tar.gz",
+      "hash": "sha256-b7Mp7P+q2Md5AGt4rjHfMcBykzMumFTen10ST++AuTU="
+    },
     "rtk": {
       "type": "GitRelease",
       "repository": {

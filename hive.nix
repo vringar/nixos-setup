@@ -13,6 +13,10 @@ in {
       ./modules/baseline.nix
     ];
 
+    home-manager.sharedModules = [
+      (import "${sources.plasma-manager}/modules")
+    ];
+
     deployment.replaceUnknownProfiles = true;
     nixpkgs.flake.source = sources.nixpkgs;
 
