@@ -81,7 +81,6 @@
   cpitd = import ../apps/crosslink/cpitd.nix {inherit pkgs sources;};
   rtk = import ../apps/rtk {inherit pkgs sources;};
   claude-sandbox = import ../apps/claude-sandbox {inherit pkgs;};
-  element-templates-cli = import ../apps/element-templates-cli {inherit pkgs;};
   bpmnlint = import ../apps/bpmnlint {inherit pkgs sources;};
   nucleus = sources.nucleus;
 
@@ -175,18 +174,8 @@ in {
       export CLAUDE_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/claude"
     '';
 
-    programs.bash.shellAliases = lib.mkMerge [
-      {xl = "crosslink";}
-      (lib.mkIf config.my.work.enable {
-        etCli = "element-templates-cli";
-      })
-    ];
-    programs.zsh.shellAliases = lib.mkMerge [
-      {xl = "crosslink";}
-      (lib.mkIf config.my.work.enable {
-        etCli = "element-templates-cli";
-      })
-    ];
+    programs.bash.shellAliases = {xl = "crosslink";};
+    programs.zsh.shellAliases = {xl = "crosslink";};
 
     # crossbridge ships a direnv helper exposing the `crossbridge_up`
     # function; loading it into the user's direnvrc lets any crosslink
@@ -232,7 +221,6 @@ in {
         claude-sandbox
       ]
       ++ lib.optionals config.my.work.enable [
-        element-templates-cli
         bpmnlint
         dmnlint
         feel-mcp-server
