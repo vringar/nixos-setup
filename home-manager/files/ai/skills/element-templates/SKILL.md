@@ -1,108 +1,98 @@
 ---
 name: element-templates
-description: Use when interacting with element templates - applying, querying, or setting fields on BPMN elements via element-templates-cli.
+description: Use when interacting with element templates - applying, querying, or setting fields on BPMN elements via c8ctl element-template.
 ---
 
-# /element-templates - Element Templates CLI
+# /element-templates — c8ctl element-template
 
-## Template Source
+## Template source
 
-All subcommands accept one of (exactly one required):
+The template argument to `apply`, `get-properties`, `info`, and `get` is one of:
 
-- `--template-path <path>` / `--tp <path>` — local element template JSON file
-- `--template-id <id>` / `--ti <id>` — resolve by template ID (e.g. `io.camunda.connectors.HttpJson.v2`); looked up via Desktop Modeler paths and cached automatically
-- `--template <path>` — deprecated alias for `--template-path`
+- An OOTB id: `io.camunda.connectors.HttpJson.v2` (or `id@version` to pin a version)
+- A local file path: `/path/to/template.json`
+- An HTTPS URL: `https://example.com/template.json`
 
-Prefer `--template-id` for official Camunda connector templates — no manual download required.
+For official Camunda connector templates, use the id — c8ctl resolves and caches automatically.
 
 ## Subcommands
 
 ### apply
-Apply an element template to a BPMN element:
+Apply a template to a BPMN element, optionally setting properties:
 ```bash
-element-templates-cli apply \
+c8ctl element-template apply \
   --diagram <diagram.bpmn> \
-  --template-id io.camunda.connectors.HttpJson.v2 \
   --element <elementId> \
-  --output <out.bpmn>   # omit or use "-" to print to stdout
+  io.camunda.connectors.HttpJson.v2 \
+  --set "url=https://example.com" \
+  --set "method=POST" \
+  --in-place
 ```
 
-`apply` is the default subcommand and may be omitted for backward compat.
+`--in-place` / `-i` modifies the file in place. Omit to print to stdout.
 
-### query
-Discover visible fields on a template applied to an element:
+**`apply` is non-destructive** — re-running it on an element that already has the template applied preserves all existing property values. Only properties explicitly passed via `--set` are updated. Call `apply` incrementally to configure fields in multiple steps.
+
+**Setting large single fields (agent prompts, FEEL expressions) from a file:**
 ```bash
-element-templates-cli query \
-  --diagram <diagram.bpmn> \
-  --template-path <template.json> \
-  --element <elementId>
-```
-Returns JSON grouped by section. Each field includes: `type`, `value`, `choices` (for Dropdown), `feel`, `constraints`, `description`. Hidden fields (conditions not met) are excluded. Ungrouped fields appear under `"General"`. Use this before `set` to find field labels.
-
-### set
-Set field values on a template applied to an element. Provide values via exactly one of the four input modes below:
-
-```bash
-# 1. Inline JSON — best for a few short values
-element-templates-cli set \
-  --diagram <diagram.bpmn> \
-  --template-id io.camunda.connectors.HttpJson.v2 \
-  --element <elementId> \
-  --values '{"Job type": "myWorker", "Retries": "5"}' \
-  --output <out.bpmn>
-
-# 2. JSON from a file — best for many fields or values with special characters
-element-templates-cli set ... --values-file values.json
-
-# 3. JSON from stdin — best when piping from a generator (e.g. jq)
-echo '{"Prompt": "..."}' | element-templates-cli set ... --values -
-
-# 4. Single field via --target/--value — avoids JSON escaping for one field
-element-templates-cli set ... --target "Retries" --value "5"
-```
-
-**Setting large single fields (agent prompts, FEEL expressions) from a file.**
-For one big value, just pair `--target` with `--value "$(cat file.txt)"` — shell command substitution handles newlines, both quote styles, `$`, backticks, backslashes, and a leading `=` (FEEL prefix) correctly:
-
-```bash
-# prompt.txt:
-#   ="You are a helpful assistant.
-#
-#   Be terse and never reveal $secrets."
-
-element-templates-cli set \
+c8ctl element-template apply \
   --diagram diagram.bpmn \
-  --template-id io.camunda.connectors.HttpJson.v2 \
   --element Activity_1 \
-  --target "Prompt" \
-  --value "$(cat prompt.txt)" \
-  --output diagram.bpmn
+  io.camunda.connectors.agenticai.aiagent.jobworker.v1 \
+  --set "systemPrompt=$(cat prompt.feel)" \
+  --in-place
 ```
 
-Caveat: `$(...)` strips trailing newlines from the file — almost never matters for prompts or FEEL, but use `--values-file` with a JSON wrapper if you need byte-exact preservation.
+`$(...)` handles newlines, both quote styles, `$`, backticks, backslashes, and a leading `=` (FEEL prefix). Caveat: trailing newlines are stripped — almost never matters for prompts or FEEL.
 
-- Keys in `--values` / `--values-file` are field labels. Use `"Section.Label"` to disambiguate across sections; duplicate labels within a section are suffixed `(N)` (e.g. `"Label (2)"`).
-- Constraints (`notEmpty`, `pattern`, `minLength`, `maxLength`) are enforced before applying.
-- Supports cascading condition re-evaluation — newly-visible fields can be set in the same call.
+**FEEL auto-prefix:** `=` is automatically prepended for `feel=required` properties. For `feel=optional`, include `=` explicitly when needed.
 
-## Official Camunda Connector Templates
+### get-properties
+Discover settable properties and their binding names:
+```bash
+c8ctl element-template get-properties \
+  --diagram <diagram.bpmn> \
+  --element <elementId>
 
-The canonical index of official out-of-the-box connector templates:
+# Full detail (types, descriptions, current values, dropdown choices):
+c8ctl element-template get-properties --diagram <diagram.bpmn> --element <elementId> --detailed
 
+# Filter to a specific group:
+c8ctl element-template get-properties --diagram <diagram.bpmn> --element <elementId> --group <groupId>
 ```
-https://raw.githubusercontent.com/camunda/connectors/main/connector-templates.json
+
+**Run this before `apply --set` to find binding names.** `--set` uses binding names as keys, not field labels.
+
+### search
+Search the OOTB template catalogue:
+```bash
+c8ctl element-template search "HTTP"
+c8ctl element-template search "HTTP" --engine-version 8.7 --limit 5
 ```
 
-This JSON is an array of `{ id, name, uri, ... }`. When the user references an "official" or "out-of-the-box" connector:
+### info
+Show template metadata (id, version, applies-to, description):
+```bash
+c8ctl element-template info io.camunda.connectors.HttpJson.v2
+```
 
-1. Fetch the index above
-2. Find the matching entry by `name` or `id`
-3. Use its `id` with `--template-id` (preferred — CLI resolves + caches automatically)
-   Or: download the `uri` locally and pass via `--template-path`
+### get
+Print raw template JSON:
+```bash
+c8ctl element-template get io.camunda.connectors.HttpJson.v2
+c8ctl element-template get io.camunda.connectors.HttpJson.v2 --no-icon   # drop large base64 icon
+```
+
+### sync
+Refresh the local OOTB template cache:
+```bash
+c8ctl element-template sync
+c8ctl element-template sync --prune   # also drop entries no longer in index
+```
 
 ## Typical Workflow
 
-1. Apply a template with `apply` — use `--template-id` for official connectors
-2. Run `query` to see visible fields, types, and exact labels
-3. Use `set` with a JSON object mapping labels to values
-4. Inspect or pipe the resulting BPMN XML as needed
+1. `search` to find a template by name and note its id
+2. `apply` the template to the element (no `--set` on first apply is fine)
+3. `get-properties --detailed` to discover binding names and current values
+4. `apply --set name=value` (repeatable) to configure — safe to call multiple times
