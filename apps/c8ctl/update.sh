@@ -89,7 +89,7 @@ path.write_text(text)
 PY
 
 build_output=$(mktemp)
-if nix build --impure --expr 'let pkgs = import (import ./npins).nixpkgs {}; in import ./apps/c8ctl { inherit pkgs; }' > /dev/null 2>"$build_output"; then
+if nix build --no-link --impure --expr 'let pkgs = import (import ./npins).nixpkgs {}; in import ./apps/c8ctl { inherit pkgs; }' > /dev/null 2>"$build_output"; then
   rm -f "$build_output"
 else
   npm_deps_hash=$(python3 - "$build_output" <<'PY'
@@ -117,7 +117,7 @@ text = re.sub(r'npmDepsHash = .*?;', f'npmDepsHash = "{npm_deps_hash}";', text, 
 path.write_text(text)
 PY
 
-  nix build --impure --expr 'let pkgs = import (import ./npins).nixpkgs {}; in import ./apps/c8ctl { inherit pkgs; }' > /dev/null
+  nix build --no-link --impure --expr 'let pkgs = import (import ./npins).nixpkgs {}; in import ./apps/c8ctl { inherit pkgs; }' > /dev/null
   rm -f "$build_output"
 fi
 
