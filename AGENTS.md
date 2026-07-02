@@ -16,7 +16,7 @@ nixos-setup/
 ├── modules/              # System-level NixOS modules
 ├── home-manager/         # User environment (shell, editors, packages)
 ├── user/                 # User definition (groups, shell, packages)
-├── apps/                 # Custom Nix packages (claude-code, crosslink, rtk, etc.)
+├── apps/                 # Custom Nix packages (claude-sandbox, crosslink, rtk, etc.)
 ├── secrets/              # agenix-encrypted secrets (WireGuard, etc.)
 ├── scripts/              # Utility scripts (e.g. sign-for-t20.sh)
 ├── tests/                # Python tests for update-pins.py

@@ -20,7 +20,7 @@ The Office adapter is the CCO (Central Coordinator).
 All commands require `sudo` (raw sockets) and the `open-plc-utils` package:
 
 ```bash
-nix-shell -E 'let pkgs = import <nixpkgs> {}; in pkgs.mkShell { packages = [ (pkgs.callPackage /home/vringar/nixos-setup/apps/open-plc-utils/default.nix {}) ]; }'
+nix-shell -E 'let pkgs = import <nixpkgs> {}; in pkgs.mkShell { packages = [ (pkgs.callPackage ./apps/open-plc-utils/default.nix {}) ]; }'
 ```
 
 Man pages are available inside the shell (`man plctool`, `man plcrate`, etc.).

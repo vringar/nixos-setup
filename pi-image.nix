@@ -7,8 +7,7 @@
 # Flash with:
 #   sudo dd if=result of=/dev/sdX bs=4M status=progress conv=fsync
 #
-# After first boot: set deployment.targetHost in hive.nix and use
-# `colmena apply --on rpi` to apply the full config.
+# After first boot: use `colmena apply --on t20` to apply the full config.
 let
   sources = import ./npins;
   pkgs = import sources.nixpkgs {

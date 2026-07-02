@@ -11,7 +11,7 @@ into a home-manager configuration.
 
 ## Private GitHub packages
 
-Some npins sources (e.g. `camunda-ai-dev-kit`) are private GitHub repos. Nix fetches them using credentials from `~/.config/nix/github-netrc`.
+Some npins sources (e.g. `c8ctl-plugin-model`) are private GitHub repos. Nix fetches them using credentials from `~/.config/nix/github-netrc`.
 
 ### First-time setup
 
