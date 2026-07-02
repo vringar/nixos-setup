@@ -97,6 +97,7 @@ in {
     deployment.allowLocalDeployment = true;
     deployment.targetUser = "vringar";
 
+    users.users.vringar.extraGroups = ["docker"];
     virtualisation.docker = {
       enable = true;
       storageDriver = "btrfs";
