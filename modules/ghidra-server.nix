@@ -79,8 +79,10 @@
     # openssl pkcs12 -export only takes the first cert from -in,
     # so pass the chain explicitly via -certfile so Java can send the
     # full chain during TLS and clients can validate against ISRG Root X1.
-    LEAF=/tmp/ghidra-leaf.pem
-    CHAIN=/tmp/ghidra-chain.pem
+    _tmpdir=$(${pkgs.coreutils}/bin/mktemp -d)
+    trap '${pkgs.coreutils}/bin/rm -rf "$_tmpdir"' EXIT
+    LEAF="$_tmpdir/ghidra-leaf.pem"
+    CHAIN="$_tmpdir/ghidra-chain.pem"
     ${pkgs.openssl}/bin/openssl x509 -in "$CERT" -out "$LEAF"
     ${pkgs.gawk}/bin/awk '/-----BEGIN CERTIFICATE-----/{n++} n>1{print}' "$CERT" > "$CHAIN"
 
@@ -90,8 +92,6 @@
       -in       "$LEAF" \
       -certfile "$CHAIN" \
       -passout  pass:
-
-    rm -f "$LEAF" "$CHAIN"
 
     chmod 640 ${keystorePath} "$CERT" "$KEY"
     chown ghidra-server:ghidra-server ${keystorePath} "$CERT" "$KEY"
