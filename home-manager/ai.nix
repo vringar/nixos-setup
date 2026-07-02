@@ -134,12 +134,6 @@
     chmod -R u+w $out
     cp -r ${customAgentsDir}/. $out/
   '';
-  mergedAgents = pkgs.runCommand "merged-agents" {} ''
-    mkdir -p $out
-    cp -r ${nucleus}/agents/. $out/
-    chmod -R u+w $out
-    cp -r ${customAgentsDir}/. $out/
-  '';
 in {
   imports = [./crossbridge-supervisor.nix];
 
@@ -197,10 +191,7 @@ in {
             if config.my.work.enable
             then mergedSkills
             else baseSkills;
-          agents =
-            if config.my.work.enable
-            then mergedAgents
-            else baseAgents;
+          agents = baseAgents;
         in {
           "claude/skills".source = skills;
           "opencode/skills".source = skills;
