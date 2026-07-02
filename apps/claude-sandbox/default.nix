@@ -1,4 +1,5 @@
 {pkgs}: let
+  inherit (pkgs) lib;
   python3 = pkgs.python3;
   python3WithShtab = python3.withPackages (ps: [ps.shtab]);
 in
@@ -6,7 +7,10 @@ in
     pname = "claude-sandbox";
     version = "0.1.0";
 
-    src = ./.;
+    src = lib.fileset.toSource {
+      root = ./.;
+      fileset = ./claude-sandbox.py;
+    };
 
     nativeBuildInputs = [python3WithShtab];
 
