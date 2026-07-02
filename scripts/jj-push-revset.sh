@@ -17,6 +17,7 @@ while [[ $i -lt ${#args[@]} ]]; do
   case "${args[$i]}" in
     -b | --bookmark)
       i=$((i + 1))
+      [[ $i -lt ${#args[@]} ]] || { echo "error: --bookmark requires a value" >&2; exit 1; }
       bookmarks+=("${args[$i]}")
       ;;
     --bookmark=*)
@@ -26,6 +27,7 @@ while [[ $i -lt ${#args[@]} ]]; do
     --tracked) tracked=1 ;;
     --remote)
       i=$((i + 1))
+      [[ $i -lt ${#args[@]} ]] || { echo "error: --remote requires a value" >&2; exit 1; }
       remote="${args[$i]}"
       ;;
     --remote=*)
