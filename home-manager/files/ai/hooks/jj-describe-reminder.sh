@@ -31,5 +31,5 @@ fi
 # Change with no description — block stop and remind
 jq -n '{
   "decision": "block",
-  "reason": "The current jj change (@) has uncommitted modifications but no description. Please:\n1. Run `jj describe -m \"<message>\"` to describe the change\n2. Run `jj new` to start a fresh change\nThen you may stop."
+  "reason": "The current jj change (@) has modifications but no description. Act without asking the user — check the parent (`jj log -r @- --no-graph -T '\''description'\''`) and either squash into it if the changes are a natural continuation, or describe with an appropriate message if they are standalone."
 }'
