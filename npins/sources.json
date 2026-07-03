@@ -117,9 +117,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "5d72a29fc36ac21adae6ae35568fe5ee6700850f",
-      "url": "https://github.com/nix-community/home-manager/archive/5d72a29fc36ac21adae6ae35568fe5ee6700850f.tar.gz",
-      "hash": "sha256-slFTUgDy0KTPA4LBAmC/9SngDq8GCPdX+ZR0yQHHN1E="
+      "revision": "b2e4390ff35319c52935d6a700b615da4c0f204d",
+      "url": "https://github.com/nix-community/home-manager/archive/b2e4390ff35319c52935d6a700b615da4c0f204d.tar.gz",
+      "hash": "sha256-prQSM9PGnrfSaqknJOZ3DCQKbpMiXAWLVC5SHbjLcJ4="
     },
     "lix-module": {
       "type": "Git",
@@ -145,9 +145,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "5434ddf4cd71b12df465c89f64b507fce49cc618",
-      "url": "https://git.lix.systems/lix-project/lix/archive/5434ddf4cd71b12df465c89f64b507fce49cc618.tar.gz",
-      "hash": "sha256-UpjmlSJXCeJD3OrjePlRUnlzABzoj+GfVsKu4+HLESg="
+      "revision": "12f10fca7e1e6e7fda6cad9db9fb9237dbcc4df1",
+      "url": "https://git.lix.systems/lix-project/lix/archive/12f10fca7e1e6e7fda6cad9db9fb9237dbcc4df1.tar.gz",
+      "hash": "sha256-8eiLyLgBYZ5RqzHfJEHUm482sieMwYf9obkT226dni0="
     },
     "mcp": {
       "type": "Git",
@@ -157,9 +157,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "e8ea5c74fd54eae0e16ec3292864ecd01a65e3af",
+      "revision": "a4f0f73b5a406522ca6b8dc531aae95665ea35e8",
       "url": null,
-      "hash": "sha256-65jOT+VJYzTJyfyTlnhOUG+c0V+vNy2/GeK3dyHYhXI="
+      "hash": "sha256-YDo+duopMyR0IAF70VEsuJEJJx8ofMWAiRk5z5J6GXc="
     },
     "nixGL": {
       "type": "Git",
@@ -190,9 +190,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "93c171adb7cf1314d90bad3250f29aee91976b8d",
-      "url": "https://github.com/michaelwhitford/nucleus/archive/93c171adb7cf1314d90bad3250f29aee91976b8d.tar.gz",
-      "hash": "sha256-qyHuwO7xfxbsoKho3DzKz9ci3qvghR88neynoQMmvn8="
+      "revision": "96166ea20c892ef96f16c4edc79fc71ab59a4157",
+      "url": "https://github.com/michaelwhitford/nucleus/archive/96166ea20c892ef96f16c4edc79fc71ab59a4157.tar.gz",
+      "hash": "sha256-iVcjWWut8fKxTbNble8t0WAghvgVGBDhZean464/go4="
     },
     "plasma-manager": {
       "type": "Git",
