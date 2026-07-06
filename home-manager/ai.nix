@@ -82,6 +82,10 @@
   rtk = import ../apps/rtk {inherit pkgs sources;};
   claude-sandbox = import ../apps/claude-sandbox {inherit pkgs;};
   bpmnlint = import ../apps/bpmnlint {inherit pkgs sources;};
+  bpmn-auto-layout = import ../apps/bpmn-auto-layout {
+    inherit pkgs sources;
+    scriptSrc = "${skillsDir}/bpmn-generate/scripts/bpmn-auto-layout.cjs";
+  };
   nucleus = sources.nucleus;
 
   # Private repos — only forced when my.work.enable = true
@@ -213,6 +217,7 @@ in {
       ]
       ++ lib.optionals config.my.work.enable [
         bpmnlint
+        bpmn-auto-layout
         dmnlint
         feel-mcp-server
         c8ctl-plugin-model

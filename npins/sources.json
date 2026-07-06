@@ -16,6 +16,22 @@
       "url": "https://api.github.com/repos/ryantm/agenix/tarball/refs/tags/0.15.0",
       "hash": "sha256-ipqShkBmHKC9ft1ZAsA6aeKps32k7+XZSPwfxeHLsAU="
     },
+    "bpmn-auto-layout": {
+      "type": "GitRelease",
+      "repository": {
+        "type": "GitHub",
+        "owner": "bpmn-io",
+        "repo": "bpmn-auto-layout"
+      },
+      "pre_releases": false,
+      "version_upper_bound": null,
+      "release_prefix": null,
+      "submodules": false,
+      "version": "v1.3.0",
+      "revision": "7214f038b57ed19356b1c3a5892f22c434d5cc1f",
+      "url": "https://api.github.com/repos/bpmn-io/bpmn-auto-layout/tarball/refs/tags/v1.3.0",
+      "hash": "sha256-+t8ONQQy9yWB/DtdzVmxVKyp4MQPhdU9wzZiWlnqtLc="
+    },
     "bpmnlint": {
       "type": "Git",
       "repository": {
@@ -117,9 +133,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "b2e4390ff35319c52935d6a700b615da4c0f204d",
-      "url": "https://github.com/nix-community/home-manager/archive/b2e4390ff35319c52935d6a700b615da4c0f204d.tar.gz",
-      "hash": "sha256-prQSM9PGnrfSaqknJOZ3DCQKbpMiXAWLVC5SHbjLcJ4="
+      "revision": "a1645f40777620c4bd2b6d854b290c2fc354a266",
+      "url": "https://github.com/nix-community/home-manager/archive/a1645f40777620c4bd2b6d854b290c2fc354a266.tar.gz",
+      "hash": "sha256-E/ElL373TO8lQ2aMvYyzN+k4xkVaUGoRqoa8AtM71tI="
     },
     "lix-module": {
       "type": "Git",
@@ -145,9 +161,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "12f10fca7e1e6e7fda6cad9db9fb9237dbcc4df1",
-      "url": "https://git.lix.systems/lix-project/lix/archive/12f10fca7e1e6e7fda6cad9db9fb9237dbcc4df1.tar.gz",
-      "hash": "sha256-8eiLyLgBYZ5RqzHfJEHUm482sieMwYf9obkT226dni0="
+      "revision": "de67d1424dd3080dbb7cffbed620a481552844fe",
+      "url": "https://git.lix.systems/lix-project/lix/archive/de67d1424dd3080dbb7cffbed620a481552844fe.tar.gz",
+      "hash": "sha256-6IV+uHTHZdywCgbpowon1xHAQ5KqkaXceZU69D1vZ7Y="
     },
     "mcp": {
       "type": "Git",
@@ -157,9 +173,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "a4f0f73b5a406522ca6b8dc531aae95665ea35e8",
+      "revision": "26663bff00fb18ce7d750b1961222e09b5acad49",
       "url": null,
-      "hash": "sha256-YDo+duopMyR0IAF70VEsuJEJJx8ofMWAiRk5z5J6GXc="
+      "hash": "sha256-FsdGl8ic1wLjrDmfl12EOhbH5UnG1fzAMOtYJR9rBdo="
     },
     "nixGL": {
       "type": "Git",
@@ -178,8 +194,8 @@
       "type": "Channel",
       "name": "nixos-unstable",
       "artifact": "nixexprs.tar.xz",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1024265.b5aa0fbd5389/nixexprs.tar.xz",
-      "hash": "sha256-T6OhkwGyyGHer1lr4GkbOp//7ii23xLE7HuMmjrdkXI="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1027867.d407951447dc/nixexprs.tar.xz",
+      "hash": "sha256-FGQ8TfSm9WviNE/fQAWsKs+y4GkX8fU4EScewpw54Y8="
     },
     "nucleus": {
       "type": "Git",
@@ -232,9 +248,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "8279434bfb84556208ef801132d3e9698d2db8bd",
-      "url": "https://github.com/camunda/skills/archive/8279434bfb84556208ef801132d3e9698d2db8bd.tar.gz",
-      "hash": "sha256-9iK6cNoWfHZIDLPehjeofZEwFHvGOpc8ib/XayBoGYM="
+      "revision": "38c10fa2a82ad5b8daf3537a50394149c5807647",
+      "url": "https://github.com/camunda/skills/archive/38c10fa2a82ad5b8daf3537a50394149c5807647.tar.gz",
+      "hash": "sha256-dRahIZ51aMZBTcfH4Gnw66t97+sWKi81Ora8okUehK4="
     }
   },
   "version": 8
