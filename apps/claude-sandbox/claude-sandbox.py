@@ -343,14 +343,16 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     if ssh_auth_sock:
         args += ["--ro-bind", ssh_auth_sock, ssh_auth_sock]
 
-    # c8ctl plugin registry (read-only — model subcommand and other plugins need this)
-    # Profiles and credentials are intentionally excluded.
+    # c8ctl config (read-only): plugins and profiles for preprod debugging
     c8ctl_plugins_dir = os.path.join(home_dir, ".config", "c8ctl", "plugins")
     c8ctl_plugins_json = os.path.join(home_dir, ".config", "c8ctl", "plugins.json")
+    c8ctl_profiles_json = os.path.join(home_dir, ".config", "c8ctl", "profiles.json")
     if os.path.isdir(c8ctl_plugins_dir):
         args += ["--ro-bind", c8ctl_plugins_dir, c8ctl_plugins_dir]
     if os.path.isfile(c8ctl_plugins_json):
         args += ["--ro-bind", c8ctl_plugins_json, c8ctl_plugins_json]
+    if os.path.isfile(c8ctl_profiles_json):
+        args += ["--ro-bind", c8ctl_profiles_json, c8ctl_profiles_json]
 
     # GitHub CLI config and auth (read-write, gh updates token expiry)
     gh_config = os.path.join(home_dir, ".config", "gh")
