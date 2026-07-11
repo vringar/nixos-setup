@@ -54,6 +54,14 @@
   };
   programs.firefox.enable = true;
   programs.partition-manager.enable = true;
+
+  # Rootless podman for claude-sandbox: the sandbox starts a per-user
+  # `podman system service` on the host and exposes its socket inside the
+  # bubblewrap container as an OCI runner. Enabling this here (system level)
+  # provides the newuidmap/newgidmap setuid wrappers and subuid/subgid ranges
+  # rootless podman needs — home-manager cannot. Applies to sz1/sz3, which are
+  # the NixOS hosts that get claude-sandbox via ai.nix.
+  virtualisation.podman.enable = true;
   environment.systemPackages = with pkgs; [
     wl-clipboard
     nextcloud-client
