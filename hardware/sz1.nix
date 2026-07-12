@@ -20,6 +20,9 @@
   boot.zfs.extraPools = ["zpool"];
   boot.zfs.devNodes = "/dev/disk/by-uuid/15679710222853114018";
   boot.zfs.forceImportRoot = false;
+  # Cap the ZFS ARC at half of physical RAM (~40 GiB). The default lets it grow
+  # to nearly all RAM, starving applications and causing system-wide sluggishness.
+  boot.kernelParams = ["zfs.zfs_arc_max=${toString (20 * 1024 * 1024 * 1024)}"];
   imports = [
     (modulesPath + "/installer/scan/not-detected.nix")
   ];
