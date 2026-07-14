@@ -61,13 +61,13 @@
       "type": "Git",
       "repository": {
         "type": "Git",
-        "url": "git+ssh://git@github.com/camunda/c8ctl-plugin-model"
+        "url": "ssh://git@github.com/camunda/c8ctl-plugin-model"
       },
-      "branch": "main",
+      "branch": "fix/boundary-append-nested-host",
       "submodules": false,
-      "revision": "feb78368f6c53db424bf33fa24c97187a715d1f0",
+      "revision": "5a52e675776e0d764ffcdf44f5bf0c3f30555a27",
       "url": null,
-      "hash": "sha256-57+hz/xAQfjKL1TCoEfSaO/cxyBK83bGefoOBfJeYfE="
+      "hash": "sha256-80v4iRzI01VXUvEHGKZvP7pHQYpnbUYdRNQs5leaJ2Q="
     },
     "cpitd": {
       "type": "Git",
@@ -133,9 +133,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "7566825d4652a1b885bd4ce65bd9e8def432fec9",
-      "url": "https://github.com/nix-community/home-manager/archive/7566825d4652a1b885bd4ce65bd9e8def432fec9.tar.gz",
-      "hash": "sha256-OI4IkRjRXa1e7hYmCGJDPDq5H/kPwhsyoS80cNUF9fI="
+      "revision": "a45a7c451455a51ae740ec3bce4024b312809c29",
+      "url": "https://github.com/nix-community/home-manager/archive/a45a7c451455a51ae740ec3bce4024b312809c29.tar.gz",
+      "hash": "sha256-r376E2XpakiXwModDHIxlvB6qLq4iFVEq730vxOO4JY="
     },
     "lix-module": {
       "type": "Git",
@@ -161,9 +161,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "c6d22874d6dffc9646279601ad546c1d78d9a409",
-      "url": "https://git.lix.systems/lix-project/lix/archive/c6d22874d6dffc9646279601ad546c1d78d9a409.tar.gz",
-      "hash": "sha256-0Yzux2Qi6vSW00LY0/aa/jhlePee9STpNql0U0/O464="
+      "revision": "fca58aa0449f68537a372b2744c323338f7a859a",
+      "url": "https://git.lix.systems/lix-project/lix/archive/fca58aa0449f68537a372b2744c323338f7a859a.tar.gz",
+      "hash": "sha256-hJKZ7u5tQU+nxbF/qDWIsaWqKPV7JaSUAo5/vTGFVDk="
     },
     "mcp": {
       "type": "Git",
