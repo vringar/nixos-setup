@@ -34,7 +34,6 @@ in {
       ./hardware/sz1.nix
       ./modules/bluetooth.nix
       ./modules/desktop.nix
-      ./modules/nil-lix-fix.nix
       ./modules/wg-sect.nix
       {home-manager.users.vringar = import ./home-manager/ghidra.nix;}
       {home-manager.users.vringar = import ./home-manager/zellij-resilient.nix;}
@@ -91,7 +90,6 @@ in {
       ./hardware/sz3.nix
       ./modules/bluetooth.nix
       ./modules/desktop.nix
-      ./modules/nil-lix-fix.nix
       ./modules/wg-sect.nix
     ];
 

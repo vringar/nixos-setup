@@ -40,6 +40,11 @@ in {
   my.crosslink.doCheck = false;
 
   home.sessionVariables.GIT_SSH = "/usr/bin/ssh";
+  # Zed picks the compositor-hinted Intel iGPU on this hybrid Intel/NVIDIA laptop and fails
+  # surface creation with no fallback (zed-industries/zed#52517, #54218). Forcing a device ID
+  # makes it retry via the GL backend, which works. Device ID is this machine's NVIDIA GPU
+  # (`vulkaninfo --summary`), so this stays out of the shared graphical.nix module.
+  home.sessionVariables.ZED_DEVICE_ID = "0x28ba";
 
   home.packages = [
     c8ctl

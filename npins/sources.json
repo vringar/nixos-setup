@@ -133,9 +133,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "079a3b5d1aa6a719920a51316253b7d6dd22738d",
-      "url": "https://github.com/nix-community/home-manager/archive/079a3b5d1aa6a719920a51316253b7d6dd22738d.tar.gz",
-      "hash": "sha256-JWq0BfjO4ktpH5USfQNQzdvHpIDT8fSKD5K7LvdMRFs="
+      "revision": "0c486d2b21bb1e4d0e5a11e374deb51587267387",
+      "url": "https://github.com/nix-community/home-manager/archive/0c486d2b21bb1e4d0e5a11e374deb51587267387.tar.gz",
+      "hash": "sha256-vEhDKc9JYVGH5CO4nbfqIZmsWiDKLPFReYK6emsFK5U="
     },
     "lix-module": {
       "type": "Git",
@@ -161,9 +161,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "d9652f26517aa82918cc62ad40e5dddfadd08907",
-      "url": "https://git.lix.systems/lix-project/lix/archive/d9652f26517aa82918cc62ad40e5dddfadd08907.tar.gz",
-      "hash": "sha256-4tujOfGTVMQAGWJZR37jpM364VJ7vaxbnycy4ChJjJ8="
+      "revision": "f1ef4abf540fe441b21e15ab2e1d592a858bb80c",
+      "url": "https://git.lix.systems/lix-project/lix/archive/f1ef4abf540fe441b21e15ab2e1d592a858bb80c.tar.gz",
+      "hash": "sha256-FBzZkhpkHi97OwCvf+VcZGc8cZ8nE757dSCsKUNYGqo="
     },
     "mcp": {
       "type": "Git",
@@ -173,9 +173,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "992a871d4b8d6781e5ece0db5dd836243d314d9b",
+      "revision": "025d4d958dc01796d3456d41f7ab545135093ef6",
       "url": null,
-      "hash": "sha256-ORihhAa1Yl4QMoSRKJu9+o0u5tN2oCUcYm265WBI8RM="
+      "hash": "sha256-Gq+H+/WnbzSx7wXc1vhjIg5+Rv8js8+fdgSBUTldSso="
     },
     "nixGL": {
       "type": "Git",
@@ -194,8 +194,8 @@
       "type": "Channel",
       "name": "nixos-unstable",
       "artifact": "nixexprs.tar.xz",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1040357.e2587caef70c/nixexprs.tar.xz",
-      "hash": "sha256-vwxWgF+Gj276WznzGb1LxGsK/39HaQwgQXiU3EkC844="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1042126.624af665418d/nixexprs.tar.xz",
+      "hash": "sha256-JmPsbx37jA7Qga36iij0jsbwV4PVRACnqoVroAt/cAc="
     },
     "nucleus": {
       "type": "Git",
