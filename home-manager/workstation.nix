@@ -8,6 +8,7 @@
   home.packages = [
     pkgs.kdePackages.ksshaskpass
     pkgs.jetbrains.pycharm
+    pkgs.lmstudio
   ];
 
   home.sessionPath = [
