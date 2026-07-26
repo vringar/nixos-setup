@@ -58,6 +58,14 @@
     options = ["zfsutil"];
   };
 
+  # LLM service storage (models, wiki corpus, Open WebUI state).
+  # Dataset is created manually with a 200G quota — see docs/local-llm-service.md D7.
+  fileSystems."/var/lib/llm" = {
+    device = "zpool/llm";
+    fsType = "zfs";
+    options = ["zfsutil"];
+  };
+
   fileSystems."/boot" = {
     device = "/dev/disk/by-uuid/19D5-7538";
     fsType = "vfat";
