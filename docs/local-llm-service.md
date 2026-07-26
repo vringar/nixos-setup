@@ -133,6 +133,23 @@ llama-swap constraints we rely on:
   multi-second model reload on every alternating message. One 8 GB GPU means
   "one model at a time" is household-wide, not per-user.
 
+## User research findings (2026-07, first pass)
+
+From the primary user, via Stefan (not from reading chats):
+
+- **Workflow is author-native drafting, not roleplay**: they either write tiny
+  story fragments for the model to enrich with detail, or toss in an idea and
+  have the model write the story. Consequences: evaluation uses seed→story and
+  fragment→enrichment tasks (not RP dialogue); the "Witcher Writer" preset is
+  an enrichment prompt (expand what's given, preserve established facts and
+  the author's voice, don't rush endings), not a persona; Rocinante should be
+  A/B'd in its Alpaca Story/Instruct mode against ChatML, since instruct-style
+  story generation is exactly its Alpaca mode.
+- **Open follow-up**: where does the finished story text live after
+  generation? If they already paste into a doc, that doc is the embryonic
+  story bible (validates D13) and the informal version of the two-layer
+  chat + story-file structure.
+
 ## Model strategy
 
 - Laguna XS-2.1 (coding-tuned) is explicitly the wrong model for this use case.
