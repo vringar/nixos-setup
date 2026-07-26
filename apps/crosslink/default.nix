@@ -19,6 +19,9 @@ pkgs.rustPlatform.buildRustPackage {
   buildInputs = [pkgs.sqlite];
 
   inherit doCheck;
+  # nextest instead of cargo test: same green-tests gate, but per-test timing
+  # in the log (the suite's cost is concentrated in a few huge proptests).
+  useNextest = true;
 
   nativeCheckInputs = [
     pkgs.git
@@ -31,11 +34,20 @@ pkgs.rustPlatform.buildRustPackage {
   # to JSON while SQLite holds 2-3 (next_display_id also stuck at 1). These are
   # deterministic data-consistency failures upstream, not sandbox flakiness.
   # Skipped to roll forward; drop once fixed upstream.
-  checkFlags = [
-    "--skip=smoke::coordination::test_lock_claim_release"
-    "--skip=smoke::coordination::test_integrity_after_sync"
-    "--skip=smoke::coordination::test_integrity_hydration_matches"
+  # Nextest filterset, spelled without spaces because the check hook
+  # word-splits these flags; must be pre-`--` args (cargoTestFlags), the
+  # post-`--` checkFlags position rejects nextest-level options.
+  cargoTestFlags = [
+    "-E"
+    "all()-(test(smoke::coordination::test_lock_claim_release)+test(smoke::coordination::test_integrity_after_sync)+test(smoke::coordination::test_integrity_hydration_matches))"
   ];
+
+  # The db proptests run 8-18 min each at proptest's default 256 cases and
+  # dominate the ~50 min suite. 64 cases keeps the deploy gate meaningful at
+  # roughly a quarter of the wall time; upstream CI still runs full strength.
+  preCheck = ''
+    export PROPTEST_CASES=64
+  '';
 
   # The crate embeds dashboard/dist/ via rust-embed. The React frontend is
   # built separately and dist/ is gitignored, so it is absent from source.
