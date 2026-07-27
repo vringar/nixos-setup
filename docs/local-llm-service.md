@@ -27,7 +27,8 @@ session.
 
 ## Non-goals
 
-- Public internet exposure
+- Exposing anything beyond the authenticated UI (the inference API itself
+  stays private; only Caddy→Open WebUI is reachable from outside)
 - Concurrent multi-model serving (one loaded model at a time is fine)
 - Admin-proof chat privacy (trust-based within the family is acceptable)
 - High availability; if sz1 is off, the service is off
@@ -40,45 +41,64 @@ session.
 | GPU is RX 5700 XT (Navi 10 / gfx1010) | No ROCm, no CUDA → **Vulkan is the only GPU path**. This rules out ollama (CPU-only on this card) and mandates llama.cpp built with Vulkan. |
 | 8 GB VRAM | Full GPU offload only for models ≤ ~7 GB; larger quants run partially offloaded. Favors 12B-class Q4 models (~7 GB). |
 | 39 GB system RAM | Comfortable headroom, including when LM Studio loads a second model concurrently (~7 GB each). |
-| LAN-only access | No reverse proxy/TLS/domain needed; firewall opens the UI port on the LAN interface only. |
+| Remote access from phone + work laptop, browser-only | Public HTTPS edge on t20 (see D1/D14). sz1's Open WebUI port stays LAN-bound; only t20's Caddy faces the internet. |
 | NixOS + colmena | All service config in sz1's block in `hive.nix` (host-specific software per repo convention). |
+| Primary user is ~70/30 phone/desktop (Stefan's estimate, ~90% confidence — confirm in interview); part of the 30% is a **work laptop in the office** | Frontend must be mobile-first: favors Open WebUI's chat UI, weighs against SillyTavern (poor on mobile) and document-centric harnesses unless they have a real mobile story. D13's bible-update flow must be skim-and-approve simple on a phone. Remote access is a hard requirement (drove the D1 revision), and the work laptop means **browser-only, zero client install** — no WireGuard profile on a managed device; public HTTPS on 443 is the one thing corporate networks reliably pass. |
 
 ## Decisions
 
 | # | Decision | Choice | Rationale |
 |---|---|---|---|
-| D1 | Access path | LAN only | Family member is on the home network. Nothing exposed beyond it. |
+| D1 | Access path | **Revised:** public HTTPS via t20 edge (supersedes "LAN only") | Original LAN-only choice quietly meant "only works at home" — contradicted by the ~70% phone usage (see Constraints). New shape: DynDNS name → FritzBox forwards 443 → Caddy on t20 (always-on Pi 3, TLS via Let's Encrypt) → reverse-proxy to Open WebUI on sz1. Bonus: real HTTPS gives the phone a secure context → installable PWA (resolves the app-vs-bookmark caveat). Trade-off accepted knowingly: Open WebUI's login becomes the public perimeter; mitigations = signup disabled, strong passwords, Caddy rate-limit on auth endpoints, pins kept fresh. WireGuard remains the fallback if this proves noisy. **Verify first: FritzBox has public IPv4 (not DS-Lite/CGNAT), else this needs a relay and the decision reopens.** |
 | D2 | Privacy model | Trust-based | Standard Open WebUI multi-user; admin could technically read chats and that is accepted. |
 | D3 | Backend | `llama-server` (llama.cpp) with Vulkan | Only GPU-capable option on this card. Single-model serving matches stated needs. |
-| D4 | Frontend | Open WebUI (`services.open-webui`) | Multi-user auth, chat history, mobile-friendly, OpenAI-API client, packaged as a NixOS module. |
+| D4 | Frontend | Open WebUI (`services.open-webui`) — **as a probe, not a verdict** | Multi-user auth, chat history, mobile-friendly, OpenAI-API client, packaged as a NixOS module. Crucially, the primary user's actual writing workflow is unvalidated (see Risks): Open WebUI is the cheapest frontend that serves both chat-style co-writing and document-style drafting acceptably, with zero client-device setup. The OpenAI-API boundary makes frontends swappable, so this decision is designed to be revised after real use — SillyTavern (chat-native RP) or a document-centric harness are later iterations against the same backend, not redesigns. |
 | D5 | LM Studio | Kept, independent | Separate model stores; ~7 GB duplication per shared model is accepted. |
 | D6 | Model weights storage | Imperative blob, declarative pointer | Weights live in `/var/lib/llm/models/`; the Nix config references a path + serving parameters. 20 GB blobs don't belong in the Nix store. |
 | D7 | Storage substrate | Dedicated ZFS dataset `zpool/llm`, `quota=200G`, mounted at `/var/lib/llm` | `zpool` is sz1's only pool (1.77 T, ~1.3 T free — verified), so "SSD pool" = `zpool`. Hard cap makes disk growth visible and forces cleanup. Holds models, wiki corpus, and (to keep everything under one quota) Open WebUI state. Dataset creation is a documented one-time `zfs create`; the mount is declared in `hardware/sz1.nix` like the existing datasets. |
 | D8 | Sharing models between LM Studio and the service | Accept duplication; no sharing mechanism | At ~7–8 GB per model and a handful of models, duplication costs a few tens of GB against 1.3 T free — not worth engineering around. `cp --reflink=always` (OpenZFS block cloning) remains available opportunistically; `dedup=on` is explicitly rejected (pool-wide RAM tax). |
+| D9 | Addressing | **Revised:** `chat.t20.zabka.it`; `*.t20.zabka.it` resolves to the home public IPv4 (dynamic-DNS-updated A record); `sz1.fritz.box` remains the internal upstream t20 proxies to | Superseded LAN-only answer was `http://sz1.fritz.box:<port>`. Everyone — home or remote — uses `https://chat.t20.zabka.it/`; FritzBox NAT hairpinning makes the public name work from inside the LAN, so one URL, one PWA origin. The `*.t20` scheme leaves room for sibling services (e.g. a status/wake vhost). DNS host is **INWX**: FritzBox updates `t20.zabka.it` via INWX's DynDNS endpoint (second entry alongside Stefan's existing one from another FritzBox); `*.t20.zabka.it` is a static CNAME to it. Certs: DNS-01 **wildcard** for `*.t20.zabka.it` via the official `caddy-dns/inwx` plugin (`pkgs.caddy.withPlugins`, `services.caddy.package`) — keeps `chat.*` out of Certificate Transparency logs, which otherwise make named hosts enumerable within minutes of issuance. INWX API credentials as an agenix secret on t20 (established repo pattern); prefer a dedicated DNS-scoped API user over the main registrar login, which also sidesteps the TOTP `shared_secret` requirement. Stefan is ~95% sure the connection has a public IPv4 — still verify before building (see Risks). |
+| D10 | Corpus scope | Full wiki dump, then curate | Download the complete Fandom XML dump once (cheap, offline), but build the knowledge collection from a curated subset (characters, places, events); iterate on the curation without re-downloading. |
 | D11 | Service wiring | nixpkgs modules as-is: `services.llama-cpp` + `services.llama-swap` — no custom units | Researched in the pinned nixpkgs, both fit (see "Module research"). |
 | D12 | Accounts | Two: Stefan (admin) + family member; Stefan uses the web UI for chat too | LM Studio stays for model experimentation (D5), but Stefan's day-to-day chat also goes through Open WebUI — same RAG collections and history sync, and exercising the service himself surfaces problems before the family member hits them. |
-| D9 | Addressing | `http://sz1.fritz.box:<port>` | FritzBox router DNS already resolves hostnames on the LAN; no mDNS or static-IP management needed. |
-| D10 | Corpus scope | Full wiki dump, then curate | Download the complete Fandom XML dump once (cheap, offline), but build the knowledge collection from a curated subset (characters, places, events); iterate on the curation without re-downloading. |
+| D13 | Long-form persistence | Lossless external canon: never destroy, extract cheaply, curate optionally | The primary user's complaint about hosted Claude: established facts silently fail to persist through compaction and must be *restated by hand* — nothing is committed to durable notes. The fix is losslessness + low-effort recall, not manual curation for its own sake: (1) full transcripts persist verbatim in Open WebUI — local disk is free, so unlike API compaction nothing is ever destroyed; worst case a missed fact is *copied* from an old chat, never reconstructed from memory. (2) A per-story "story bible" knowledge collection (characters, plot state, established facts, chapter summaries) is the retrieval index RAG injects per message; one chat per chapter keeps the ~16k window for the active scene. (3) Bible updates are model-drafted at end of chapter (extraction, one click) with the author skimming/correcting — extraction misses are recoverable indexing gaps, not data loss, which is what makes automation safe here where compaction isn't. Serving ctx ~16k with quantized KV cache + flash attention (KV competes with weights for 8 GB VRAM; Nemo-class quality degrades past ~16k regardless). Escalation: SillyTavern (keyed lorebooks, auto-summary) against the same backend. |
+| D14 | t20 edge service | Caddy on t20 (always-on) + a small status/wake service | t20 terminates TLS and reverse-proxies to sz1 (SSE streaming works out of the box). When sz1 is unreachable, t20 diagnoses *why* and serves the right page: port answers → proxy; host pings but port closed → "sz1 is in Windows right now"; no ping → powered off → offer an **authenticated** "wake sz1" button (WoL magic packet; unauthenticated wake on a public endpoint = scanners power the machine on). Requires: WoL enabled in sz1 BIOS + NixOS interface config, NixOS as default boot entry (wake always boots into the service), and an empirical test that this board wakes from full power-off. Pick an innocuous DynDNS hostname — it will appear in DNS and proxy logs on networks we don't control. |
 
 ## Architecture
 
 ```
-family device ──LAN──> Open WebUI (sz1, LAN-bound, auth) ──localhost──> llama-server (Vulkan, one model)
-                              │                                              │
-                     knowledge collection                     /var/lib/llm/models/*.gguf
-                     (Witcher wiki corpus,
-                      embeddings, RAG)
-                              │
-                    /var/lib/llm/{corpus,open-webui}/
+phone / work laptop (browser, PWA)
+        │ https://<dyndns-domain>/  (443)
+        ▼
+FritzBox ──port-forward──> t20: Caddy (TLS, rate-limit)──┐
+                            │                            │ sz1 reachable?
+                            │ sz1 down: status page      │
+                            │  - pings, port closed →    │
+                            │    "sz1 is in Windows"     │
+                            │  - no ping → authenticated │
+                            │    "wake sz1" (WoL) button │
+                            ▼                            ▼
+                       (static page)      Open WebUI (sz1, LAN-bound, auth)
+                                                │               │
+                                       knowledge collections    │ localhost
+                                       (Witcher wiki corpus,    ▼
+                                        story bibles, RAG)   llama-swap ──spawns──> llama-server
+                                                │                                  (Vulkan, one model
+                                                ▼                                   at a time)
+                                     /var/lib/llm/{corpus,open-webui}/                  │
+                                                                          /var/lib/llm/models/*.gguf
 
-                 all of /var/lib/llm = zfs dataset zpool/llm (quota=200G)
+                          all of /var/lib/llm = zfs dataset zpool/llm (quota=200G)
 ```
 
-- `llama-server` bound to `127.0.0.1` only; never directly reachable.
-- Open WebUI bound to the LAN interface; its port opened in the sz1 firewall.
+- `llama-swap`/`llama-server` bound to `127.0.0.1` only; never directly reachable.
+- Open WebUI bound to the LAN interface; its port open in the sz1 firewall for
+  t20 and LAN clients, never forwarded by the router.
+- Only t20:443 is internet-facing; Caddy terminates TLS (Let's Encrypt) and
+  rate-limits the auth endpoints.
 - Signup disabled after the two accounts (Stefan + family member) exist.
 - Model file, context size, GPU offload layer count, and sampler defaults are
-  nix-config values on the llama-server unit.
+  nix-config values on the llama-swap model entries.
 
 ### Lore grounding (RAG)
 
@@ -187,29 +207,56 @@ speed; benchmark before promising it to anyone.
 - If a 12B Q4 with full offload misses the bar (unlikely), fall back to smaller
   quant or smaller model rather than CPU inference.
 
+**Measured (2026-07-27, Mag-Mell Q4_K_M, Vulkan, fa=1): bar cleared.**
+Generation peaks at `-ngl 32` with **12.9 tok/s** (24→7.9, 28→9.9, 32→12.9,
+36→10.7, 41→10.7 — beyond 32 layers the 8 GB VRAM oversubscribes and the
+driver spills, so full offload is *slower*). Shipped config already uses 32.
+Live serving smoke test: ~18 tok/s decode, ~48 tok/s prompt processing.
+Known future pain: prefill at ~50-60 tok/s means a multi-thousand-token
+RAG-loaded first message waits 30-60 s before the first token — keep phase-3
+retrieval injection lean; llama-server prompt caching covers repeat turns.
+Curiosity for later: prefill hit 228 tok/s at `-ngl 24` (VRAM headroom helps
+prompt batching) — a prefill-vs-decode trade exists if prefill ever dominates.
+
 ## Risks & unknowns
 
 | Risk | Mitigation |
 |---|---|
 | Vulkan performance on gfx1010 is unverified for the chosen model | Benchmark phase before committing (performance bar above). |
 | RAM/VRAM contention when LM Studio runs simultaneously | VRAM: both cannot fully offload at once; acceptable — Stefan's experiments briefly degrade the service. Document, don't engineer around. |
-| Open WebUI is a fast-moving package | Pinned via nixpkgs like everything else; updates arrive with `npins update` and are verified by `colmena build`. |
-| Family device discovery of sz1's address | Static IP or mDNS (`sz1.local`); pick during implementation. |
+| Open WebUI is a fast-moving package — and now the **public perimeter** | Pinned via nixpkgs like everything else; updates arrive with `npins update` and are verified by `colmena build`. Being internet-facing raises the stakes on keeping the pin fresh; Caddy rate-limiting buys brute-force protection, not CVE protection. WireGuard fallback stays documented if this proves uncomfortable. |
+| DS-Lite/CGNAT would break the port-forward architecture | Check FritzBox Online Monitor for a public IPv4 **before** building the t20 edge. If DS-Lite: MyFRITZ!/IPv6-only partially works (German mobile networks) but not from arbitrary networks — decision D1 reopens (relay VPS or tunnel). |
+| WoL from full power-off is board/BIOS-dependent | Empirical test in phase 0.5: power sz1 down, wake via `wakeonlan` from t20. If it only wakes from S3, the down-page wording changes ("ask Stefan"). |
+| **Work-laptop privacy is outside our control** | A managed corporate device may have TLS inspection or endpoint monitoring; our Let's Encrypt TLS does not protect content from the device's own employer. This must be communicated honestly to the primary user: on the work laptop, treat the service as employer-visible regardless of our architecture. Phone on mobile data is the private path. |
+| **Primary user's writing workflow is unvalidated.** Stefan has promised not to read their chats, so whether they co-write turn-by-turn (chat-native) or draft prose with model assistance (document-native) is unknown — and D13's bible/chapter workflow may feel like homework to them. | User research = asking, not reading: a short interview about how they work with Claude today and what compaction loses, before/during evaluation. Open WebUI ships as a probe (D4); frontend is swappable behind the API boundary if the workflow verdict demands it (SillyTavern for chat-native, document-centric harness for author-native). |
 
 ## Implementation plan (proposed phases)
 
-0. **Storage**: create `zpool/llm` (`quota=200G`), declare the mount in
-   `hardware/sz1.nix`, check `feature@block_cloning` is enabled on the pool.
-1. **Backend**: Vulkan-built llama.cpp behind `services.llama-swap`, candidate
-   models in `/var/lib/llm/models`, benchmark against the performance bar.
+0. **Storage** — ✅ done 2026-07-26: `zpool/llm` created (200G quota),
+   mounted at `/var/lib/llm` via `hardware/sz1.nix`, deployed and verified.
+0.5. **Edge preflight** (cheap checks before any t20 work): confirm public
+   IPv4 (FritzBox Online Monitor); test WoL wakes sz1 from full power-off;
+   at INWX create the DNS-scoped API user + second DynDNS entry for
+   `t20.zabka.it` and set the `*.t20.zabka.it` CNAME.
+1. **Backend** — ✅ done 2026-07-27: `services.llama-swap` on localhost:9292,
+   three candidates behind Vulkan llama-server, models downloaded, benchmark
+   cleared the bar at `-ngl 32` (see Performance bar), smoke test returned a
+   live completion through the swap proxy.
 2. **Frontend**: Open WebUI wired to the backend, LAN firewall opening,
    accounts created, signup disabled.
+2.5. **Edge**: Caddy + status/wake service on t20 (colmena remote deploy),
+   FritzBox 443 forward + DynDNS update for `*.t20.zabka.it`, rate limits,
+   then the PWA smoke test from a phone on mobile data.
 3. **Corpus**: Witcher wiki dump → markdown → knowledge collection; save the
    fetch/convert script in the repo; "Witcher Writer" preset wired to it.
-4. **Evaluation**: candidate models tested by the family member via the UI's
-   side-by-side compare; winner becomes the declared default.
-5. **Polish**: sampler defaults per model, mDNS/static address, brief usage
-   note for the family member.
+4. **Evaluation**: two things under test, not one — (a) candidate models via
+   the UI's side-by-side compare, (b) the harness itself: workflow interview
+   with the primary user, then does the bible/chapter pattern fit how they
+   actually write? Winner model becomes the declared default; harness verdict
+   decides whether a frontend iteration (SillyTavern / document-centric tool)
+   is warranted.
+5. **Polish**: sampler defaults per model, brief usage note for the family
+   member (URL `http://sz1.fritz.box:<port>`, accounts, story-bible how-to).
 
 ## Open questions
 
