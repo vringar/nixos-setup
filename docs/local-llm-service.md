@@ -231,9 +231,11 @@ prompt batching) — a prefill-vs-decode trade exists if prefill ever dominates.
 
 0. **Storage** — ✅ done 2026-07-26: `zpool/llm` created (200G quota),
    mounted at `/var/lib/llm` via `hardware/sz1.nix`, deployed and verified.
-0.5. **Edge preflight** — public IPv4 ✅ verified (79.197.182.183, 2026-07-28);
-   WoL test dropped from scope. Remaining: at INWX create the DNS-scoped API
-   user + DynDNS entry for `home.zabka.it` and set the `*.home.zabka.it` CNAME.
+0.5. **Edge preflight** — public IPv4 ✅ (79.197.182.183, 2026-07-28); DynDNS
+   A record ✅ + `*.home.zabka.it` wildcard CNAME ✅ (both verified against
+   INWX authoritative NS, 2026-08-02; AAAA stripped pending the t20
+   self-update design in D9). WoL dropped from scope. Remaining: the
+   DNS-scoped INWX API user for t20's DNS-01 wildcard cert (phase 2.5).
 1. **Backend** — ✅ done 2026-07-27: `services.llama-swap` on localhost:9292,
    three candidates behind Vulkan llama-server, models downloaded, benchmark
    cleared the bar at `-ngl 32` (see Performance bar), smoke test returned a
