@@ -43,7 +43,7 @@ session.
 | 39 GB system RAM | Comfortable headroom, including when LM Studio loads a second model concurrently (~7 GB each). |
 | Remote access from phone + work laptop, browser-only | Public HTTPS edge on t20 (see D1/D14). sz1's Open WebUI port stays LAN-bound; only t20's Caddy faces the internet. |
 | NixOS + colmena | All service config in sz1's block in `hive.nix` (host-specific software per repo convention). |
-| t20 is a Pi 3: **1 GB RAM**, ext4 on SD card, built via aarch64 emulation on sz1 | Caps what the edge can host. Retiring Ghidra server (D15) frees ~400 MB and makes room for Caddy plus a small IdP; it rules out anything needing PostgreSQL (D16). Emulated builds also favor Go over large Rust closures. Everything on t20 gates every service, on storage that wears out — back up edge state before other services depend on it. |
+| t20 is a Pi 3: **1 GB RAM**, ext4 on SD card, built via aarch64 emulation on sz1 | Caps what the edge can host. Retiring Ghidra server (D15) frees ~400 MB and makes room for Caddy plus a small IdP; it rules out anything needing PostgreSQL (D16). Emulated builds also favor Go over large Rust closures. Everything on t20 gates every service, on storage that wears out — back up edge state before other services depend on it. **Planned:** move t20's root to an external SSD, which also makes it a NAS. Note the Pi 3 ceiling before sizing that: USB and Ethernet share one USB 2.0 bus, so aggregate throughput is roughly 25–40 MB/s no matter how fast the SSD is. Good enough for edge state and backups; not a fileserver for large media. |
 | Primary user is ~70/30 phone/desktop (Stefan's estimate, ~90% confidence — confirm in interview); part of the 30% is a **work laptop in the office** | Frontend must be mobile-first: favors Open WebUI's chat UI, weighs against SillyTavern (poor on mobile) and document-centric harnesses unless they have a real mobile story. D13's bible-update flow must be skim-and-approve simple on a phone. Remote access is a hard requirement (drove the D1 revision), and the work laptop means **browser-only, zero client install** — no WireGuard profile on a managed device; public HTTPS on 443 is the one thing corporate networks reliably pass. |
 
 ## Decisions
@@ -281,10 +281,9 @@ prompt batching) — a prefill-vs-decode trade exists if prefill ever dominates.
 - [x] Does Open WebUI's state directory relocate cleanly to `/var/lib/llm/`?
       No — `StateDirectory` is hardcoded and `DynamicUser` is on. Resolved with
       a child dataset mounted at `/var/lib/private/open-webui` (phase 2).
-- [ ] Open WebUI against Authelia: **OIDC or trusted headers?** Trusted headers
-      are simpler and uniform with how auth-less services get protected, but
-      require sz1:8080 to be unreachable except via Caddy. OIDC has no such
-      coupling and supports group→role mapping. Current lean: OIDC for Open
-      WebUI (it has its own user model), forward-auth for services that have
-      no auth at all.
+- [x] Open WebUI against Authelia: **OIDC**, decided 2026-08-02. Open WebUI has
+      its own user model, tokens are verified so a direct hit on sz1:8080 gains
+      nothing, and group→role mapping comes free. Forward-auth stays the tool
+      for services that have no auth of their own. Consequence: the sz1:8080
+      firewall rule can stay LAN-wide, which preserves the local fallback.
 - [ ] Authelia or Kanidm (D16)? Recorded as Authelia on fit; not yet signed off.

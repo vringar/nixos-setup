@@ -162,16 +162,8 @@ in {
   t20 = {...}: {
     imports = [
       ./hardware/pi.nix
-      ./modules/ghidra-server.nix
     ];
 
-    services.ghidra-server = {
-      enable = true;
-      tailscaleCert = {
-        enable = true;
-        hostname = "t20.tailbaace.ts.net";
-      };
-    };
     services.tailscale.enable = true;
 
     boot.kernel.sysctl = {
