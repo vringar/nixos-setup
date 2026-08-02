@@ -64,6 +64,18 @@ in {
     ];
     nix.settings.secret-key-files = ["/etc/nix/signing-key.sec"];
 
+    # Serve sz1's store as a binary cache so t20 can *substitute* its aarch64
+    # closure instead of depending on colmena pushing every path. Reuses the
+    # signing key sz1 already has and the public key t20 already trusts (see
+    # scripts/sign-for-t20.sh), so no new key material is involved.
+    services.nix-serve = {
+      enable = true;
+      secretKeyFile = "/etc/nix/signing-key.sec";
+      # openFirewall would open the port on every interface, including the
+      # wg-sect tunnel; scoped to the LAN NIC with Open WebUI's rule instead.
+      openFirewall = false;
+    };
+
     # --- Family LLM service backend (docs/local-llm-service.md, phase 1) ---
     # One model at a time on the 8 GB GPU; llama-swap swaps llama-server
     # instances per requested model. Never configure llama-swap `groups`
@@ -155,7 +167,10 @@ in {
     # enp4s0 is a PCI-path name, stable unless the NIC is replaced or moved —
     # if it ever changes, this rule stops matching and the UI goes unreachable
     # from the LAN rather than becoming over-exposed.
-    networking.firewall.interfaces."enp4s0".allowedTCPPorts = [8080];
+    networking.firewall.interfaces."enp4s0".allowedTCPPorts = [
+      8080 # Open WebUI
+      5000 # nix-serve binary cache
+    ];
 
     deployment.tags = ["personal"];
     deployment.allowLocalDeployment = true;
@@ -178,10 +193,19 @@ in {
 
     security.sudo.wheelNeedsPassword = false;
 
+    # The sz1 key authorizes signatures on paths colmena pushes after
+    # scripts/sign-for-t20.sh signs them — it is load-bearing for deploys, not
+    # only for the substituter below.
     nix.settings.trusted-public-keys = [
       "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
       "sz1.fritz.box:CB1Zd3dpBNECfzeGVpkDNJYds4O/eKJhV2Tlx2NGqEc="
     ];
+
+    # Pull from sz1 first: it has already built this host's closure, and the Pi
+    # cannot realistically build anything itself. `extra-` so cache.nixos.org
+    # stays in the list. An unreachable substituter is a warning, not an error,
+    # so t20 still deploys when sz1 is off or in Windows.
+    nix.settings.extra-substituters = ["http://sz1.fritz.box:5000"];
 
     deployment.tags = ["personal"];
     deployment.targetHost = "t20.fritz.box";
