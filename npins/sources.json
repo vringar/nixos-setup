@@ -104,9 +104,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "0028e2299a63570f99c9fdf457e90a1fe35ff445",
-      "url": "https://github.com/dollspace-gay/crosslink/archive/0028e2299a63570f99c9fdf457e90a1fe35ff445.tar.gz",
-      "hash": "sha256-ZSuS+DT2+rFTZPStsRXbE/PX76N0IJK/RIbb8z5+n4A="
+      "revision": "26ee1885af277528834e1498b362b12aeae79317",
+      "url": "https://github.com/dollspace-gay/crosslink/archive/26ee1885af277528834e1498b362b12aeae79317.tar.gz",
+      "hash": "sha256-H9bMyCIGZwXzXG9wE5HdPzT0W/ppoNtJ2nt0dcJFj4g="
     },
     "dmnlint": {
       "type": "GitRelease",
