@@ -140,8 +140,10 @@ in {
         # hairpinning resolves it from inside the LAN too, so one origin serves
         # everyone (D9) — this does not restrict which hostnames are accepted.
         WEBUI_URL = "https://chat.home.zabka.it";
-        # Flip to "False" in a second deploy once both accounts exist.
-        ENABLE_SIGNUP = "True";
+        # Closed permanently: the admin panel creates users directly, so
+        # self-registration is never needed — and this login is the public
+        # perimeter once the t20 edge lands (D1).
+        ENABLE_SIGNUP = "False";
       };
     };
     # LAN NIC only: t20's Caddy and household clients, never the wg-sect tunnel.
