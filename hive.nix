@@ -94,6 +94,11 @@ in {
           };
           ayla-light = {
             cmd = serve "Ayla-Light-12B-v2.Q4_K_M.gguf" [
+              # The template baked into this GGUF uses a Jinja test llama.cpp's
+              # engine lacks (`selectattr(..., "tool_calls")`), and a template
+              # parse error is fatal, not a fallback. Overriding it sidesteps
+              # the parse entirely — same reason the other two carry this flag.
+              "--chat-template chatml"
               "--temp 1.0"
               "--min-p 0.1"
             ];
