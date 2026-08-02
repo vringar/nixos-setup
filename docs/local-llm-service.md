@@ -1,6 +1,6 @@
 # Design: Family-facing local LLM service on sz1
 
-Status: in progress — phases 0, 0.5 and 1 complete; phase 2 (frontend) next.
+Status: in progress — phases 0, 0.5, 1 and 2 complete; phase 2.5 (edge) next.
 
 ## Context
 
@@ -43,6 +43,7 @@ session.
 | 39 GB system RAM | Comfortable headroom, including when LM Studio loads a second model concurrently (~7 GB each). |
 | Remote access from phone + work laptop, browser-only | Public HTTPS edge on t20 (see D1/D14). sz1's Open WebUI port stays LAN-bound; only t20's Caddy faces the internet. |
 | NixOS + colmena | All service config in sz1's block in `hive.nix` (host-specific software per repo convention). |
+| t20 is a Pi 3: **1 GB RAM**, ext4 on SD card, built via aarch64 emulation on sz1 | Caps what the edge can host. Retiring Ghidra server (D15) frees ~400 MB and makes room for Caddy plus a small IdP; it rules out anything needing PostgreSQL (D16). Emulated builds also favor Go over large Rust closures. Everything on t20 gates every service, on storage that wears out — back up edge state before other services depend on it. |
 | Primary user is ~70/30 phone/desktop (Stefan's estimate, ~90% confidence — confirm in interview); part of the 30% is a **work laptop in the office** | Frontend must be mobile-first: favors Open WebUI's chat UI, weighs against SillyTavern (poor on mobile) and document-centric harnesses unless they have a real mobile story. D13's bible-update flow must be skim-and-approve simple on a phone. Remote access is a hard requirement (drove the D1 revision), and the work laptop means **browser-only, zero client install** — no WireGuard profile on a managed device; public HTTPS on 443 is the one thing corporate networks reliably pass. |
 
 ## Decisions
@@ -63,6 +64,8 @@ session.
 | D12 | Accounts | Two: Stefan (admin) + family member; Stefan uses the web UI for chat too | LM Studio stays for model experimentation (D5), but Stefan's day-to-day chat also goes through Open WebUI — same RAG collections and history sync, and exercising the service himself surfaces problems before the family member hits them. |
 | D13 | Long-form persistence | Lossless external canon: never destroy, extract cheaply, curate optionally | The primary user's complaint about hosted Claude: established facts silently fail to persist through compaction and must be *restated by hand* — nothing is committed to durable notes. The fix is losslessness + low-effort recall, not manual curation for its own sake: (1) full transcripts persist verbatim in Open WebUI — local disk is free, so unlike API compaction nothing is ever destroyed; worst case a missed fact is *copied* from an old chat, never reconstructed from memory. (2) A per-story "story bible" knowledge collection (characters, plot state, established facts, chapter summaries) is the retrieval index RAG injects per message; one chat per chapter keeps the ~16k window for the active scene. (3) Bible updates are model-drafted at end of chapter (extraction, one click) with the author skimming/correcting — extraction misses are recoverable indexing gaps, not data loss, which is what makes automation safe here where compaction isn't. Serving ctx ~16k with quantized KV cache + flash attention (KV competes with weights for 8 GB VRAM; Nemo-class quality degrades past ~16k regardless). Escalation: SillyTavern (keyed lorebooks, auto-summary) against the same backend. |
 | D14 | t20 edge service | Caddy on t20 (always-on) + a small status service | t20 terminates TLS and reverse-proxies to sz1 (SSE streaming works out of the box). When sz1 is unreachable, t20 diagnoses *why* and serves the right page: port answers → proxy; host pings but port closed → "sz1 is in Windows right now"; no ping → powered off → "sz1 is off — ask Stefan". **WoL deliberately out of scope** (2026-07-28: simplifies the edge and the upcoming move; the wake-button design lives in git history if ever wanted). Pick an innocuous DynDNS hostname — it will appear in DNS and proxy logs on networks we don't control. |
+| D15 | Ghidra server on t20 | **Retired** (2026-08-02) | Ghidra now runs fully locally, so the JVM (256 M heap, ~400 MB RSS) no longer has to share t20's 1 GB with the edge. Frees the headroom D16 needs; also removes the only other stateful service competing for the SD card. |
+| D16 | Single sign-on | **Authelia on t20**, added after the edge (phase 2.6); Open WebUI is the first consumer | Goal is "one login, and future services are cheap to add". Costs nothing in DNS or certificates: `auth.home.zabka.it` is already covered by the `*.home.zabka.it` wildcard CNAME and DNS-01 cert, and the whole OIDC flow rides the single 443 forward from D1 — no extra hole punching, and `sz1.fritz.box` never appears in it. Authelia is chosen over the alternatives on fit, not preference: **Zitadel rejected** — it requires PostgreSQL, and Zitadel + Postgres is ~600 MB against a 1 GB Pi 3 (module exists at v2.71.7 in the pin; wrong hardware, not wrong software). **Kanidm** is the better directory (proper user/group model, passkeys) and stays the fallback if a real directory is ever wanted, but it does not do forward-auth, insists on an `https` origin, and is a large Rust build under aarch64 emulation. Authelia does OIDC **and** forward-auth on SQLite in ~50–100 MB, sits behind a proxy on plain HTTP, and Caddy's `forward_auth` is a native directive. Forward-auth is the part that makes future services cheap: it puts a login in front of services that have no auth at all. Session cookie scoped to `.home.zabka.it` is what makes one login cover every subdomain — another dividend of D9's wildcard. **Not yet signed off: Authelia vs Kanidm was Claude's recommendation; Stefan approved recording it, not the tool choice.** |
 
 ## Architecture
 
@@ -224,6 +227,8 @@ prompt batching) — a prefill-vs-decode trade exists if prefill ever dominates.
 | Vulkan performance on gfx1010 is unverified for the chosen model | Benchmark phase before committing (performance bar above). |
 | RAM/VRAM contention when LM Studio runs simultaneously | VRAM: both cannot fully offload at once; acceptable — Stefan's experiments briefly degrade the service. Document, don't engineer around. |
 | Open WebUI is a fast-moving package — and now the **public perimeter** | Pinned via nixpkgs like everything else; updates arrive with `npins update` and are verified by `colmena build`. Being internet-facing raises the stakes on keeping the pin fresh; Caddy rate-limiting buys brute-force protection, not CVE protection. WireGuard fallback stays documented if this proves uncomfortable. |
+| **SSO couples availability** (D16). Today a WAN outage only costs the public name; LAN clients still reach `http://sz1.fritz.box:8080` with local accounts. Once login goes through an issuer at `auth.home.zabka.it`, Open WebUI's server-side token exchange needs public DNS too — a WAN outage becomes a *total* outage, including at home. | Keep one local admin account that bypasses SSO as the break-glass path, and treat a local DNS override for `*.home.zabka.it` as the real fix if outages prove annoying. Decide this deliberately at 2.6 rather than discovering it during one. |
+| **Trusted-header auth is only as strong as the network path** (D16 open question). If Open WebUI is reached bypassing Caddy, anyone who can hit sz1:8080 can assert `Remote-Email` and become admin. The phase-2 firewall rule currently allows the whole LAN. | Either choose OIDC for Open WebUI (tokens are verified, so direct access gains nothing), or narrow the sz1:8080 rule to t20 alone — which also removes the LAN fallback above. Do not adopt trusted headers while the LAN-wide rule stands. |
 | **Work-laptop privacy is outside our control** | A managed corporate device may have TLS inspection or endpoint monitoring; our Let's Encrypt TLS does not protect content from the device's own employer. This must be communicated honestly to the primary user: on the work laptop, treat the service as employer-visible regardless of our architecture. Phone on mobile data is the private path. |
 | **Primary user's writing workflow is unvalidated.** Stefan has promised not to read their chats, so whether they co-write turn-by-turn (chat-native) or draft prose with model assistance (document-native) is unknown — and D13's bible/chapter workflow may feel like homework to them. | User research = asking, not reading: a short interview about how they work with Claude today and what compaction loses, before/during evaluation. Open WebUI ships as a probe (D4); frontend is swappable behind the API boundary if the workflow verdict demands it (SillyTavern for chat-native, document-centric harness for author-native). |
 
@@ -241,11 +246,23 @@ prompt batching) — a prefill-vs-decode trade exists if prefill ever dominates.
    three candidates behind Vulkan llama-server, models downloaded, benchmark
    cleared the bar at `-ngl 32` (see Performance bar), smoke test returned a
    live completion through the swap proxy.
-2. **Frontend**: Open WebUI wired to the backend, LAN firewall opening,
-   accounts created, signup disabled.
+2. **Frontend** — ✅ done 2026-08-02: `services.open-webui` on sz1:8080 against
+   llama-swap, firewall opened on the LAN NIC only (a global rule would also
+   expose it on the wg-sect tunnel), accounts created from the admin panel.
+   State lives on `zpool/llm/open-webui` mounted at `/var/lib/private/open-webui`
+   — the unit hardcodes `StateDirectory` and runs with `DynamicUser`, so a
+   `stateDir` under `/var/lib/llm` would need a chown to a runtime-allocated
+   UID; a child dataset keeps it inside the 200 G quota instead (ZFS quotas
+   bound descendants). Self-registration is disabled permanently: the admin
+   panel creates users, so signup is never needed. See
+   `scripts/deploy-llm-phase2.sh`.
 2.5. **Edge**: Caddy + status service on t20 (colmena remote deploy),
    FritzBox 443 forward + DynDNS update for `*.home.zabka.it`, rate limits,
    then the PWA smoke test from a phone on mobile data.
+2.6. **SSO** (D16): retire Ghidra server from t20, add Authelia as a sibling
+   vhost behind the same Caddy, then migrate Open WebUI to it as the first
+   consumer — keeping one local admin account as the break-glass path. Needs
+   the edge to exist first; building it before 2.5 means building TLS twice.
 3. **Corpus**: Witcher wiki dump → markdown → knowledge collection; save the
    fetch/convert script in the repo; "Witcher Writer" preset wired to it.
 4. **Evaluation**: two things under test, not one — (a) candidate models via
@@ -261,5 +278,13 @@ prompt batching) — a prefill-vs-decode trade exists if prefill ever dominates.
 
 - [ ] Which curation heuristic for the wiki subset (namespace/category filters
       vs hand-picked page list)?
-- [ ] Does Open WebUI's state directory relocate cleanly to `/var/lib/llm/`
-      (module option vs bind mount)?
+- [x] Does Open WebUI's state directory relocate cleanly to `/var/lib/llm/`?
+      No — `StateDirectory` is hardcoded and `DynamicUser` is on. Resolved with
+      a child dataset mounted at `/var/lib/private/open-webui` (phase 2).
+- [ ] Open WebUI against Authelia: **OIDC or trusted headers?** Trusted headers
+      are simpler and uniform with how auth-less services get protected, but
+      require sz1:8080 to be unreachable except via Caddy. OIDC has no such
+      coupling and supports group→role mapping. Current lean: OIDC for Open
+      WebUI (it has its own user model), forward-auth for services that have
+      no auth at all.
+- [ ] Authelia or Kanidm (D16)? Recorded as Authelia on fit; not yet signed off.
