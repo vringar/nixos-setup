@@ -179,12 +179,53 @@ in {
     system.stateVersion = "25.05";
   };
 
-  t20 = {...}: {
+  t20 = {
+    pkgs,
+    config,
+    ...
+  }: {
     imports = [
       ./hardware/pi.nix
     ];
 
     services.tailscale.enable = true;
+
+    # --- Public HTTPS edge (docs/local-llm-service.md, phase 2.5) ---
+    # Only t20:443 faces the internet; it terminates TLS and proxies to Open
+    # WebUI on sz1, which stays LAN-bound. The cert is a DNS-01 *wildcard* so
+    # `chat` never appears in Certificate Transparency logs (D9), which needs
+    # the INWX solver — stock Caddy can only do HTTP-01, and HTTP-01 cannot
+    # issue a wildcard.
+    services.caddy = {
+      enable = true;
+      package = pkgs.caddy.withPlugins {
+        plugins = ["github.com/caddy-dns/inwx@v0.4.1"];
+        hash = "sha256-jhZRekdz/aWA44mNIxwfLPbM/BYjYcLMFEsnbVVKxlQ=";
+      };
+      globalConfig = ''
+        # One wildcard cert covers every current and future *.home.zabka.it
+        # vhost, so adding a service later needs no ACME round trip.
+        cert_issuer acme {
+          dns inwx {env.INWX_USER} {env.INWX_PASSWORD}
+        }
+      '';
+      virtualHosts."chat.home.zabka.it".extraConfig = ''
+        tls {
+          dns inwx {env.INWX_USER} {env.INWX_PASSWORD}
+        }
+        # sz1 stays on plain HTTP behind the LAN firewall; SSE streaming from
+        # llama-server passes through reverse_proxy without extra buffering
+        # configuration.
+        reverse_proxy http://sz1.fritz.box:8080
+      '';
+    };
+
+    # Open WebUI's login is the public perimeter (D1). Credentials live in an
+    # environment file rather than the Nix store, which is world-readable.
+    age.secrets.inwx.file = ./secrets/inwx.age;
+    systemd.services.caddy.serviceConfig.EnvironmentFile = config.age.secrets.inwx.path;
+
+    networking.firewall.allowedTCPPorts = [80 443];
 
     boot.kernel.sysctl = {
       "net.ipv4.ip_forward" = 1;
