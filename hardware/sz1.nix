@@ -66,6 +66,19 @@
     options = ["zfsutil"];
   };
 
+  # Open WebUI state. The upstream unit hardcodes StateDirectory="open-webui"
+  # and runs with DynamicUser, so its data lands in /var/lib/private/open-webui
+  # with systemd owning the permissions — a stateDir pointed under /var/lib/llm
+  # would need a chown to a UID that only exists at runtime. Mounting a child of
+  # zpool/llm here keeps the state inside the 200G quota (ZFS quotas bound a
+  # dataset and its descendants) without fighting the dynamic UID.
+  # Dataset is created manually — see scripts/deploy-llm-phase2.sh.
+  fileSystems."/var/lib/private/open-webui" = {
+    device = "zpool/llm/open-webui";
+    fsType = "zfs";
+    options = ["zfsutil"];
+  };
+
   fileSystems."/boot" = {
     device = "/dev/disk/by-uuid/19D5-7538";
     fsType = "vfat";

@@ -109,7 +109,46 @@ in {
     systemd.tmpfiles.rules = [
       "d /var/lib/llm/models 0755 root root -"
       "d /var/lib/llm/corpus 0755 root root -"
+      # Mounting a dataset under /var/lib/private creates the parent 0755;
+      # systemd expects 0700 there and does not correct an existing directory.
+      "d /var/lib/private 0700 root root -"
     ];
+
+    # --- Family LLM service frontend (docs/local-llm-service.md, phase 2) ---
+    # Reaches llama-swap over localhost; reachable itself only from the LAN
+    # (t20's Caddy proxies it in phase 2.5). State dataset: hardware/sz1.nix.
+    services.open-webui = {
+      enable = true;
+      # Bound to all interfaces, but the router never forwards this port and
+      # the firewall opening below is the only path in.
+      host = "0.0.0.0";
+      port = 8080;
+      # Would open the port on every interface, including the sect WireGuard
+      # tunnel when it is up; scoped to the LAN NIC below instead.
+      openFirewall = false;
+      environment = {
+        # Module defaults, restated because setting `environment` replaces them.
+        SCARF_NO_ANALYTICS = "True";
+        DO_NOT_TRACK = "True";
+        ANONYMIZED_TELEMETRY = "False";
+        # llama-swap speaks the OpenAI API; there is no ollama backend here.
+        ENABLE_OLLAMA_API = "False";
+        OPENAI_API_BASE_URL = "http://127.0.0.1:9292/v1";
+        # llama-swap ignores the key, but the client refuses to send none.
+        OPENAI_API_KEY = "sk-local";
+        # Server-generated absolute links must use the public name. FritzBox
+        # hairpinning resolves it from inside the LAN too, so one origin serves
+        # everyone (D9) — this does not restrict which hostnames are accepted.
+        WEBUI_URL = "https://chat.home.zabka.it";
+        # Flip to "False" in a second deploy once both accounts exist.
+        ENABLE_SIGNUP = "True";
+      };
+    };
+    # LAN NIC only: t20's Caddy and household clients, never the wg-sect tunnel.
+    # enp4s0 is a PCI-path name, stable unless the NIC is replaced or moved —
+    # if it ever changes, this rule stops matching and the UI goes unreachable
+    # from the LAN rather than becoming over-exposed.
+    networking.firewall.interfaces."enp4s0".allowedTCPPorts = [8080];
 
     deployment.tags = ["personal"];
     deployment.allowLocalDeployment = true;
