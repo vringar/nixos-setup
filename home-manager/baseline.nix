@@ -268,7 +268,27 @@ in {
       };
     };
 
-    # SSH config in Nix store is world-readable (444), but SSH requires 600.
+    # Fedora's SSH rejects the home-manager-managed store symlink, so
+    # fixSSHConfigPermissions below replaces it with a mode-600 copy. That copy is
+    # a regular file home-manager does not own, so the next activation that wants to
+    # re-create the link aborts with "would be clobbered" (backupFileExtension is
+    # unset repo-wide). Deletion is left manual on purpose — this only reports what
+    # the pending deletion would discard.
+    home.activation.diffSSHConfig = lib.hm.dag.entryBefore ["checkLinkTargets"] ''
+      sshConfig="${config.home.homeDirectory}/.ssh/config"
+      newSSHConfig="$newGenPath/home-files/.ssh/config"
+      if [ -e "$sshConfig" ] && [ ! -L "$sshConfig" ] && [ -e "$newSSHConfig" ]; then
+        if ! ${pkgs.diffutils}/bin/diff -q "$sshConfig" "$newSSHConfig" >/dev/null; then
+          echo "ssh config on disk differs from the pending generation:"
+          ${pkgs.diffutils}/bin/diff -u --label "on disk: $sshConfig" \
+            --label "new generation" "$sshConfig" "$newSSHConfig" || true
+          echo "Activation will fail on this file. Delete it to accept the new version:"
+          echo "  rm $sshConfig"
+        fi
+      fi
+    '';
+
+    # SSH config in Nix store is world-readable (444), but Fedora's SSH requires 600.
     # This activation script replaces the symlink with a copy that has proper permissions.
     home.activation.fixSSHConfigPermissions = lib.hm.dag.entryAfter ["linkGeneration"] ''
       sshConfig="${config.home.homeDirectory}/.ssh/config"
