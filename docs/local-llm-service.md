@@ -1,6 +1,6 @@
 # Design: Family-facing local LLM service on sz1
 
-Status: draft — clarifying. Implementation has not started.
+Status: in progress — phases 0, 0.5 and 1 complete; phase 2 (frontend) next.
 
 ## Context
 
@@ -255,7 +255,7 @@ prompt batching) — a prefill-vs-decode trade exists if prefill ever dominates.
    decides whether a frontend iteration (SillyTavern / document-centric tool)
    is warranted.
 5. **Polish**: sampler defaults per model, brief usage note for the family
-   member (URL `http://sz1.fritz.box:<port>`, accounts, story-bible how-to).
+   member (URL `https://chat.home.zabka.it/`, accounts, story-bible how-to).
 
 ## Open questions
 
