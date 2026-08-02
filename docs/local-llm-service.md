@@ -187,6 +187,31 @@ From the primary user, via Stefan (not from reading chats):
 | **Rocinante-12B-v1.1** | `TheDrummer/Rocinante-12B-v1.1-GGUF` (official, 7.48 GB) | Adventure-flavored storytelling; the line is tuned for sustained narrative rather than assistant-style replies. | ChatML (RP) or Mistral; temp 0.7 stable / 1.2 creative; DRY recommended. |
 | **Ayla-Light-12B-v2** | `mradermacher/Ayla-Light-12B-v2-GGUF` (7.48 GB) | Strong prose quality for its size class while retaining instruction following. | Per model card; start temp ~1.0 + minP 0.1. |
 
+**GGUF chat-template defects (verified 2026-08-02).** Two of the three quants
+ship a broken `tokenizer.chat_template`, in different ways. Both are fixed by
+passing `--chat-template chatml` explicitly, which replaces the embedded
+template before it is ever rendered — verified via llama-server's
+`/apply-template` endpoint, which returns the exact prompt string and is the
+fastest way to check this on any future candidate.
+
+- **Ayla-Light-12B-v2**: embedded template is real Jinja but uses a test
+  llama.cpp's engine lacks (`selectattr(..., "tool_calls")`). A template parse
+  error is **fatal** — the model refused to start at all until overridden.
+- **Rocinante-12B-v1.1**: embedded template field contains the template *name*
+  `mistral-v7-tekken` instead of a template body. Rendered as Jinja, a string
+  with no placeholders yields itself, so the entire prompt became the literal
+  text "mistral-v7-tekken" and the user's message was silently dropped. Fails
+  quietly with plausible-looking garbage rather than erroring.
+
+Rocinante has a second, independent quirk: ChatML markers are **not** in its
+vocab (`<|im_end|>` tokenizes to six ordinary text tokens), so the model emits
+them as visible text and llama.cpp cannot stop on them. Generation still
+terminates correctly on the real `</s>`, so this is cosmetic — a trailing
+`<|im_end|>` in the rendered reply. Fix is a string stop sequence in the Open
+WebUI model preset; llama-server has no CLI flag for default stops. This raises
+the stakes on the ChatML-vs-Mistral A/B below: the Mistral path uses `[INST]`
+and `</s>`, which are real vocab tokens, and would drop the workaround.
+
 All three fit fully in 8 GB VRAM at Q4_K_M with room for KV cache at ~16k
 context. Stretch option if all three disappoint on prose *and* the performance
 bar shows headroom: a Mistral-Small-based ~24B tune (e.g. TheDrummer's
