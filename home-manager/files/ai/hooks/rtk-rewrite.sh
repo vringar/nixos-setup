@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rtk-hook-version: 3
+# rtk-hook-version: 4
 # RTK Claude Code hook — rewrites commands to use rtk for token savings.
 # Requires: rtk >= 0.23.0, jq
 #
@@ -40,6 +40,40 @@ INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 if [ -z "$CMD" ]; then
+  exit 0
+fi
+
+# Maven output is unbounded and rtk's `mvn` filter falls back to raw,
+# unfiltered output on some flag combos (e.g. -T parallel builds), silently
+# defeating compaction. Rather than special-case flags, always redirect mvn
+# runs to a log file and surface only a tail + error grep — full output stays
+# on disk for the agent to grep as needed. This bypasses `rtk rewrite`'s own
+# mvn handling entirely; permission decisions still fall through to Claude
+# Code's native rules since permissionDecision is left unset below.
+if [[ "$CMD" =~ (^|[;&|]|[[:space:]])mvn([[:space:]]|$) ]]; then
+  LOG_DIR="${TMPDIR:-/tmp}/rtk-mvn-logs"
+  mkdir -p "$LOG_DIR" 2>/dev/null
+  LOG_FILE="$LOG_DIR/mvn-$(date +%Y%m%d-%H%M%S)-$$.log"
+
+  REWRITTEN="{ $CMD ; } > \"$LOG_FILE\" 2>&1
+ec=\$?
+echo \"----- tail -n 60 \\\"$LOG_FILE\\\" -----\"
+tail -n 60 \"$LOG_FILE\"
+echo \"----- grep -inE 'error|fail' \\\"$LOG_FILE\\\" (first 20) -----\"
+grep -inE 'error|fail' \"$LOG_FILE\" | head -20
+echo \"[mvn] exit=\$ec full log: $LOG_FILE\"
+exit \$ec"
+
+  ORIGINAL_INPUT=$(echo "$INPUT" | jq -c '.tool_input')
+  UPDATED_INPUT=$(echo "$ORIGINAL_INPUT" | jq --arg cmd "$REWRITTEN" '.command = $cmd')
+  jq -n \
+    --argjson updated "$UPDATED_INPUT" \
+    '{
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "updatedInput": $updated
+      }
+    }'
   exit 0
 fi
 
