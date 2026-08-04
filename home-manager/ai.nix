@@ -52,7 +52,10 @@
   # Plugins to enable — format: "name@marketplace" (e.g. "typescript-lsp@claude-plugins-official").
   # The official marketplace is auto-downloaded by Claude on first run; declaring a plugin here
   # activates it without requiring a manual /plugin install.
-  basePlugins = ["jdtls-lsp@claude-plugins-official"];
+  basePlugins = [
+    "jdtls-lsp@claude-plugins-official"
+    "rust-analyzer-lsp@claude-plugins-official"
+  ];
   workPlugins = [];
   enabledPlugins = basePlugins ++ lib.optionals config.my.work.enable workPlugins;
   # settings.json expects a record: {"name@marketplace": true}, not an array
@@ -213,6 +216,7 @@ in {
         pkgs.uv
         pkgs.claude-code
         pkgs.jdt-language-server
+        pkgs.rust-analyzer
         claude-sandbox
       ]
       ++ lib.optionals config.my.work.enable [
