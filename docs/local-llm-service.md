@@ -1,6 +1,6 @@
 # Design: Family-facing local LLM service on sz1
 
-Status: in progress — phases 0, 0.5, 1 and 2 complete; phase 2.5 (edge) next.
+Status: in progress — phases 0, 0.5, 1 and 2 complete; phase 2.5 (edge) config written and build-verified, pending: real `inwx.age` credentials (placeholder committed), FritzBox 443→t20 forward, t20 deploy.
 
 ## Context
 

@@ -202,23 +202,68 @@ in {
         plugins = ["github.com/caddy-dns/inwx@v0.4.1"];
         hash = "sha256-jhZRekdz/aWA44mNIxwfLPbM/BYjYcLMFEsnbVVKxlQ=";
       };
-      globalConfig = ''
-        # One wildcard cert covers every current and future *.home.zabka.it
-        # vhost, so adding a service later needs no ACME round trip.
-        cert_issuer acme {
-          dns inwx {env.INWX_USER} {env.INWX_PASSWORD}
-        }
-      '';
-      virtualHosts."chat.home.zabka.it".extraConfig = ''
+      # ONE site block for the whole wildcard, services dispatched by host
+      # matcher inside it. A named vhost (chat.home.zabka.it) would make Caddy
+      # issue a *named* cert for it — straight into the CT logs, defeating the
+      # point of the wildcard. Adding a service later = new handle block, no
+      # ACME round trip.
+      virtualHosts."*.home.zabka.it".extraConfig = ''
         tls {
           dns inwx {env.INWX_USER} {env.INWX_PASSWORD}
         }
-        # sz1 stays on plain HTTP behind the LAN firewall; SSE streaming from
-        # llama-server passes through reverse_proxy without extra buffering
-        # configuration.
-        reverse_proxy http://sz1.fritz.box:8080
+
+        @chat host chat.home.zabka.it
+        handle @chat {
+          # sz1 stays on plain HTTP behind the LAN firewall; SSE streaming
+          # from llama-server passes through reverse_proxy without extra
+          # buffering configuration.
+          reverse_proxy http://sz1.fritz.box:8080
+        }
+
+        # Unknown *.home.zabka.it names: don't reveal what exists.
+        handle {
+          respond "" 404
+        }
+
+        # sz1 unreachable (D14): serve the diagnosis page rendered by
+        # edge-status.timer instead of a bare 502.
+        handle_errors {
+          root * /var/lib/edge-status
+          rewrite * /status.html
+          file_server
+        }
       '';
     };
+
+    # D14: when sz1 is unreachable, tell the family member *why*. A timer
+    # probes sz1 each minute and renders the page handle_errors serves:
+    # port open → transient; ping but no port → booted into Windows;
+    # no ping → powered off.
+    systemd.services.edge-status = {
+      description = "Render sz1 reachability status page for the Caddy edge";
+      serviceConfig.Type = "oneshot";
+      script = ''
+        if ${pkgs.coreutils}/bin/timeout 2 ${pkgs.bash}/bin/bash \
+          -c 'exec 3<>/dev/tcp/sz1.fritz.box/8080' 2>/dev/null; then
+          msg="sz1 is reachable — this page should be gone in a moment. Retry."
+        elif ${pkgs.iputils}/bin/ping -c1 -W2 sz1.fritz.box >/dev/null 2>&1; then
+          msg="sz1 is currently booted into Windows. Chat is unavailable until it is back in Linux."
+        else
+          msg="sz1 is powered off. Ask Stefan to switch it on."
+        fi
+        printf '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>chat status</title></head><body style="font-family:sans-serif;max-width:36rem;margin:4rem auto;padding:0 1rem"><h1>Chat is taking a break</h1><p>%s</p></body></html>' "$msg" \
+          > /var/lib/edge-status/status.html.tmp
+        mv /var/lib/edge-status/status.html.tmp /var/lib/edge-status/status.html
+      '';
+    };
+    systemd.timers.edge-status = {
+      wantedBy = ["timers.target"];
+      timerConfig = {
+        OnBootSec = "30s";
+        OnUnitActiveSec = "60s";
+      };
+    };
+    systemd.tmpfiles.rules = ["d /var/lib/edge-status 0755 root root -"];
 
     # Open WebUI's login is the public perimeter (D1). Credentials live in an
     # environment file rather than the Nix store, which is world-readable.
