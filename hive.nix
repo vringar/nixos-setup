@@ -48,6 +48,7 @@ in {
   sz1 = {
     pkgs,
     lib,
+    config,
     ...
   }: let
     llamaCppVulkan = pkgs.llama-cpp.override {vulkanSupport = true;};
@@ -161,6 +162,38 @@ in {
         retries = 60;
       };
       TimeoutStartSec = "900s";
+    };
+
+    # --- Lore corpus (docs/local-llm-service.md, phase 3) ---
+    # Knowledge collections live in Open WebUI's database, so they cannot be
+    # declared outright. This reconciles their *contents* instead: the corpus
+    # derivation is the desired state and the service makes the collection
+    # match it on every activation. Idempotent — a second run uploads nothing.
+    age.secrets.open-webui-token.file = ./secrets/open-webui-token.age;
+    systemd.services.witcher-corpus = {
+      description = "Reconcile the Witcher lore corpus into Open WebUI";
+      # open-webui only counts as started once /health answers (see its
+      # ExecStartPost), so ordering after it is meaningful rather than a race.
+      after = ["open-webui.service" "network-online.target"];
+      wants = ["network-online.target"];
+      requires = ["open-webui.service"];
+      wantedBy = ["multi-user.target"];
+      serviceConfig = {
+        Type = "oneshot";
+        EnvironmentFile = config.age.secrets.open-webui-token.path;
+        # Embedding 5.5k documents is CPU work competing with inference; the
+        # corpus changes rarely, so let it lose the race.
+        Nice = 15;
+        # A missing collection is not urgent enough to wake anyone at 3am, but
+        # a transient failure right after boot should not need a manual rerun.
+        Restart = "on-failure";
+        RestartSec = "5min";
+      };
+      script = ''
+        exec ${pkgs.python3.withPackages (ps: [ps.requests])}/bin/python3 \
+          ${./apps/witcher-corpus/reconcile.py} \
+          witcher-lore ${pkgs.callPackage ./apps/witcher-corpus {}}
+      '';
     };
 
     # llama-bench/llama-cli on PATH for the tuning benchmark and debugging.
