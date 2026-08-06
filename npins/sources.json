@@ -133,9 +133,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "bf9ce9fec78f95f374e8dd3b503863a3ec128ebe",
-      "url": "https://github.com/nix-community/home-manager/archive/bf9ce9fec78f95f374e8dd3b503863a3ec128ebe.tar.gz",
-      "hash": "sha256-vkMnV0JIyw+g/NmcfoajlGaAO+9a0ezia+FZohQJrik="
+      "revision": "a7c70cc290290f373f50cd820403833d250459ac",
+      "url": "https://github.com/nix-community/home-manager/archive/a7c70cc290290f373f50cd820403833d250459ac.tar.gz",
+      "hash": "sha256-5r/JgsoNMTx+qIh83WkxpujEKBR7PF5ssnh5vYCuSAw="
     },
     "lix-module": {
       "type": "Git",
@@ -161,9 +161,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "da4a2da865de8b394d2a61f54720990aeef66f1a",
-      "url": "https://git.lix.systems/lix-project/lix/archive/da4a2da865de8b394d2a61f54720990aeef66f1a.tar.gz",
-      "hash": "sha256-X39fGaM6bR5ZcAKua8Aqrw9721dUoiRjHFlNDfV/oUE="
+      "revision": "2c86e95b2c49826505fadaa453a631dfbaac288f",
+      "url": "https://git.lix.systems/lix-project/lix/archive/2c86e95b2c49826505fadaa453a631dfbaac288f.tar.gz",
+      "hash": "sha256-2MLaQcipG3DG+MbqqT4c16KTZ3+l4mCrZSBoctD/dik="
     },
     "mcp": {
       "type": "Git",
@@ -194,8 +194,8 @@
       "type": "Channel",
       "name": "nixos-unstable",
       "artifact": "nixexprs.tar.xz",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1045728.148bab9c1c3c/nixexprs.tar.xz",
-      "hash": "sha256-xwSqxTsama0YTtS78+4YyCm6jJg09v78QWfP1cAyoVA="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1048607.b7c2ada94fe9/nixexprs.tar.xz",
+      "hash": "sha256-929m7iW8q2uv3mZHNwY8Um6XKj99rbIcZsWS9cT1vaI="
     },
     "nucleus": {
       "type": "Git",
@@ -219,9 +219,9 @@
       },
       "branch": "trunk",
       "submodules": false,
-      "revision": "c551f0687658e4bb699cfff6015436ad7ee57a0d",
-      "url": "https://github.com/nix-community/plasma-manager/archive/c551f0687658e4bb699cfff6015436ad7ee57a0d.tar.gz",
-      "hash": "sha256-ICof1tV4/9XheBLBGf7dhMhfMq4dOs1zwTHrr7zGFlA="
+      "revision": "a19a2a029fa180911bd89c554dca1616e10f4c1d",
+      "url": "https://github.com/nix-community/plasma-manager/archive/a19a2a029fa180911bd89c554dca1616e10f4c1d.tar.gz",
+      "hash": "sha256-jZhZkzAwc7f3exzcTDJWP2WCAchCv0iNC3UF/QsahdQ="
     },
     "rtk": {
       "type": "GitRelease",
@@ -248,9 +248,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "51e7d490da15d5899b84a1066b0bef83b5051e41",
-      "url": "https://github.com/camunda/skills/archive/51e7d490da15d5899b84a1066b0bef83b5051e41.tar.gz",
-      "hash": "sha256-gOkmtrlohK3ihXYG5gTbJrhbVqfVg+MUCDUW2HrJ6/E="
+      "revision": "555c298005aec32aee730087c7ee365dd4697582",
+      "url": "https://github.com/camunda/skills/archive/555c298005aec32aee730087c7ee365dd4697582.tar.gz",
+      "hash": "sha256-P+FBeAZTcIz6+5swfcBRFbmViX7836FIHsjifrV8E98="
     }
   },
   "version": 8
