@@ -209,7 +209,10 @@ in {
       # ACME round trip.
       virtualHosts."*.home.zabka.it".extraConfig = ''
         tls {
-          dns inwx {env.INWX_USER} {env.INWX_PASSWORD}
+          dns inwx {
+          username {env.INWX_USER}
+          password {env.INWX_PASSWORD}
+        }
         }
 
         @chat host chat.home.zabka.it
