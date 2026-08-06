@@ -1,6 +1,23 @@
 # colmena config
 let
   sources = import ./npins;
+
+  # systemd has no readiness probe: a unit counts as started the moment its
+  # process forks, so a server that accepts connections and then answers
+  # nothing looks perfectly healthy — which is how a nix-serve whose workers
+  # all aborted stayed "active (running)" while t20 timed out against it.
+  # ExecStartPost failing marks the unit failed, so `colmena apply` reports a
+  # service that came up but does not serve, instead of leaving it for the
+  # first user to discover. Liveness only: it says the endpoint answers, not
+  # that the service is correct.
+  httpReady = {
+    pkgs,
+    url,
+    retries ? 10,
+  }:
+    "${pkgs.curl}/bin/curl --fail --silent --show-error --output /dev/null"
+    + " --connect-timeout 2 --max-time 5"
+    + " --retry ${toString retries} --retry-delay 2 --retry-all-errors ${url}";
 in {
   meta = {
     nixpkgs = sources.nixpkgs;
@@ -124,6 +141,25 @@ in {
         };
       };
     };
+    # Answering /nix-cache-info is the whole job of this service, and the one
+    # thing a broken Perl build never managed.
+    systemd.services.nix-serve.serviceConfig.ExecStartPost = httpReady {
+      inherit pkgs;
+      url = "http://127.0.0.1:5000/nix-cache-info";
+    };
+
+    # Open WebUI needs a while to come up on first start (migrations, model
+    # list), so allow far more retries than the default and raise the start
+    # timeout above the resulting worst case.
+    systemd.services.open-webui.serviceConfig = {
+      ExecStartPost = httpReady {
+        inherit pkgs;
+        url = "http://127.0.0.1:8080/health";
+        retries = 60;
+      };
+      TimeoutStartSec = "900s";
+    };
+
     # llama-bench/llama-cli on PATH for the tuning benchmark and debugging.
     environment.systemPackages = [llamaCppVulkan];
     # Model weights and wiki corpus live on the quota'd zpool/llm dataset.
@@ -280,6 +316,15 @@ in {
     systemd.services.caddy.serviceConfig.EnvironmentFile = config.age.secrets.inwx.path;
 
     networking.firewall.allowedTCPPorts = [80 443];
+
+    # Caddy signals readiness itself (Type=notify), so this only has to catch
+    # the cases where it comes up serving nothing. The admin API is local and
+    # always present; certificate issuance happens afterwards and is not
+    # gated here — a wildcard that fails DNS-01 still shows up in the journal.
+    systemd.services.caddy.serviceConfig.ExecStartPost = httpReady {
+      inherit pkgs;
+      url = "http://127.0.0.1:2019/config/";
+    };
 
     # A Caddyfile that nix evaluates happily can still be rejected by the
     # config adapter, which only runs when Caddy starts — a green build then
