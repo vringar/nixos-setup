@@ -56,6 +56,7 @@ in {
     # plugin is told the same number, so the context meter cannot drift from
     # the context actually served.
     ctxSize = 12288;
+    parallelSlots = 2;
     openWebUi = pkgs.callPackage ./apps/openweb-ui {};
     # Shared llama-server invocation for llama-swap model entries.
     # \${PORT} stays literal for Nix; llama-swap substitutes it at spawn time.
@@ -69,6 +70,11 @@ in {
           "-m /var/lib/llm/models/${model}"
           "--n-gpu-layers 32"
           "--ctx-size ${toString ctxSize}"
+          # Slots each hold their own KV cache of ctxSize (the cache is not
+          # unified by default), so this multiplies VRAM rather than dividing
+          # the context. Auto-detection picked 4 and pushed ~1 GB of KV into
+          # system memory over PCIe; 2 matches the number of people and fits.
+          "--parallel ${toString parallelSlots}"
           "--flash-attn on"
           "--cache-type-k q8_0"
           "--cache-type-v q8_0"
