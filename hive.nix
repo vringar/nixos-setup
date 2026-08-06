@@ -70,6 +70,11 @@ in {
     # scripts/sign-for-t20.sh), so no new key material is involved.
     services.nix-serve = {
       enable = true;
+      # The default nix-serve is a Perl app needing Nix's Perl bindings, which
+      # Lix does not ship: workers die on `Can't locate Nix/Config.pm`, so the
+      # listening socket accepts connections that are never served and clients
+      # hang until they time out. nix-serve-ng is a drop-in with no Perl.
+      package = pkgs.nix-serve-ng;
       secretKeyFile = "/etc/nix/signing-key.sec";
       # openFirewall would open the port on every interface, including the
       # wg-sect tunnel; scoped to the LAN NIC with Open WebUI's rule instead.
