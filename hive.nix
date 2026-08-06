@@ -52,6 +52,11 @@ in {
     ...
   }: let
     llamaCppVulkan = pkgs.llama-cpp.override {vulkanSupport = true;};
+    # One source of truth: the server is started with this, and the usage
+    # plugin is told the same number, so the context meter cannot drift from
+    # the context actually served.
+    ctxSize = 12288;
+    openWebUi = pkgs.callPackage ./apps/openweb-ui {};
     # Shared llama-server invocation for llama-swap model entries.
     # \${PORT} stays literal for Nix; llama-swap substitutes it at spawn time.
     # --n-gpu-layers/--ctx-size/KV-cache quant are initial guesses for the
@@ -63,7 +68,7 @@ in {
           "--port \${PORT}"
           "-m /var/lib/llm/models/${model}"
           "--n-gpu-layers 32"
-          "--ctx-size 12288"
+          "--ctx-size ${toString ctxSize}"
           "--flash-attn on"
           "--cache-type-k q8_0"
           "--cache-type-v q8_0"
@@ -193,6 +198,36 @@ in {
         exec ${pkgs.python3.withPackages (ps: [ps.requests])}/bin/python3 \
           ${./apps/witcher-corpus/reconcile.py} \
           witcher-lore ${pkgs.callPackage ./apps/witcher-corpus {}}
+      '';
+    };
+
+    # Plugins are database state too, so the same reconcile-on-activation
+    # approach applies: the manifest is the desired state and the sync is a
+    # no-op once it matches. Runs after the corpus so a single failure report
+    # is about one thing at a time.
+    systemd.services.openweb-ui-plugins = {
+      description = "Sync Open WebUI plugins from the pinned manifest";
+      after = ["open-webui.service" "witcher-corpus.service"];
+      requires = ["open-webui.service"];
+      wantedBy = ["multi-user.target"];
+      serviceConfig = {
+        Type = "oneshot";
+        EnvironmentFile = config.age.secrets.open-webui-token.path;
+        Restart = "on-failure";
+        RestartSec = "5min";
+      };
+      script = ''
+        exec ${openWebUi.sync}/bin/openweb-ui-sync ${
+          openWebUi.manifest {
+            usage_display =
+              openWebUi.plugins.usage_display
+              // {
+                valves =
+                  openWebUi.plugins.usage_display.valves
+                  // {context_size_override = ctxSize;};
+              };
+          }
+        }
       '';
     };
 
