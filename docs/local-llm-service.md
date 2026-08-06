@@ -1,6 +1,6 @@
 # Design: Family-facing local LLM service on sz1
 
-Status: in progress — phases 0, 0.5, 1, 2 and 2.5 complete; `https://chat.home.zabka.it` is live end to end (verified 2026-08-06, production Let's Encrypt wildcard, `chat` absent from the CT logs). Phase 3 (Witcher corpus) next. Outstanding on the edge: IPv6 is configured but not yet active (t20 needs the pinned `::443` address applied and a FritzBox IPv6 exposure rule), so the service is IPv4-only for now.
+Status: in progress — phases 0, 0.5, 1, 2, 2.5 complete and phase 3 built; `https://chat.home.zabka.it` is live end to end (verified 2026-08-06, production Let's Encrypt wildcard, `chat` absent from the CT logs). The corpus (5,582 articles) is a Nix derivation and a reconciler service loads it into Open WebUI; both are pending a real API key and a deploy. Phase 4 (evaluation) next. Outstanding on the edge: IPv6 is configured but not yet active (t20 needs the pinned `::443` address applied and a FritzBox IPv6 exposure rule), so the service is IPv4-only for now.
 
 ## Context
 
@@ -301,8 +301,13 @@ prompt batching) — a prefill-vs-decode trade exists if prefill ever dominates.
 
 ## Open questions
 
-- [ ] Which curation heuristic for the wiki subset (namespace/category filters
-      vs hand-picked page list)?
+- [x] Which curation heuristic for the wiki subset — **blocklist, not
+      allowlist** (settled 2026-08-06 from dump statistics). Main namespace
+      minus redirects is 12,250 of 104,324 pages; of those, items are 4,256,
+      Gwent 543 and quests 710, all game mechanics rather than lore. Excluding
+      by infobox type and category, plus a 400-character prose floor, keeps
+      5,582 articles — an allowlist would have dropped the untyped concept
+      pages (Elder Blood, Signs, historical events) that carry the most lore.
 - [x] Does Open WebUI's state directory relocate cleanly to `/var/lib/llm/`?
       No — `StateDirectory` is hardcoded and `DynamicUser` is on. Resolved with
       a child dataset mounted at `/var/lib/private/open-webui` (phase 2).
