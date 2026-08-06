@@ -272,6 +272,25 @@ in {
 
     networking.firewall.allowedTCPPorts = [80 443];
 
+    # Stable-privacy SLAAC derives the interface ID from the prefix, so a
+    # prefix change (reconnect, move) would break the FritzBox IPv6 exposure
+    # rule and the AAAA record. Pin the ID instead: t20 is always <prefix>::443.
+    # Same UUID as the auto-generated profile so this replaces it.
+    networking.networkmanager.ensureProfiles.profiles.wired = {
+      connection = {
+        id = "Wired connection 1";
+        uuid = "fe873ff9-4ca7-309e-bbf9-5dc1fe85e60f";
+        type = "ethernet";
+        interface-name = "enu1u1u1";
+      };
+      ipv4.method = "auto";
+      ipv6 = {
+        method = "auto";
+        addr-gen-mode = "eui64";
+        token = "::443";
+      };
+    };
+
     boot.kernel.sysctl = {
       "net.ipv4.ip_forward" = 1;
       "net.ipv6.conf.all.forwarding" = 1;
