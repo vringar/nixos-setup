@@ -181,6 +181,7 @@ in {
 
   t20 = {
     pkgs,
+    lib,
     config,
     ...
   }: {
@@ -210,9 +211,9 @@ in {
       virtualHosts."*.home.zabka.it".extraConfig = ''
         tls {
           dns inwx {
-          username {env.INWX_USER}
-          password {env.INWX_PASSWORD}
-        }
+            username {env.INWX_USER}
+            password {env.INWX_PASSWORD}
+          }
         }
 
         @chat host chat.home.zabka.it
@@ -274,6 +275,20 @@ in {
     systemd.services.caddy.serviceConfig.EnvironmentFile = config.age.secrets.inwx.path;
 
     networking.firewall.allowedTCPPorts = [80 443];
+
+    # A Caddyfile that nix evaluates happily can still be rejected by the
+    # config adapter, which only runs when Caddy starts — a green build then
+    # deploys an edge that never comes up. Adapting the generated config at
+    # build time moves that failure left; it exercises plugin directives too,
+    # since the check runs the same caddy build the host will.
+    system.checks = [
+      (pkgs.runCommand "caddy-config-adapts" {} ''
+        ${lib.getExe config.services.caddy.package} adapt \
+          --config ${config.services.caddy.configFile} \
+          --adapter caddyfile >/dev/null
+        touch $out
+      '')
+    ];
 
     # Stable-privacy SLAAC derives the interface ID from the prefix, so a
     # prefix change (reconnect, move) would break the FritzBox IPv6 exposure
