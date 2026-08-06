@@ -1,6 +1,6 @@
 # Design: Family-facing local LLM service on sz1
 
-Status: in progress — phases 0, 0.5, 1 and 2 complete; phase 2.5 (edge) config written and build-verified, pending: real `inwx.age` credentials (placeholder committed), FritzBox 443→t20 forward, t20 deploy.
+Status: in progress — phases 0, 0.5, 1, 2 and 2.5 complete; `https://chat.home.zabka.it` is live end to end (verified 2026-08-06, production Let's Encrypt wildcard, `chat` absent from the CT logs). Phase 3 (Witcher corpus) next. Outstanding on the edge: IPv6 is configured but not yet active (t20 needs the pinned `::443` address applied and a FritzBox IPv6 exposure rule), so the service is IPv4-only for now.
 
 ## Context
 
