@@ -228,7 +228,7 @@ in {
         # sz1 unreachable (D14): serve the diagnosis page rendered by
         # edge-status.timer instead of a bare 502.
         handle_errors {
-          root * /var/lib/edge-status
+          root * /run/edge-status
           rewrite * /status.html
           file_server
         }
@@ -252,8 +252,8 @@ in {
           msg="sz1 is powered off. Ask Stefan to switch it on."
         fi
         printf '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>chat status</title></head><body style="font-family:sans-serif;max-width:36rem;margin:4rem auto;padding:0 1rem"><h1>Chat is taking a break</h1><p>%s</p></body></html>' "$msg" \
-          > /var/lib/edge-status/status.html.tmp
-        mv /var/lib/edge-status/status.html.tmp /var/lib/edge-status/status.html
+          > /run/edge-status/status.html.tmp
+        mv /run/edge-status/status.html.tmp /run/edge-status/status.html
       '';
     };
     systemd.timers.edge-status = {
@@ -263,7 +263,7 @@ in {
         OnUnitActiveSec = "60s";
       };
     };
-    systemd.tmpfiles.rules = ["d /var/lib/edge-status 0755 root root -"];
+    systemd.tmpfiles.rules = ["d /run/edge-status 0755 root root -"];
 
     # Open WebUI's login is the public perimeter (D1). Credentials live in an
     # environment file rather than the Nix store, which is world-readable.
