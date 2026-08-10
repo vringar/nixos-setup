@@ -62,7 +62,7 @@ jj new                                  # snapshot lands in the previous @, new 
 jj bookmark set <name> -r @ --allow-backwards
 
 # 6. Force-push:
-jj push --bookmark <name>               # add --allow-new on first push of a new bookmark
+jj push --bookmark <name>               # explicit --bookmark auto-tracks + pushes even on first push
 ```
 
 This avoids the editor entirely and keeps commit boundaries aligned with file boundaries instead of with whatever hunks `jj split` happens to surface.

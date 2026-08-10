@@ -47,14 +47,17 @@ This is itself an op, so it's reversible. Reach for it the moment the working st
 
 ## Key Rules
 
-- Use `jj push` (not `jj git push`) — runs pre-commit hooks automatically via `jj-precommit`; works in workspaces. Flags pass through, so `jj push --allow-new` and `jj push --bookmark <name>` work.
+- Use `jj push` (not `jj git push`) — runs pre-commit hooks automatically via `jj-precommit`; works in workspaces. Flags pass through, so `jj push --bookmark <name>` and `jj push --tracked` etc. work.
 - Use `jj-precommit` instead of `pre-commit` directly — workspace-aware wrapper, handles jj workspaces correctly
 - `jj edit <change_id>` (no `-r` needed) and `jj describe @-` work from any position — operating on revisions other than `@` is just normal usage, not a special case
 - Multiple "and"s in commit message? Consider `jj split`
 
 ## Bookmark Gotchas
 
-- **First push of a new bookmark:** `jj push --bookmark <name> --allow-new`. Plain `jj push` refuses with *Refusing to create new remote bookmark*.
+- **`--allow-new` is gone** (deprecated in jj 0.36, removed in 0.42). Plain `jj push` with no `--bookmark` refuses an untracked new bookmark with *Refusing to create new remote bookmark* and now hints the fix directly: `jj bookmark track <name> --remote=origin`.
+- **First push of a new bookmark — two equivalent options:**
+  - `jj push --bookmark <name>` (alias: `jj b`) — passing `--bookmark`/`-b` explicitly auto-tracks and pushes a brand-new bookmark in one step, no separate track needed.
+  - `jj bookmark track <name> --remote=origin` (alias: `jj b t`) then plain `jj push` — establishes the tracking relationship first; needed if you want a bare `jj push` (no `-b`) to pick it up, or want tracking to exist before the first push.
 - **Moving a bookmark backwards or sideways after a history rewrite:** `jj bookmark set <name> -r @ --allow-backwards`. Required when the new tip is not strictly ahead of the old.
 - **Diff against the pushed state:** the revset `<bookmark>@origin` references the remote tip — `jj diff --from main@origin --to @` shows local-vs-pushed; `jj restore --from feat/x@origin <paths>` resets paths to whatever is on origin.
 - **Tangled stack?** See the snapshot-rewrite workflow in [references/commands.md](references/commands.md) — often cleaner than chained interactive splits.
