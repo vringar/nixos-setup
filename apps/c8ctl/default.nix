@@ -11,8 +11,8 @@ pkgs.buildNpmPackage {
 
   nodejs = pkgs.nodejs_22;
   nativeBuildInputs = [pkgs.python3];
-  npmDepsFetcherVersion = 3;
-  npmDepsHash = "sha256-NfD+NPsJWwaqQfjq93N3EBgSkHoAaM99tjMbd4cbTYE=";
+  npmDepsFetcherVersion = 2;
+  npmDepsHash = "sha256-SfcCM6bHQUvv86WbYal3UFGpYvDAzGA/Hvk3KJHWbnA=";
   dontNpmBuild = true;
 
   postPatch = ''
