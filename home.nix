@@ -46,6 +46,10 @@ in {
   # (`vulkaninfo --summary`), so this stays out of the shared graphical.nix module.
   home.sessionVariables.ZED_DEVICE_ID = "0x28ba";
 
+  programs.zsh.initContent = ''
+    cm() { camunda-modeler "$1" &>/dev/null & disown; }
+  '';
+
   home.packages = [
     c8ctl
     pkgs.auth0-cli
