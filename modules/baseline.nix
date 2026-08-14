@@ -3,8 +3,6 @@
 in {
   imports = [./overlays.nix];
 
-  nixpkgs.config.allowUnfree = true;
-
   # Enable networking
   networking.networkmanager.enable = true;
 

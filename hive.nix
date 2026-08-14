@@ -20,7 +20,7 @@ let
     + " --retry ${toString retries} --retry-delay 2 --retry-all-errors ${url}";
 in {
   meta = {
-    nixpkgs = sources.nixpkgs;
+    nixpkgs = import sources.nixpkgs {config.allowUnfree = true;};
   };
 
   defaults = {...}: {
