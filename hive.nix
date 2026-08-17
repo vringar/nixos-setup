@@ -373,6 +373,7 @@ in {
       enable = true;
       storageDriver = "btrfs";
     };
+    programs.steam.enable = true;
     system.stateVersion = "24.11";
   };
 }
