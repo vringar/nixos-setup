@@ -303,8 +303,6 @@ in {
       ./t20/caddy.nix
     ];
 
-    services.tailscale.enable = true;
-
     # Stable-privacy SLAAC derives the interface ID from the prefix, so a
     # prefix change (reconnect, move) would break the FritzBox IPv6 exposure
     # rule and the AAAA record. Pin the ID instead: t20 is always <prefix>::443.
@@ -367,6 +365,13 @@ in {
     deployment.tags = ["personal"];
     deployment.allowLocalDeployment = true;
     deployment.targetUser = "vringar";
+
+    # This machine lives outside the house, so authenticate SSH against tailnet
+    # ACLs instead of an on-disk authorized_keys file. Note this is
+    # extraSetFlags, not extraUpFlags: the latter is only applied when an
+    # authKeyFile is set, which would make it a no-op on an already
+    # authenticated node.
+    services.tailscale.extraSetFlags = ["--ssh"];
 
     users.users.vringar.extraGroups = ["docker"];
     virtualisation.docker = {
