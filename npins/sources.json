@@ -173,9 +173,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "b1c6d0f0c98ebf61765eb9e71bbc5cc292290973",
+      "revision": "10f7f1eca5d5168703b4c238b66d9b6d5dfe00ed",
       "url": null,
-      "hash": "sha256-sc/aitQ//ziZ5yWMRuBMha6o+XJmHqiUs0uFvg2b0rE="
+      "hash": "sha256-pG8hzPFVLYdYbPsNBZSkobhRAl6kyO0oghz1y2Ur8fE="
     },
     "nixGL": {
       "type": "Git",

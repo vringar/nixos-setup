@@ -26,8 +26,6 @@ pkgs.rustPlatform.buildRustPackage {
   nativeCheckInputs = [
     pkgs.git
     pkgs.which
-    # provider_hooks tests spawn the agent hook scripts with python3; without
-    # it the spawn fails ENOENT rather than reporting a hook mismatch.
     pkgs.python3
   ];
 

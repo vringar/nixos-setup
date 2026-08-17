@@ -47,7 +47,7 @@ in {
   home.sessionVariables.ZED_DEVICE_ID = "0x28ba";
 
   programs.zsh.initContent = ''
-    cm() { camunda-modeler "$1" &>/dev/null & disown; }
+    cm() { camunda-modeler "$@" &>/dev/null & disown; }
   '';
 
   home.packages = [

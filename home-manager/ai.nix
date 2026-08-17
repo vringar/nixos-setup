@@ -14,6 +14,8 @@
     # a regression in either mechanism alone is not lossy.
     cleanupPeriodDays = 36500;
 
+    outputStyle = "Concise";
+
     hooks = {
       PreToolUse = [
         {
@@ -86,6 +88,7 @@
   claudeHooksJson = pkgs.writeText "claude-hooks.json" (builtins.toJSON claudeSettings.hooks);
   claudePluginsJson = pkgs.writeText "claude-plugins.json" (builtins.toJSON enabledPluginsRecord);
   claudeCleanupDays = builtins.toString claudeSettings.cleanupPeriodDays;
+  claudeOutputStyle = claudeSettings.outputStyle;
   skillsDir = ./files/ai/skills;
   customAgentsDir = ./files/ai/agents;
   sources = import ../npins;
@@ -291,13 +294,15 @@ in {
           --slurpfile h ${claudeHooksJson} \
           --slurpfile p ${claudePluginsJson} \
           --argjson c ${claudeCleanupDays} \
-          '.hooks = $h[0] | .enabledPlugins = $p[0] | .cleanupPeriodDays = $c' "$_settings")
+          --arg o ${lib.escapeShellArg claudeOutputStyle} \
+          '.hooks = $h[0] | .enabledPlugins = $p[0] | .cleanupPeriodDays = $c | .outputStyle = $o' "$_settings")
       else
         _merged=$(${pkgs.jq}/bin/jq -n \
           --slurpfile h ${claudeHooksJson} \
           --slurpfile p ${claudePluginsJson} \
           --argjson c ${claudeCleanupDays} \
-          '{hooks: $h[0], enabledPlugins: $p[0], cleanupPeriodDays: $c}')
+          --arg o ${lib.escapeShellArg claudeOutputStyle} \
+          '{hooks: $h[0], enabledPlugins: $p[0], cleanupPeriodDays: $c, outputStyle: $o}')
       fi
       printf '%s\n' "$_merged" > "$_settings"
     '';
