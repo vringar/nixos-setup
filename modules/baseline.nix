@@ -26,6 +26,17 @@ in {
   # Nix settings
   nix.settings = {
     experimental-features = "nix-command flakes";
+    # Hardlink identical store files at build time, rather than in a periodic
+    # full-store sweep under the global lock.
+    auto-optimise-store = true;
+  };
+
+  # Reap old generations. Note that boot.loader.*.configurationLimit only trims
+  # the boot menu, not the profile generations that keep their closures alive.
+  nix.gc = {
+    automatic = true;
+    dates = "weekly";
+    options = "--delete-older-than 30d";
   };
 
   # Clear /tmp on every boot
