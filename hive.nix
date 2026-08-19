@@ -350,7 +350,7 @@ in {
     system.stateVersion = "25.05";
   };
 
-  sz3 = {...}: {
+  sz3 = {pkgs, ...}: {
     imports = [
       (import "${sources.lix-module}/module.nix" {
         lix = sources.lix-src;
@@ -374,6 +374,7 @@ in {
     services.tailscale.extraSetFlags = ["--ssh"];
 
     users.users.vringar.extraGroups = ["docker"];
+    users.users.sash = import ./user/sash.nix {inherit pkgs;};
     virtualisation.docker = {
       enable = true;
       storageDriver = "btrfs";
