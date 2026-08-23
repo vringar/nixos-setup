@@ -6,6 +6,14 @@
 }: let
   agentsFile = ./files/ai/AGENTS.md;
   claudeSettings = {
+    # Transcripts under $CLAUDE_CONFIG_DIR/projects are the corpus for
+    # claude-recall. Claude Code's default sweep had already deleted months
+    # of history — eleven project directories were left holding only a
+    # memory/ subdir, and nothing survived between 2026-02-02 and
+    # 2026-07-21. Keep them; claude-recall archives out of band as well, so
+    # a regression in either mechanism alone is not lossy.
+    cleanupPeriodDays = 36500;
+
     hooks = {
       PreToolUse = [
         {
@@ -73,6 +81,7 @@
   # — not ~/.claude/settings.json — and also writes its own state into it.
   claudeHooksJson = pkgs.writeText "claude-hooks.json" (builtins.toJSON claudeSettings.hooks);
   claudePluginsJson = pkgs.writeText "claude-plugins.json" (builtins.toJSON enabledPluginsRecord);
+  claudeCleanupDays = builtins.toString claudeSettings.cleanupPeriodDays;
   skillsDir = ./files/ai/skills;
   customAgentsDir = ./files/ai/agents;
   sources = import ../npins;
@@ -84,6 +93,7 @@
   cpitd = import ../apps/crosslink/cpitd.nix {inherit pkgs sources;};
   rtk = import ../apps/rtk {inherit pkgs sources;};
   claude-sandbox = import ../apps/claude-sandbox {inherit pkgs;};
+  claude-recall = import ../apps/claude-recall {inherit pkgs;};
   bpmnlint = import ../apps/bpmnlint {inherit pkgs sources;};
   bpmn-auto-layout = import ../apps/bpmn-auto-layout {
     inherit pkgs sources;
@@ -218,6 +228,7 @@ in {
         pkgs.jdt-language-server
         pkgs.rust-analyzer
         claude-sandbox
+        claude-recall
       ]
       ++ lib.optionals config.my.work.enable [
         bpmnlint
@@ -270,15 +281,56 @@ in {
         _merged=$(${pkgs.jq}/bin/jq \
           --slurpfile h ${claudeHooksJson} \
           --slurpfile p ${claudePluginsJson} \
-          '.hooks = $h[0] | .enabledPlugins = $p[0]' "$_settings")
+          --argjson c ${claudeCleanupDays} \
+          '.hooks = $h[0] | .enabledPlugins = $p[0] | .cleanupPeriodDays = $c' "$_settings")
       else
         _merged=$(${pkgs.jq}/bin/jq -n \
           --slurpfile h ${claudeHooksJson} \
           --slurpfile p ${claudePluginsJson} \
-          '{hooks: $h[0], enabledPlugins: $p[0]}')
+          --argjson c ${claudeCleanupDays} \
+          '{hooks: $h[0], enabledPlugins: $p[0], cleanupPeriodDays: $c}')
       fi
       printf '%s\n' "$_merged" > "$_settings"
     '';
+
+    # Nightly transcript archive + index rebuild for `claude-recall`.
+    #
+    # Two units rather than one so the archive — the step that protects
+    # against transcript loss — still runs if indexing fails. Both are
+    # short-lived batch jobs; nothing stays resident. Peak RSS is ~460 MB
+    # during embedding, which is why the unit pins ONNX Runtime's thread
+    # count (see apps/claude-recall/claude_recall.py).
+    systemd.user.services.claude-recall-index = {
+      Unit = {
+        Description = "Archive Claude Code transcripts and rebuild the recall index";
+      };
+      Service = {
+        Type = "oneshot";
+        Nice = 15;
+        IOSchedulingClass = "idle";
+        Environment = ["CLAUDE_RECALL_THREADS=2" "CLAUDE_RECALL_BATCH=8"];
+        ExecStart = [
+          "${claude-recall}/bin/claude-recall archive"
+          "${claude-recall}/bin/claude-recall index"
+        ];
+      };
+    };
+
+    systemd.user.timers.claude-recall-index = {
+      Unit = {
+        Description = "Nightly claude-recall archive and index";
+      };
+      Timer = {
+        OnCalendar = "daily";
+        # The machine is not always up at the scheduled time; catch up on
+        # the next boot rather than silently skipping a day of transcripts.
+        Persistent = true;
+        RandomizedDelaySec = "30m";
+      };
+      Install = {
+        WantedBy = ["timers.target"];
+      };
+    };
 
     # Register work MCP servers via `claude mcp add` so they appear in `claude mcp list`.
     # Uses home.activation to avoid clobbering Claude's own runtime state in .claude.json.
