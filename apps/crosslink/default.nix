@@ -10,7 +10,7 @@ pkgs.rustPlatform.buildRustPackage {
   src = sources.crosslink;
   sourceRoot = "source/crosslink";
 
-  cargoHash = "sha256-Zx0M9HmnxQfRnp23v6yzQEqQbBowbTMfQ5YXtmcleRU=";
+  cargoHash = "sha256-GJ76eg/YHsUcl8/u9YRDX92uPe7Mja3Y6yANO8pATp4=";
 
   nativeBuildInputs = [
     pkgs.pkg-config
@@ -26,20 +26,9 @@ pkgs.rustPlatform.buildRustPackage {
   nativeCheckInputs = [
     pkgs.git
     pkgs.which
-  ];
-
-  # Three smoke::coordination tests still regress on the current pinned
-  # revision from the canonical dollspace-gay/crosslink repo:
-  # lock release leaves a STALE lock, and SQLite->JSON hydration writes 0 issues
-  # to JSON while SQLite holds 2-3 (next_display_id also stuck at 1). These are
-  # deterministic data-consistency failures upstream, not sandbox flakiness.
-  # Skipped to roll forward; drop once fixed upstream.
-  # Nextest filterset, spelled without spaces because the check hook
-  # word-splits these flags; must be pre-`--` args (cargoTestFlags), the
-  # post-`--` checkFlags position rejects nextest-level options.
-  cargoTestFlags = [
-    "-E"
-    "all()-(test(smoke::coordination::test_lock_claim_release)+test(smoke::coordination::test_integrity_after_sync)+test(smoke::coordination::test_integrity_hydration_matches))"
+    # provider_hooks tests spawn the agent hook scripts with python3; without
+    # it the spawn fails ENOENT rather than reporting a hook mismatch.
+    pkgs.python3
   ];
 
   # The db proptests run 8-18 min each at proptest's default 256 cases and

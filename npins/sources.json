@@ -41,9 +41,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "c9366a0dbdda80be7e2e0b944a5892c46c249f0d",
-      "url": "https://github.com/bpmn-io/bpmnlint/archive/c9366a0dbdda80be7e2e0b944a5892c46c249f0d.tar.gz",
-      "hash": "sha256-qvsjRwAMmw426CNW4BRTB4gnQXKAH5VGQ2nQ882LCQQ="
+      "revision": "229b606bb29a49229dc2549b5fa4febbdd3fe115",
+      "url": "https://github.com/bpmn-io/bpmnlint/archive/229b606bb29a49229dc2549b5fa4febbdd3fe115.tar.gz",
+      "hash": "sha256-YYzBxbT+OqwpRKf9wGrMncEy+8sY/Lq6j5Ei4RRA63Y="
     },
     "bpmnlint-aitools": {
       "type": "Git",
@@ -104,9 +104,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "26ee1885af277528834e1498b362b12aeae79317",
-      "url": "https://github.com/dollspace-gay/crosslink/archive/26ee1885af277528834e1498b362b12aeae79317.tar.gz",
-      "hash": "sha256-H9bMyCIGZwXzXG9wE5HdPzT0W/ppoNtJ2nt0dcJFj4g="
+      "revision": "e7b6ad835e2e8a6647e4d01850c2129d142e7057",
+      "url": "https://github.com/dollspace-gay/crosslink/archive/e7b6ad835e2e8a6647e4d01850c2129d142e7057.tar.gz",
+      "hash": "sha256-H9o2I00e/NURIoPtwAYgjL0TgKFIbwKsctyWxov5u/M="
     },
     "dmnlint": {
       "type": "GitRelease",
