@@ -279,6 +279,11 @@ in {
         # self-registration is never needed — and this login is the public
         # perimeter once the t20 edge lands (D1).
         ENABLE_SIGNUP = "False";
+        # Off by default upstream, which is what made the corpus reconciler's
+        # key uncreatable. Note the plural: the singular name does nothing.
+        # This is only a *default* — once the admin UI writes the matching
+        # database row, that row wins and this stops having any effect.
+        ENABLE_API_KEYS = "True";
       };
     };
     # LAN NIC only: t20's Caddy and household clients, never the wg-sect tunnel.
