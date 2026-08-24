@@ -188,7 +188,10 @@ in {
       after = ["open-webui.service" "network-online.target"];
       wants = ["network-online.target"];
       requires = ["open-webui.service"];
-      wantedBy = ["multi-user.target"];
+      # Started by the timer below, never by a target. A oneshot counts as
+      # activating until its process exits, so anything that starts this unit
+      # waits for the whole corpus to embed — which made `colmena apply` hang
+      # for hours on any change to the script or the corpus derivation.
       serviceConfig = {
         Type = "oneshot";
         EnvironmentFile = config.age.secrets.open-webui-token.path;
@@ -205,6 +208,22 @@ in {
           ${./apps/witcher-corpus/reconcile.py} \
           witcher-lore ${pkgs.callPackage ./apps/witcher-corpus {}}
       '';
+    };
+
+    # Decouples the run from activation, and reconciles drift on a schedule
+    # rather than only at boot: the corpus is a derivation, so a rebuild that
+    # changes it gets picked up within a day without anyone deploying again.
+    # Monotonic rather than OnCalendar, so Persistent= would do nothing here —
+    # sz1 stays up, and a missed run costs at most a day of staleness.
+    systemd.timers.witcher-corpus = {
+      description = "Schedule the Witcher lore corpus reconciliation";
+      wantedBy = ["timers.target"];
+      timerConfig = {
+        # Off the boot critical path; embedding competes with inference.
+        OnBootSec = "5min";
+        OnUnitActiveSec = "1d";
+        Unit = "witcher-corpus.service";
+      };
     };
 
     # Plugins are database state too, so the same reconcile-on-activation
