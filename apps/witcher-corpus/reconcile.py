@@ -26,8 +26,15 @@ import sys
 import requests
 
 TIMEOUT = 300
+# Attaching a batch embeds every file in it before the request returns — CPU
+# work at Nice=15, competing with inference. Timing out client-side does not
+# stop the server, it only abandons work that is still running and leaves the
+# uploads unattached, so this is deliberately generous.
+PROCESS_TIMEOUT = 1800
 # Attaching files one request at a time is the slow part; the API takes a list.
-BATCH = 100
+# Small enough that one batch stays well inside PROCESS_TIMEOUT, and that the
+# progress line moves often enough to tell a slow run from a stuck one.
+BATCH = 25
 
 
 class OpenWebUI:
@@ -38,9 +45,9 @@ class OpenWebUI:
             {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         )
 
-    def _call(self, method: str, path: str, **kwargs):
+    def _call(self, method: str, path: str, timeout: int = TIMEOUT, **kwargs):
         response = self.session.request(
-            method, f"{self.base}{path}", timeout=TIMEOUT, **kwargs
+            method, f"{self.base}{path}", timeout=timeout, **kwargs
         )
         if not response.ok:
             raise RuntimeError(
@@ -51,8 +58,8 @@ class OpenWebUI:
     def get(self, path):
         return self._call("GET", path)
 
-    def post(self, path, body):
-        return self._call("POST", path, json=body)
+    def post(self, path, body, timeout: int = TIMEOUT):
+        return self._call("POST", path, json=body, timeout=timeout)
 
     def delete(self, path):
         return self._call("DELETE", path)
@@ -75,10 +82,12 @@ class OpenWebUI:
 # of lines and still only match whichever version it was generated from.
 # Checking the live spec instead turns an upgrade that moves an endpoint into
 # one clear error, up front, rather than a 404 midway through an upload run.
+# This checks that the paths still exist, not that they still return the same
+# shape — `paged` covers the one response whose shape we actually parse.
 REQUIRED_PATHS = [
     "/api/v1/knowledge/",
     "/api/v1/knowledge/create",
-    "/api/v1/knowledge/{id}",
+    "/api/v1/knowledge/{id}/files",
     "/api/v1/knowledge/{id}/file/remove",
     "/api/v1/knowledge/{id}/files/batch/add",
     "/api/v1/files/",
@@ -100,8 +109,35 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def paged(api: OpenWebUI, path: str):
+    """Yield every item from a list endpoint, one page at a time.
+
+    List responses are an envelope, `{"items": [...], "total": N}`, served 30
+    at a time. An unpaged GET therefore returns the first page and looks like
+    the whole answer, which would make this create a second collection with a
+    duplicate name once 30 of them exist.
+    """
+    page = 1
+    seen = 0
+    while True:
+        payload = api.get(f"{path}?page={page}")
+        if not isinstance(payload, dict) or "items" not in payload:
+            raise RuntimeError(
+                f"GET {path} did not return a paginated envelope — Open WebUI "
+                "changed the list shape and the reconciler needs updating"
+            )
+        items = payload.get("items") or []
+        if not items:
+            return
+        yield from items
+        seen += len(items)
+        if seen >= (payload.get("total") or 0):
+            return
+        page += 1
+
+
 def ensure_collection(api: OpenWebUI, name: str) -> str:
-    for item in api.get("/api/v1/knowledge/") or []:
+    for item in paged(api, "/api/v1/knowledge/"):
         if item.get("name") == name:
             return item["id"]
     created = api.post(
@@ -115,15 +151,29 @@ def ensure_collection(api: OpenWebUI, name: str) -> str:
 
 
 def existing_files(api: OpenWebUI, collection_id: str) -> dict[str, tuple[str, str]]:
-    """Map filename -> (file id, corpus hash) for what the collection holds."""
-    detail = api.get(f"/api/v1/knowledge/{collection_id}") or {}
+    """Map filename -> (file id, corpus hash) for what the collection holds.
+
+    Read from the dedicated listing endpoint, not from the collection detail:
+    that one builds its response without ever populating `files`, so it always
+    reports the collection as empty. Believing it meant nothing was ever
+    recognised as already uploaded, and every run re-uploaded the whole corpus
+    on top of the last one.
+    """
     out: dict[str, tuple[str, str]] = {}
-    for item in detail.get("files") or []:
+    for item in paged(api, f"/api/v1/knowledge/{collection_id}/files"):
         meta = item.get("meta") or {}
         filename = meta.get("name") or item.get("filename") or ""
         stored = meta.get("data") if isinstance(meta.get("data"), dict) else meta
         out[filename] = (item["id"], stored.get("corpus_hash", ""))
     return out
+
+
+def attach(api: OpenWebUI, collection_id: str, batch: list[dict]) -> None:
+    api.post(
+        f"/api/v1/knowledge/{collection_id}/files/batch/add",
+        batch,
+        timeout=PROCESS_TIMEOUT,
+    )
 
 
 def main() -> int:
@@ -172,11 +222,11 @@ def main() -> int:
         uploaded = api.upload(filename, content, {"corpus_hash": digest(content)})
         pending.append({"file_id": uploaded["id"]})
         if len(pending) >= BATCH:
-            api.post(f"/api/v1/knowledge/{collection_id}/files/batch/add", pending)
+            attach(api, collection_id, pending)
             pending = []
             print(f"  {index}/{len(todo)} uploaded", file=sys.stderr, flush=True)
     if pending:
-        api.post(f"/api/v1/knowledge/{collection_id}/files/batch/add", pending)
+        attach(api, collection_id, pending)
 
     removed = sum(1 for filename, _ in stale if filename not in wanted)
     print(
