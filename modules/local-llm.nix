@@ -117,6 +117,12 @@ in {
     # activating until its process exits, so anything that starts this unit
     # waits for the whole corpus to embed — which made `colmena apply` hang
     # for hours on any change to the script or the corpus derivation.
+    #
+    # The timer alone is not enough: switch-to-configuration also restarts any
+    # unit whose definition changed and is currently active, and editing the
+    # reconciler changes this unit every time. Opt out — a run in flight is not
+    # worth blocking a deploy for, and the next firing picks up the new script.
+    restartIfChanged = false;
     serviceConfig = {
       Type = "oneshot";
       EnvironmentFile = config.age.secrets.open-webui-token.path;
