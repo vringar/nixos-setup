@@ -34,7 +34,7 @@ in
       EOF
     '';
 
-    cargoHash = "sha256-JAyHtJLkEyAG20I8d1rcQQ9UeSpgFbSJ4UnOEeAifX8=";
+    cargoHash = "sha256-3CyJQrxXYcTWSNTdvonALN2xQiBDdmxfggVxdkzDvX4=";
 
     nativeBuildInputs = [pkgs.pkg-config];
     buildInputs = [pkgs.sqlite];
