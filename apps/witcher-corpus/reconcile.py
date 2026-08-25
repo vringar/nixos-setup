@@ -7,19 +7,25 @@ the desired state, and each run uploads what is missing, replaces what changed
 and removes what is no longer wanted. A second run should report all zeros —
 that is the check that change detection works.
 
-Change detection compares a content hash attached as file metadata at upload
-time, rather than the server's own `hash` field, so it does not depend on which
-digest Open WebUI uses internally.
+The diff is computed server-side. `sync/diff` takes a manifest of checksums,
+compares it against the collection's real attachment table and answers what is
+added, modified and deleted. Doing it here instead meant reading the
+collection back and comparing by hand, which depended on knowing which of
+several endpoints reports contents truthfully — one of them silently reports
+every collection as empty. `sync/diff` also writes nothing, so it doubles as a
+dry run: it can be asked what a run would do without doing it.
 
-Endpoints and payload shapes were read from the instance's /openapi.json.
+Checksums are SHA-256 of the raw bytes. Deliberately not sent as upload
+metadata: letting the server hash what it actually received makes the
+comparison an end-to-end integrity check, so a truncated upload disagrees on
+the next run and is re-sent rather than silently accepted.
 
-Usage: reconcile.py <collection-name> <corpus-dir>
+Usage: reconcile.py [--dry-run] <collection-name> <corpus-dir>
 Environment: OPEN_WEBUI_URL, OPEN_WEBUI_TOKEN
 """
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import sys
 
@@ -61,10 +67,7 @@ class OpenWebUI:
     def post(self, path, body, timeout: int = TIMEOUT):
         return self._call("POST", path, json=body, timeout=timeout)
 
-    def delete(self, path):
-        return self._call("DELETE", path)
-
-    def upload(self, filename: str, content: bytes, metadata: dict) -> dict:
+    def upload(self, filename: str, content: bytes) -> dict:
         # Embedding runs in the background so the call returns promptly; inline
         # processing would make every one of thousands of uploads wait on CPU
         # sentence-transformers work.
@@ -73,7 +76,6 @@ class OpenWebUI:
             "/api/v1/files/",
             params={"process": "true", "process_in_background": "true"},
             files={"file": (filename, content, "text/markdown")},
-            data={"metadata": json.dumps(metadata)},
         )
 
 
@@ -82,16 +84,18 @@ class OpenWebUI:
 # of lines and still only match whichever version it was generated from.
 # Checking the live spec instead turns an upgrade that moves an endpoint into
 # one clear error, up front, rather than a 404 midway through an upload run.
-# This checks that the paths still exist, not that they still return the same
-# shape — `paged` covers the one response whose shape we actually parse.
+# This checks that the paths still exist, not that they still behave the same —
+# `paged` and the diff shape check below cover the responses we parse.
 REQUIRED_PATHS = [
     "/api/v1/knowledge/",
     "/api/v1/knowledge/create",
-    "/api/v1/knowledge/{id}/files",
-    "/api/v1/knowledge/{id}/file/remove",
+    "/api/v1/knowledge/{id}/sync/diff",
+    "/api/v1/knowledge/{id}/sync/cleanup",
     "/api/v1/knowledge/{id}/files/batch/add",
     "/api/v1/files/",
 ]
+
+DIFF_KEYS = ("added", "modified", "deleted", "unmodified_count")
 
 
 def check_api(api: "OpenWebUI") -> None:
@@ -150,22 +154,45 @@ def ensure_collection(api: OpenWebUI, name: str) -> str:
     return created["id"]
 
 
-def existing_files(api: OpenWebUI, collection_id: str) -> dict[str, tuple[str, str]]:
-    """Map filename -> (file id, corpus hash) for what the collection holds.
+def read_corpus(corpus_dir: str) -> dict[str, bytes]:
+    wanted: dict[str, bytes] = {}
+    for entry in sorted(os.listdir(corpus_dir)):
+        if entry.endswith(".md"):
+            with open(os.path.join(corpus_dir, entry), "rb") as fh:
+                wanted[entry] = fh.read()
+    return wanted
 
-    Read from the dedicated listing endpoint, not from the collection detail:
-    that one builds its response without ever populating `files`, so it always
-    reports the collection as empty. Believing it meant nothing was ever
-    recognised as already uploaded, and every run re-uploaded the whole corpus
-    on top of the last one.
+
+def manifest(wanted: dict[str, bytes]) -> list[dict]:
+    """The corpus as the server wants to see it.
+
+    `path` is the directory within the collection; the corpus is flat, so it is
+    empty for every file. It is part of the identity the server diffs on, so it
+    has to match what the uploads actually produce — files attached without a
+    directory index as root.
     """
-    out: dict[str, tuple[str, str]] = {}
-    for item in paged(api, f"/api/v1/knowledge/{collection_id}/files"):
-        meta = item.get("meta") or {}
-        filename = meta.get("name") or item.get("filename") or ""
-        stored = meta.get("data") if isinstance(meta.get("data"), dict) else meta
-        out[filename] = (item["id"], stored.get("corpus_hash", ""))
-    return out
+    return [
+        {
+            "filename": filename,
+            "path": "",
+            "checksum": digest(content),
+            "size": len(content),
+        }
+        for filename, content in wanted.items()
+    ]
+
+
+def diff(api: OpenWebUI, collection_id: str, wanted: dict[str, bytes]) -> dict:
+    payload = api.post(
+        f"/api/v1/knowledge/{collection_id}/sync/diff",
+        {"manifest": manifest(wanted)},
+    )
+    if not isinstance(payload, dict) or any(k not in payload for k in DIFF_KEYS):
+        raise RuntimeError(
+            "sync/diff did not return the expected shape — Open WebUI changed "
+            "the sync contract and the reconciler needs updating"
+        )
+    return payload
 
 
 def attach(api: OpenWebUI, collection_id: str, batch: list[dict]) -> None:
@@ -177,10 +204,13 @@ def attach(api: OpenWebUI, collection_id: str, batch: list[dict]) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
+    argv = sys.argv[1:]
+    dry_run = "--dry-run" in argv
+    argv = [a for a in argv if a != "--dry-run"]
+    if len(argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2
-    name, corpus_dir = sys.argv[1], sys.argv[2]
+    name, corpus_dir = argv
     token = os.environ.get("OPEN_WEBUI_TOKEN", "")
     if not token:
         print("OPEN_WEBUI_TOKEN is unset", file=sys.stderr)
@@ -188,38 +218,38 @@ def main() -> int:
     api = OpenWebUI(os.environ.get("OPEN_WEBUI_URL", "http://127.0.0.1:8080"), token)
     check_api(api)
 
-    wanted: dict[str, bytes] = {}
-    for entry in sorted(os.listdir(corpus_dir)):
-        if entry.endswith(".md"):
-            with open(os.path.join(corpus_dir, entry), "rb") as fh:
-                wanted[entry] = fh.read()
+    wanted = read_corpus(corpus_dir)
     if not wanted:
         print(f"no .md files in {corpus_dir}", file=sys.stderr)
         return 1
 
     collection_id = ensure_collection(api, name)
-    present = existing_files(api, collection_id)
+    plan = diff(api, collection_id, wanted)
 
-    stale = [
-        (filename, file_id)
-        for filename, (file_id, file_hash) in present.items()
-        if filename not in wanted or file_hash != digest(wanted[filename])
+    todo = [entry["filename"] for entry in plan["added"]] + [
+        entry["filename"] for entry in plan["modified"]
     ]
-    todo = [
-        filename
-        for filename, content in wanted.items()
-        if filename not in present or present[filename][1] != digest(content)
+    # Superseded copies and files no longer in the corpus. Removed after the
+    # uploads rather than before: a failed run then leaves a stale copy to be
+    # replaced next time, instead of a gap where a document used to be.
+    obsolete = [entry["stale_file_id"] for entry in plan["modified"]] + [
+        entry["file_id"] for entry in plan["deleted"]
     ]
 
-    for filename, file_id in stale:
-        api.post(f"/api/v1/knowledge/{collection_id}/file/remove", {"file_id": file_id})
-        # Detaching leaves the upload behind; delete it so re-runs do not pile up.
-        api.delete(f"/api/v1/files/{file_id}")
+    if dry_run:
+        # sync/diff writes nothing, so everything above this point was
+        # read-only. Reporting here answers "what would a run do" without
+        # spending hours finding out.
+        print(
+            f"{name}: would upload {len(todo)}, remove {len(obsolete)}; "
+            f"{len(wanted)} desired, {plan['unmodified_count']} already present",
+            file=sys.stderr,
+        )
+        return 0
 
     pending: list[dict] = []
     for index, filename in enumerate(todo, 1):
-        content = wanted[filename]
-        uploaded = api.upload(filename, content, {"corpus_hash": digest(content)})
+        uploaded = api.upload(filename, wanted[filename])
         pending.append({"file_id": uploaded["id"]})
         if len(pending) >= BATCH:
             attach(api, collection_id, pending)
@@ -228,10 +258,18 @@ def main() -> int:
     if pending:
         attach(api, collection_id, pending)
 
-    removed = sum(1 for filename, _ in stale if filename not in wanted)
+    if obsolete:
+        # Removes the vector entries and the stored blob too, which detaching
+        # on its own does not.
+        api.post(
+            f"/api/v1/knowledge/{collection_id}/sync/cleanup",
+            {"file_ids": obsolete, "dir_ids": plan.get("rmdir") or []},
+            timeout=PROCESS_TIMEOUT,
+        )
+
     print(
-        f"{name}: {len(todo)} uploaded, {removed} removed, {len(wanted)} desired, "
-        f"{len(present)} were present",
+        f"{name}: {len(todo)} uploaded, {len(obsolete)} removed, "
+        f"{len(wanted)} desired, {plan['unmodified_count']} already present",
         file=sys.stderr,
     )
     return 0

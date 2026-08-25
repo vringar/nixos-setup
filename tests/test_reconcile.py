@@ -69,51 +69,79 @@ def test_finds_existing_collection_on_a_later_page():
     assert reconcile.ensure_collection(api, "witcher-lore") == "id-witcher-lore"
 
 
-class FilesApi:
-    """Serves the collection's file listing the way Open WebUI does."""
+class DiffApi:
+    """Records the diff request and replays a canned plan."""
 
-    def __init__(self, files):
-        self.files = files
-        self.requested = []
+    def __init__(self, plan):
+        self.plan = plan
+        self.posted = []
 
-    def get(self, path):
-        self.requested.append(path)
-        page = int(path.rsplit("page=", 1)[1])
-        start = (page - 1) * 30
-        return {"items": self.files[start : start + 30], "total": len(self.files)}
+    def post(self, path, body, timeout=None):
+        self.posted.append((path, body, timeout))
+        return self.plan
 
 
-def uploaded(name, digest, file_id=None):
+def plan(added=(), modified=(), deleted=(), unmodified=0, rmdir=()):
     return {
-        "id": file_id or f"file-{name}",
-        "filename": name,
-        "meta": {"name": name, "data": {"corpus_hash": digest}},
+        "added": [{"filename": f, "path": ""} for f in added],
+        "modified": [
+            {"filename": f, "path": "", "stale_file_id": f"stale-{f}"} for f in modified
+        ],
+        "deleted": [{"file_id": i, "filename": f} for i, f in deleted],
+        "mkdir": [],
+        "rmdir": list(rmdir),
+        "unmodified_count": unmodified,
+        "directory_map": {},
     }
 
 
-def test_existing_files_reads_the_listing_endpoint_not_the_detail():
-    """The detail endpoint never populates `files`; reading it saw an empty
-    collection and re-uploaded the corpus on every run."""
-    api = FilesApi([uploaded("a.md", "hash-a")])
-    reconcile.existing_files(api, "col-1")
-    assert api.requested == ["/api/v1/knowledge/col-1/files?page=1"]
+def test_manifest_entry_shape_matches_the_server_contract():
+    """filename/path/checksum/size are all required by FileManifestEntry."""
+    entries = reconcile.manifest({"a.md": b"hello"})
+    assert entries == [
+        {
+            "filename": "a.md",
+            "path": "",
+            "checksum": reconcile.digest(b"hello"),
+            "size": 5,
+        }
+    ]
 
 
-def test_existing_files_maps_name_to_id_and_corpus_hash():
-    api = FilesApi([uploaded("a.md", "hash-a"), uploaded("b.md", "hash-b")])
-    assert reconcile.existing_files(api, "col-1") == {
-        "a.md": ("file-a.md", "hash-a"),
-        "b.md": ("file-b.md", "hash-b"),
-    }
+def test_manifest_path_is_root_for_every_file():
+    """The corpus is flat; a non-empty path would not match how uploads land,
+    and path is part of the identity the server diffs on."""
+    entries = reconcile.manifest({"a.md": b"x", "b.md": b"y"})
+    assert {e["path"] for e in entries} == {""}
 
 
-def test_existing_files_walks_every_page():
-    api = FilesApi([uploaded(f"{n}.md", f"h{n}") for n in range(65)])
-    assert len(reconcile.existing_files(api, "col-1")) == 65
+def test_checksum_is_sha256_of_raw_bytes():
+    """Must equal what the server computes for the uploaded bytes, or every
+    file reads as modified forever."""
+    import hashlib
+
+    entries = reconcile.manifest({"a.md": b"witcher"})
+    assert entries[0]["checksum"] == hashlib.sha256(b"witcher").hexdigest()
 
 
-def test_existing_files_tolerates_missing_metadata():
-    """A file uploaded outside the reconciler has no corpus_hash; it must read
-    as changed rather than crash."""
-    api = FilesApi([{"id": "x", "filename": "loose.md", "meta": {"name": "loose.md"}}])
-    assert reconcile.existing_files(api, "col-1") == {"loose.md": ("x", "")}
+def test_diff_posts_the_manifest_to_the_sync_endpoint():
+    api = DiffApi(plan(unmodified=1))
+    reconcile.diff(api, "col-1", {"a.md": b"x"})
+    path, body, _ = api.posted[0]
+    assert path == "/api/v1/knowledge/col-1/sync/diff"
+    assert list(body) == ["manifest"]
+
+
+def test_diff_rejects_an_unexpected_response_shape():
+    """The old spec check only asserted paths existed, which let a changed
+    response shape through as a crash mid-run."""
+    api = DiffApi({"added": [], "modified": []})
+    with pytest.raises(RuntimeError, match="sync contract"):
+        reconcile.diff(api, "col-1", {"a.md": b"x"})
+
+
+def test_diff_passes_a_well_formed_plan_through():
+    api = DiffApi(plan(added=["a.md"], unmodified=7))
+    got = reconcile.diff(api, "col-1", {"a.md": b"x"})
+    assert got["unmodified_count"] == 7
+    assert got["added"][0]["filename"] == "a.md"
