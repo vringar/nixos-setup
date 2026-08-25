@@ -212,7 +212,11 @@ in {
     # tunnel when it is up; scoped to the LAN NIC below instead.
     openFirewall = false;
     environment = {
-      # Module defaults, restated because setting `environment` replaces them.
+      # chromadb evaluates `Path.home()` in a class body, so importing it at
+      # all fails under DynamicUser + PrivateUsers, where the transient user
+      # has no resolvable passwd entry. The module sets DATA_DIR and friends
+      # but never HOME; point it at the state directory the unit already owns.
+      HOME = "/var/lib/open-webui";
       SCARF_NO_ANALYTICS = "True";
       DO_NOT_TRACK = "True";
       ANONYMIZED_TELEMETRY = "False";
