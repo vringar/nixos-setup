@@ -9,21 +9,23 @@
   python3,
   writeText,
   writeShellApplication,
-}: rec {
+}: {
   plugins = import ./plugins {inherit fetchurl;};
 
   # Desired state as JSON. Store paths render as strings, so the plugin source
   # is referenced by path and read at run time rather than embedded here.
   manifest = selected:
-    writeText "openweb-ui-plugins.json" (builtins.toJSON (
-      lib.mapAttrsToList (id: plugin: {
-        inherit id;
-        inherit (plugin) name global valves;
-        description = plugin.description or "";
-        content = plugin.src;
-      })
-      selected
-    ));
+    writeText "openweb-ui-plugins.json" (
+      builtins.toJSON (
+        lib.mapAttrsToList (id: plugin: {
+          inherit id;
+          inherit (plugin) name global valves;
+          description = plugin.description or "";
+          content = plugin.src;
+        })
+        selected
+      )
+    );
 
   sync = writeShellApplication {
     name = "openweb-ui-sync";
