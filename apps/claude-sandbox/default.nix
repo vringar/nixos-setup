@@ -33,6 +33,7 @@ in
       substitute claude-sandbox.py claude-sandbox \
         --replace-fail '@bwrap@' '${pkgs.bubblewrap}/bin/bwrap' \
         --replace-fail '@nix_shell@' '${pkgs.nix}/bin/nix-shell' \
+        --replace-fail '@nix@' '${pkgs.nix}/bin/nix' \
         --replace-fail '@bash@' '${pkgs.bashInteractive}/bin/bash' \
         --replace-fail '@python3@' '${python3}/bin/python3' \
         --replace-fail '@python3_bin_dir@' '${python3}/bin'

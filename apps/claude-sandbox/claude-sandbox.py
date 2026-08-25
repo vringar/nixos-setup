@@ -13,6 +13,7 @@ import time
 
 BWRAP = "@bwrap@"
 NIX_SHELL = "@nix_shell@"
+NIX = "@nix@"
 BASH = "@bash@"
 PYTHON3_BIN_DIR = "@python3_bin_dir@"
 
@@ -387,36 +388,45 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     return args
 
 
+# How a resolved nix file has to be invoked.
+MODE_SHELL = "shell"  # nix-shell <file>
+MODE_ATTR = "attr"  # nix-shell <file> -A shell
+MODE_FLAKE = "flake"  # nix develop <dir>
+
+
 def resolve_nix_file(project_dir, nix_file_arg):
     """Resolve nix file: explicit flag > shell.nix > nix/shell.nix > flake.nix > default.nix > None.
 
-    Returns (path, use_attr) where use_attr is True when the file is a
-    default.nix that should be invoked with ``nix-shell -A shell``.
+    Returns (path, mode) where mode is one of MODE_SHELL, MODE_ATTR or
+    MODE_FLAKE. A flake.nix evaluates to a plain attrset rather than a
+    derivation, so its dev shell is only reachable via ``nix develop``.
     """
     if nix_file_arg:
         resolved = os.path.join(project_dir, nix_file_arg)
         if not os.path.isfile(resolved):
             print(f"Error: nix file not found: {resolved}", file=sys.stderr)
             sys.exit(1)
-        return resolved, False
+        if os.path.basename(resolved) == "flake.nix":
+            return resolved, MODE_FLAKE
+        return resolved, MODE_SHELL
 
     shell_nix = os.path.join(project_dir, "shell.nix")
     if os.path.isfile(shell_nix):
-        return shell_nix, False
+        return shell_nix, MODE_SHELL
 
     nix_shell_nix = os.path.join(project_dir, "nix", "shell.nix")
     if os.path.isfile(nix_shell_nix):
-        return nix_shell_nix, False
+        return nix_shell_nix, MODE_SHELL
 
     flake_nix = os.path.join(project_dir, "flake.nix")
     if os.path.isfile(flake_nix):
-        return flake_nix, False
+        return flake_nix, MODE_FLAKE
 
     default_nix = os.path.join(project_dir, "default.nix")
     if os.path.isfile(default_nix):
-        return default_nix, True
+        return default_nix, MODE_ATTR
 
-    return None, False
+    return None, MODE_SHELL
 
 
 def path_is_visible_in_sandbox(path, home_dir):
@@ -529,10 +539,18 @@ def main():
         launch_cmd = args.launch_cmd
         print(f"Starting sandboxed {launch_cmd.split()[0]} in {project_dir}")
 
-        nix_file, use_attr = resolve_nix_file(project_dir, args.nix_file)
-        if nix_file:
+        nix_file, mode = resolve_nix_file(project_dir, args.nix_file)
+        if nix_file and mode == MODE_FLAKE:
+            nix_args = [
+                NIX, "develop",
+                "--extra-experimental-features", "nix-command flakes",
+                os.path.dirname(nix_file),
+                "--command", BASH, "-c", launch_cmd,
+            ]
+            exec_bwrap(bwrap_args, nix_args, podman_proc, sandbox_tmp)
+        elif nix_file:
             nix_args = [NIX_SHELL, nix_file]
-            if use_attr:
+            if mode == MODE_ATTR:
                 nix_args += ["-A", "shell"]
             nix_args += ["--run", launch_cmd]
             exec_bwrap(bwrap_args, nix_args, podman_proc, sandbox_tmp)
