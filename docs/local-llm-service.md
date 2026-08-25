@@ -1,6 +1,6 @@
 # Design: Family-facing local LLM service on sz1
 
-Status: in progress — phases 0, 0.5, 1, 2, 2.5 complete and phase 3 built; `https://chat.home.zabka.it` is live end to end (verified 2026-08-06, production Let's Encrypt wildcard, `chat` absent from the CT logs). The corpus (5,582 articles) is a Nix derivation and a reconciler service loads it into Open WebUI; both are pending a real API key and a deploy. Phase 4 (evaluation) next. Outstanding on the edge: IPv6 is configured but not yet active (t20 needs the pinned `::443` address applied and a FritzBox IPv6 exposure rule), so the service is IPv4-only for now.
+Status: in progress — phases 0, 0.5, 1, 2, 2.5 complete and phase 3 running; `https://chat.home.zabka.it` is live end to end (verified 2026-08-06, production Let's Encrypt wildcard, `chat` absent from the CT logs). The corpus (5,582 articles) is a Nix derivation and the reconciler loads it into Open WebUI; the API key is stored and change detection is verified converging (2026-08-25), with the initial load still in progress. Cleanup owed from the debugging: duplicate attachments and orphaned file rows (see "Reconciler debt"). Phase 4 (evaluation) next. Outstanding on the edge: IPv6 is configured but not yet active (t20 needs the pinned `::443` address applied and a FritzBox IPv6 exposure rule), so the service is IPv4-only for now.
 
 ## Context
 
@@ -257,6 +257,66 @@ prompt batching) — a prefill-vs-decode trade exists if prefill ever dominates.
 | **Work-laptop privacy is outside our control** | A managed corporate device may have TLS inspection or endpoint monitoring; our Let's Encrypt TLS does not protect content from the device's own employer. This must be communicated honestly to the primary user: on the work laptop, treat the service as employer-visible regardless of our architecture. Phone on mobile data is the private path. |
 | **Primary user's writing workflow is unvalidated.** Stefan has promised not to read their chats, so whether they co-write turn-by-turn (chat-native) or draft prose with model assistance (document-native) is unknown — and D13's bible/chapter workflow may feel like homework to them. | User research = asking, not reading: a short interview about how they work with Claude today and what compaction loses, before/during evaluation. Open WebUI ships as a probe (D4); frontend is swappable behind the API boundary if the workflow verdict demands it (SillyTavern for chat-native, document-centric harness for author-native). |
 
+## Open WebUI 0.11 API notes (verified 2026-08-25)
+
+Everything here was read from the running package's source or measured against
+the live instance, not inferred from the OpenAPI spec — the spec was accurate
+about paths and misleading about behaviour, which cost most of a night.
+
+**API keys ship disabled.** `ENABLE_API_KEYS` defaults to `False`
+(`config.py:2420`), and note the plural: the singular name older guides use
+does nothing in 0.11. Setting it in `services.open-webui.environment` only
+establishes a *default* — `Config.get` returns the database row when one
+exists (`models/config.py:141`), so once the admin panel has written that key,
+the environment variable is inert and the toggle must be flipped in the UI.
+Diagnosing this from status codes alone works: bad credentials give 400, a bad
+token 401, and a *valid* admin token against a disabled feature gives 403.
+
+**`GET /api/v1/knowledge/{id}` never returns the collection's files.** It
+builds `KnowledgeFilesResponse` without populating `files`
+(`routers/knowledge.py:1062`), so it always reports an empty collection —
+while `batch/add` populates the same field properly. Anything that needs the
+contents must use `GET /api/v1/knowledge/{id}/files`, which is paginated.
+
+**List responses are envelopes.** `{"items": [...], "total": N}`, 30 per page
+(`PAGE_ITEM_COUNT`), on both the knowledge list and the file listing.
+Iterating the response directly walks its keys.
+
+**`files/batch/add` embeds synchronously.** It awaits `process_files_batch`
+before returning (`routers/knowledge.py:2066`), so the request takes as long
+as the embedding — measured ~3 s per document on this hardware, which is why
+batches are small and that call gets its own long timeout. `process_in_background`
+on the *upload* does not help; attaching re-processes into the collection.
+
+**Custom upload metadata survives at `meta.data`**, and `meta.file_hash` is
+SHA-256 of the raw bytes when the client does not supply one
+(`routers/files.py:395`) — the same digest the reconciler computes.
+
+**`sync/diff` and `sync/cleanup` are the endpoints this should have used.**
+`POST /{id}/sync/diff` takes a manifest of `{filename, path, checksum, size}`
+and returns added/modified/deleted against the real attachment table; it is
+read-only, so it doubles as a dry run. `POST /{id}/sync/cleanup` takes explicit
+file ids and purges vector entries, the per-file collection and the storage
+blob — more thorough than the detach-and-delete the reconciler does by hand.
+
+## Reconciler debt
+
+Carried over from the debugging session; none of it is load-bearing, all of it
+is worth clearing before phase 4 draws conclusions from retrieval quality.
+
+- **Duplicate attachments** (~325). Runs before change detection worked stacked
+  a second copy of the early filenames. `existing_files` keys by filename, so a
+  duplicate collapses to one matching entry and is never marked stale — it will
+  not self-heal. Retrieval returns those documents twice.
+- **Orphaned `file` rows** (~1,100) from the same laps, plus their storage
+  blobs. Invisible to the collection, harmless beyond disk.
+- Both want one `sync/cleanup` pass with explicitly gathered ids.
+- **Deploys must not wait on a run.** Two independent mechanisms started this
+  unit: a target wanting it, and switch-to-configuration restarting a changed
+  unit that is currently active. A `Type=oneshot` counts as activating until it
+  exits, so either one blocks `colmena apply` for hours. Fixed with a timer plus
+  `restartIfChanged = false`; do not reintroduce `wantedBy` here.
+
 ## Implementation plan (proposed phases)
 
 0. **Storage** — ✅ done 2026-07-26: `zpool/llm` created (200G quota),
@@ -288,8 +348,9 @@ prompt batching) — a prefill-vs-decode trade exists if prefill ever dominates.
    vhost behind the same Caddy, then migrate Open WebUI to it as the first
    consumer — keeping one local admin account as the break-glass path. Needs
    the edge to exist first; building it before 2.5 means building TLS twice.
-3. **Corpus**: Witcher wiki dump → markdown → knowledge collection; save the
-   fetch/convert script in the repo; "Witcher Writer" preset wired to it.
+3. **Corpus** — corpus derivation and reconciler done 2026-08-25; initial load
+   running. Wiring lives in `modules/local-llm.nix` (extracted from `hive.nix`
+   along with the rest of the service). "Witcher Writer" preset still to wire.
 4. **Evaluation**: two things under test, not one — (a) candidate models via
    the UI's side-by-side compare, (b) the harness itself: workflow interview
    with the primary user, then does the bible/chapter pattern fit how they
