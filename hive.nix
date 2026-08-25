@@ -67,6 +67,32 @@ in {
     ];
     nix.settings.secret-key-files = ["/etc/nix/signing-key.sec"];
 
+    # lix-src is pinned to Lix's main branch, so this host runs a Lix ahead of
+    # what nixpkgs validates: nixpkgs only tests nix-serve-ng against
+    # lixPackageSets.stable. Lix main dropped `enum class HashFormat` and
+    # `Hash::to_string()` from libutil/hash.hh, but nix-serve-ng still calls
+    # them, so it stops compiling. `to_base32()` renders the same
+    # "<algo>:<base32>" string the old to_string(Base32, includeType=true) did,
+    # and exists in both the old and new headers, so this patch is independent
+    # of where lix-src happens to point. --replace-fail means a nix-serve-ng
+    # bump that fixes this upstream breaks the build here rather than going
+    # unnoticed.
+    nixpkgs.overlays = [
+      (final: prev: {
+        nix-serve-ng =
+          final.haskell.lib.compose.overrideCabal (old: {
+            postPatch =
+              (old.postPatch or "")
+              + ''
+                substituteInPlace cbits/nix.cpp \
+                  --replace-fail 'narHash.to_string(nix::HashFormat::Base32, true)' \
+                                 'narHash.to_base32()'
+              '';
+          })
+          prev.nix-serve-ng;
+      })
+    ];
+
     # Serve sz1's store as a binary cache so t20 can *substitute* its aarch64
     # closure instead of depending on colmena pushing every path. Reuses the
     # signing key sz1 already has and the public key t20 already trusts (see
