@@ -79,6 +79,17 @@
     options = ["zfsutil"];
   };
 
+  # Paperless document archive. The SQLite database, the OCR'd media tree and
+  # the nightly export all live under this one mountpoint, so the quota has to
+  # cover roughly twice the document volume — ZFS quotas bound a dataset and
+  # its descendants. Dataset is created manually with a 100G quota, and carries
+  # com.sun:auto-snapshot=true — see docs/paperless.md.
+  fileSystems."/var/lib/paperless" = {
+    device = "zpool/paperless";
+    fsType = "zfs";
+    options = ["zfsutil"];
+  };
+
   fileSystems."/boot" = {
     device = "/dev/disk/by-uuid/19D5-7538";
     fsType = "vfat";

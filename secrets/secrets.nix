@@ -18,4 +18,13 @@ in {
   # key in the UI under Settings → Account → API keys.
   # Contents (environment file): OPEN_WEBUI_TOKEN=sk-...
   "open-webui-token.age".publicKeys = [vringar sz1];
+  # Paperless-ngx superuser password, read by the service at first start,
+  # before /home is available — hence the host key.
+  # Contents: the password, on its own, no trailing newline handling needed.
+  "paperless-admin.age".publicKeys = [vringar sz1];
+  # FritzBox SMB credentials, consumed as a cifs credentials(5) file by the
+  # mount in modules/fritz-nas.nix. sz3 wants these too, but its host key is
+  # not here yet and the machine is away; adding it needs a rekey.
+  # Contents: username=... / password=...
+  "smb-fritznas.age".publicKeys = [vringar sz1];
 }
