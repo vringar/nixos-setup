@@ -12,3 +12,10 @@ repos:
         entry: shellcheck
         language: system
         types: [shell]
+
+      - id: pytest
+        name: pytest
+        entry: pytest tests/ -q
+        language: system
+        pass_filenames: false
+        always_run: true
