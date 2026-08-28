@@ -115,6 +115,12 @@ Custom options use the `my.*` namespace, defined in `home-manager/baseline.nix`.
 |------|----------|------------|-----|
 | sz1  | AMD      | ZFS        | Desktop workstation |
 | sz3  | Intel    | Btrfs+LUKS | Laptop |
-| t20  | Raspberry Pi 3 | ext4 | Headless server (Ghidra) |
+| t20  | Raspberry Pi 3 | ext4 | Headless server: internet-facing Caddy |
 
 sz1 and sz3 have tag `@personal` and allow local deployment. t20 has tag `@personal` but is remote-only.
+
+t20 terminates TLS on :443 for `*.home.zabka.it` and proxies to sz1. It is the
+only host exposed to the internet.
+
+`modules/ghidra-server.nix` is not imported by any host — the Ghidra server is
+shut down for now. Keep the module; it is parked, not dead.
