@@ -87,6 +87,94 @@ in {
     28981 # paperless-ngx web UI
   ];
 
+  # configureTika brings up services.gotenberg, and two independent nixpkgs bugs
+  # break its LibreOffice-backed conversions. Both are worked around below; the
+  # upstream fixes are tracked separately.
+
+  # Bug A - the converter. The gotenberg package wires classic `unoconv` 0.9.0 in
+  # as UNOCONVERTER_BIN_PATH, and it calls `unohelper.absolutize`, removed from
+  # LibreOffice 26.2's python bindings - so even once the listener is healthy every
+  # conversion dies with `AttributeError: ... 'absolutize'` (Gotenberg 500). The
+  # calls are no-ops for the absolute paths Gotenberg passes, so strip them.
+  #
+  # Override the package, not the unit env: gotenberg's preFixup does
+  # `wrapProgram --set UNOCONVERTER_BIN_PATH`, which would clobber an env override.
+  # The grep guards fail the build if a future unoconv bump moves or renames the
+  # call, rather than silently no-op'ing and reintroducing the 500.
+  #
+  # TODO: classic unoconv is archived upstream (2023). Switch to Gotenberg's own
+  # maintained `unoconverter` (which no longer calls the removed API) once it is
+  # packaged, and drop this sed.
+  services.gotenberg.package = pkgs.gotenberg.override {
+    unoconv = pkgs.unoconv.overrideAttrs (old: {
+      postPatch =
+        (old.postPatch or "")
+        + ''
+          grep -q 'unohelper\.absolutize' unoconv \
+            || { echo "unoconv: absolutize call not found; patch is stale" >&2; exit 1; }
+          sed -i -E 's/unohelper\.absolutize\([^,]+, *([^)]+)\)/\1/g' unoconv
+          ! grep -q 'unohelper\.absolutize' unoconv \
+            || { echo "unoconv: absolutize still present after patch" >&2; exit 1; }
+        '';
+    });
+  };
+
+  # Bug B - the listener won't start. Gotenberg runs LibreOffice as a directly-
+  # supervised `--accept=socket;urp;` listener via LIBREOFFICE_BIN_PATH. nixpkgs
+  # soffice.bin exits 81 (LibreOffice's "restart me") on the first run of a fresh
+  # UserInstallation while it stages the bundled-extension layer; that first run
+  # takes ~15s in the hardened unit and races Gotenberg's 20s "process first start"
+  # deadline (503). The `soffice`/oosplash launcher would absorb the 81, but it
+  # forks soffice.bin as a grandchild, so Gotenberg loses the process it supervises.
+  #
+  # So bake a ready profile at build time and have the wrapper drop it into
+  # Gotenberg's fresh UserInstallation: soffice.bin then starts clean in one run
+  # (no 81, no oosplash) and is exec'd as Gotenberg's own direct child.
+  #
+  # mkForce because the module defines this key; unlike UNOCONVERTER_BIN_PATH,
+  # gotenberg's preFixup does NOT --set it, so the systemd-env value wins.
+  systemd.services.gotenberg.environment.LIBREOFFICE_BIN_PATH = let
+    prog = "${config.services.gotenberg.libreoffice.package.unwrapped}/lib/libreoffice/program";
+
+    # A first soffice.bin run against a fresh UserInstallation initialises the
+    # profile and exits 81 (restart requested); keep the resulting profile. Assert
+    # it actually initialised - registrymodifications plus the bundled-extension
+    # layer whose staging triggers the 81 - not merely that `$out/user` exists.
+    profile = pkgs.runCommand "gotenberg-lo-profile" {} ''
+      export HOME="$(mktemp -d)"
+      mkdir -p "$out"
+      ${prog}/soffice.bin --headless --norestore \
+        "-env:UserInstallation=file://$out" \
+        --convert-to pdf ${pkgs.writeText "seed" "seed"} --outdir "$HOME/o" \
+        > /dev/null 2>&1 || true
+      test -f "$out/user/registrymodifications.xcu" && test -d "$out/user/extensions/bundled" \
+        || { echo "gotenberg-lo-profile: LibreOffice profile did not initialise" >&2; exit 1; }
+    '';
+
+    wrapper = pkgs.writeShellScript "soffice-foreground" ''
+      set -eu
+      ui=
+      for arg in "$@"; do
+        case "$arg" in
+          -env:UserInstallation=file://*) ui="''${arg#-env:UserInstallation=file://}" ;;
+        esac
+      done
+      # Seed Gotenberg's fresh (empty) UserInstallation from the baked profile so
+      # soffice.bin skips the slow first-run. The store copy is read-only and
+      # LibreOffice writes lock/config into its profile at runtime, so make it
+      # writable.
+      if [ -n "$ui" ] && [ ! -e "$ui/user" ]; then
+        mkdir -p "$ui"
+        cp -a ${profile}/user "$ui/user"
+        chmod -R u+w "$ui/user"
+      fi
+      cd ${prog}
+      export SAL_ENABLE_FILE_LOCKING=1
+      exec ${prog}/soffice.bin "$@"
+    '';
+  in
+    lib.mkForce "${wrapper}";
+
   # zfs-auto-snapshot only touches datasets carrying com.sun:auto-snapshot=true,
   # which is set by hand on zpool/paperless alone (see docs/paperless.md). The
   # SMB mirror is a flat latest-state copy, so these snapshots are the only
