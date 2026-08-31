@@ -26,8 +26,8 @@ MW = "{http://www.mediawiki.org/xml/export-0.11/}"
 # articles live (Elder Blood, Signs, historical events).
 SKIP_INFOBOX = {
     "item", "quest", "gwent", "gwent card", "achievement", "needed", "tb",
-    "merchant", "trophy", "mutagen", "diagram", "weapon", "armor", "potion",
-    "bomb", "oil", "card", "book", "crafting",
+    "tb battle", "merchant", "trophy", "mutagen", "diagram", "weapon", "armor",
+    "potion", "bomb", "oil", "card", "book", "crafting",
 }
 SKIP_CATEGORY = re.compile(
     r"crafting diagram|gwent|thronebreaker card|quest item|relic|armor|"
@@ -40,6 +40,21 @@ SKIP_FIELD = {"image", "coa", "flag", "geo map", "city map", "px", "width", "ima
 # Below this much prose a page is a stub — a title and a sentence fragment,
 # which only adds retrieval noise.
 MIN_PROSE = 400
+
+
+def infobox_kind(name: str) -> str:
+    """Normalise an infobox name to the kind it describes, dropping the game.
+
+    Fandom templates the same infobox once per game — item1, item2 and item3
+    for the three Witcher games, quest1 through quest3 likewise — and suffixes
+    the expansions (item3/baw). Matching those raw names against SKIP_INFOBOX
+    missed every numbered one, so items and quests made up roughly a third of
+    the corpus despite being the first thing the policy meant to drop.
+    """
+    kind = name.strip().lower().removeprefix("infobox").strip(" _")
+    kind = kind.split("/", 1)[0]
+    kind = kind.replace("_", " ").strip()
+    return re.sub(r"\s*\d+$", "", kind).strip()
 
 
 def yaml_scalar(value: str) -> str:
@@ -64,7 +79,7 @@ def convert(title: str, wikitext: str) -> str | None:
     kind = ""
     fields: dict[str, str] = {}
     if box is not None:
-        kind = box.name.strip().lower().removeprefix("infobox").strip(" _")
+        kind = infobox_kind(box.name)
         if kind in SKIP_INFOBOX:
             return None
         fields = infobox_fields(box)
