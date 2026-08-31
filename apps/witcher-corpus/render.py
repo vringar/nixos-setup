@@ -108,6 +108,21 @@ def find_infobox(nodes: list[Node]) -> Template | None:
     return None
 
 
+def infobox_kind(name: str) -> str:
+    """Normalise an infobox name to the kind it describes, dropping the game.
+
+    Fandom templates the same infobox once per game — item1, item2 and item3
+    for the three Witcher games, quest1 through quest3 likewise — and suffixes
+    the expansions (item3/baw). Matching those raw names against SKIP_INFOBOX
+    missed every numbered one, so items and quests made up roughly a third of
+    the corpus despite being the first thing the policy meant to drop.
+    """
+    kind = name.strip().lower().removeprefix("infobox").strip(" _")
+    kind = kind.split("/", 1)[0]
+    kind = kind.replace("_", " ").strip()
+    return re.sub(r"\s*\d+$", "", kind).strip()
+
+
 def find_categories(nodes: list[Node]) -> list[str]:
     out: list[str] = []
     for node in nodes:

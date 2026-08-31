@@ -1,152 +1,74 @@
 #!/usr/bin/env python3
 """Convert a Fandom XML dump into one markdown file per article.
 
-The corpus feeds Open WebUI's retrieval, so the goal is prose a model can quote
-from, not a faithful wiki rendering. Parsing and rendering live in wikitext.py
-and render.py; this file is the dump reader and the curation policy.
+The corpus feeds Open WebUI's retrieval, so the goal is prose a model can
+quote from, not a faithful wiki rendering. This file only wires the pieces
+together: `dump` streams articles, `wikitext` and `render` turn them into
+markdown, `policy` decides which ones are lore, and `document` lays the
+survivors out.
 
 Usage: wikitext-to-markdown.py <dump.xml> <outdir>
 """
 from __future__ import annotations
 
+import collections
 import os
-import re
 import sys
-import unicodedata
-import xml.etree.ElementTree as ET
 
-from render import find_categories, find_infobox, infobox_fields, render, tidy
-from wikitext import Template, parse
-
-MW = "{http://www.mediawiki.org/xml/export-0.11/}"
-
-# Page types that are game mechanics rather than lore. Items alone are a third
-# of the wiki (crafting diagrams, armor, relics) and would drown retrieval in
-# stat blocks. Pages with no infobox are kept: that is where the concept
-# articles live (Elder Blood, Signs, historical events).
-SKIP_INFOBOX = {
-    "item", "quest", "gwent", "gwent card", "achievement", "needed", "tb",
-    "tb battle", "merchant", "trophy", "mutagen", "diagram", "weapon", "armor",
-    "potion", "bomb", "oil", "card", "book", "crafting",
-}
-SKIP_CATEGORY = re.compile(
-    r"crafting diagram|gwent|thronebreaker card|quest item|relic|armor|"
-    r"witcher gear|cut content|achievement|trophy|disambiguation|stub|"
-    # No "pages with ..." clause: those are MediaWiki tracking categories and
-    # say nothing about whether a page is lore. "Pages with tables" alone was
-    # dropping 177 articles, Geralt of Rivia among them, because long
-    # well-developed pages are exactly the ones that contain a table.
-    r"subpages|images?$|"
-    # Pages about the games as software rather than about the world: patch
-    # notes, release updates, skill trees and community tooling. The test is
-    # whether the page exists inside the fiction -- in-world writing stays even
-    # when a game is the only place it appears.
-    #
-    # Deliberately absent, each having taken lore with it:
-    #   "romance cards"   -- the wiki files the character there, so it removed
-    #                        Triss Merigold. Card pages go via gwent above.
-    #   "combat"          -- removed Sign and Witcher fighting styles, which
-    #                        describe the world, not a control scheme.
-    #   "premium modules" -- The Price of Neutrality and Side Effects are
-    #                        story adventures, so their content is narrative.
-    r"patch(es)?$|updates?$|character development$|"
-    r"^modding$|^guides$|^add-ons$",
-    re.I,
+import policy
+from document import build, slugify
+from dump import articles
+from render import (
+    find_categories,
+    find_infobox,
+    infobox_fields,
+    infobox_kind,
+    render,
+    tidy,
 )
-# In-world writing that the wiki files as an item, because in the games it is
-# one: books, letters, scrolls and the contract notices pinned to notice
-# boards. What is written on them is diegetic, so these outrank SKIP_INFOBOX --
-# though not SKIP_CATEGORY or the stub threshold, which still apply.
-KEEP_CATEGORY = re.compile(
-    r"notice board postings$|letters and reports$|\bbooks$|letters$|scrolls$",
-    re.I,
-)
-# Infobox fields that are asset filenames rather than facts.
-SKIP_FIELD = {"image", "coa", "flag", "geo map", "city map", "px", "width", "imagebg"}
-# Below this much prose a page is a stub — a title and a sentence fragment,
-# which only adds retrieval noise.
-MIN_PROSE = 400
+from wikitext import parse
 
 
-def infobox_kind(name: str) -> str:
-    """Normalise an infobox name to the kind it describes, dropping the game.
-
-    Fandom templates the same infobox once per game — item1, item2 and item3
-    for the three Witcher games, quest1 through quest3 likewise — and suffixes
-    the expansions (item3/baw). Matching those raw names against SKIP_INFOBOX
-    missed every numbered one, so items and quests made up roughly a third of
-    the corpus despite being the first thing the policy meant to drop.
-    """
-    kind = name.strip().lower().removeprefix("infobox").strip(" _")
-    kind = kind.split("/", 1)[0]
-    kind = kind.replace("_", " ").strip()
-    return re.sub(r"\s*\d+$", "", kind).strip()
-
-
-def yaml_scalar(value: str) -> str:
-    """Quote a scalar so titles with colons, quotes or brackets stay valid YAML."""
-    value = value.replace("\n", " ").strip()
-    if re.search(r"""[:#\[\]{},&*?|<>=!%@`'"]""", value) or not value:
-        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-    return value
-
-
-def slugify(title: str) -> str:
-    s = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
-    s = re.sub(r"[^\w\s-]", "", s).strip().replace(" ", "-")
-    return re.sub(r"-{2,}", "-", s)[:120] or "untitled"
-
-
-def convert(title: str, wikitext: str) -> str | None:
-    """Return the markdown for one article, or None if it should be skipped."""
-    tree = parse(wikitext)
-
-    categories = find_categories(tree)
-    if any(SKIP_CATEGORY.search(c) for c in categories):
-        return None
-    diegetic = any(KEEP_CATEGORY.search(c) for c in categories)
-
-    box = find_infobox(tree)
-    kind = ""
-    fields: dict[str, str] = {}
-    if box is not None:
-        kind = infobox_kind(box.name)
-        if kind in SKIP_INFOBOX and not diegetic:
-            return None
-        fields = infobox_fields(box)
-
-    # The infobox is re-emitted as facts below, and every other template
-    # renders empty, so the tree can be rendered as-is.
-    body = tidy(render(tree))
-
-    prose = "\n".join(
+def prose_of(body: str) -> str:
+    """The body minus its headings, which is what the stub threshold measures."""
+    return "\n".join(
         line for line in body.splitlines() if line.strip() and not line.startswith("#")
     )
-    if len(prose) < MIN_PROSE:
-        return None
 
-    # Frontmatter is provenance, not search material: Open WebUI ingests it as
-    # plain text and only the first chunk of a document carries it. Anything
-    # that must be retrievable is repeated in the body — hence the title being
-    # both a field and the H1, and the facts staying a body section.
-    url = "https://witcher.fandom.com/wiki/" + title.replace(" ", "_")
-    out = ["---", f"title: {yaml_scalar(title)}"]
-    if kind:
-        out.append(f"type: {yaml_scalar(kind)}")
-    if categories:
-        out.append("categories:")
-        out += [f"  - {yaml_scalar(c)}" for c in categories[:12]]
-    out += [f"source: {url}", "---", "", f"# {title}", ""]
 
-    facts = [
-        f"- **{key}:** {value}"
-        for key, value in fields.items()
-        if key not in SKIP_FIELD and len(value) < 400
-    ]
-    if facts:
-        out += ["## Facts", ""] + facts + [""]
-    out.append(body)
-    return "\n".join(out) + "\n"
+def convert(title: str, wikitext: str) -> tuple[str | None, str]:
+    """Return (markdown, reason). Markdown is None when the policy drops it."""
+    tree = parse(wikitext)
+    categories = find_categories(tree)
+
+    box = find_infobox(tree)
+    kind = infobox_kind(box.name) if box is not None else ""
+
+    # The infobox is re-emitted as facts below, and every other template
+    # renders empty, so the tree can be rendered as-is. Deferred, because a
+    # page the policy drops on cheaper grounds is never rendered at all.
+    body: list[str] = []
+
+    def rendered() -> str:
+        if not body:
+            body.append(tidy(render(tree)))
+        return prose_of(body[0])
+
+    dropped = policy.verdict(policy.Page(title, kind, categories, rendered))
+    if dropped is not None:
+        return None, dropped
+
+    return (
+        build(
+            title=title,
+            kind=kind,
+            categories=categories,
+            fields=policy.facts(infobox_fields(box)) if box is not None else {},
+            body=body[0],
+            source=policy.source_url(title),
+        ),
+        "kept",
+    )
 
 
 def main() -> int:
@@ -156,37 +78,34 @@ def main() -> int:
     dump, outdir = sys.argv[1], sys.argv[2]
     os.makedirs(outdir, exist_ok=True)
 
-    written = skipped = failed = 0
+    tally: collections.Counter[str] = collections.Counter()
+    written = failed = 0
     seen: set[str] = set()
-    for _, el in ET.iterparse(dump, events=("end",)):
-        if el.tag != MW + "page":
-            continue
+    for article in articles(dump):
         try:
-            if (el.findtext(MW + "ns") or "") != "0" or el.find(MW + "redirect") is not None:
-                continue
-            title = el.findtext(MW + "title") or ""
-            rev = el.find(MW + "revision")
-            text = (rev.findtext(MW + "text") if rev is not None else "") or ""
-            try:
-                md = convert(title, text)
-            except Exception as exc:  # noqa: BLE001 — one bad page must not stop the run
-                print(f"failed: {title}: {exc}", file=sys.stderr)
-                failed += 1
-                continue
-            if md is None:
-                skipped += 1
-                continue
-            name = slugify(title)
-            if name in seen:
-                name = f"{name}-{written}"
-            seen.add(name)
-            with open(os.path.join(outdir, name + ".md"), "w", encoding="utf-8") as fh:
-                fh.write(md)
-            written += 1
-        finally:
-            el.clear()
+            md, reason = convert(article.title, article.wikitext)
+        except Exception as exc:  # noqa: BLE001 — one bad page must not stop the run
+            print(f"failed: {article.title}: {exc}", file=sys.stderr)
+            failed += 1
+            continue
+        tally[reason] += 1
+        if md is None:
+            continue
+        name = slugify(article.title)
+        if name in seen:
+            name = f"{name}-{written}"
+        seen.add(name)
+        with open(os.path.join(outdir, name + ".md"), "w", encoding="utf-8") as fh:
+            fh.write(md)
+        written += 1
 
-    print(f"wrote {written}, skipped {skipped}, failed {failed}", file=sys.stderr)
+    # Which rule removed how much. Without this the pipeline reports only a
+    # total, and a filter that silently stops matching -- or starts matching
+    # far too much -- looks exactly like a normal run.
+    for reason, count in tally.most_common():
+        print(f"  {count:6d}  {reason}", file=sys.stderr)
+    print(f"wrote {written}, failed {failed}", file=sys.stderr)
+
     # A drastic drop means the dump layout changed and the filters stopped
     # matching; fail loudly rather than shipping an empty knowledge base.
     if written < 1000 or failed > written // 100:
