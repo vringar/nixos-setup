@@ -32,7 +32,25 @@ SKIP_INFOBOX = {
 SKIP_CATEGORY = re.compile(
     r"crafting diagram|gwent|thronebreaker card|quest item|relic|armor|"
     r"witcher gear|cut content|achievement|trophy|disambiguation|stub|"
-    r"pages with|subpages|images?$",
+    # No "pages with ..." clause: those are MediaWiki tracking categories and
+    # say nothing about whether a page is lore. "Pages with tables" alone was
+    # dropping 177 articles, Geralt of Rivia among them, because long
+    # well-developed pages are exactly the ones that contain a table.
+    r"subpages|images?$|"
+    # Pages about the games as software rather than about the world: patch
+    # notes, release updates, skill trees and community tooling. The test is
+    # whether the page exists inside the fiction -- in-world writing stays even
+    # when a game is the only place it appears.
+    #
+    # Deliberately absent, each having taken lore with it:
+    #   "romance cards"   -- the wiki files the character there, so it removed
+    #                        Triss Merigold. Card pages go via gwent above.
+    #   "combat"          -- removed Sign and Witcher fighting styles, which
+    #                        describe the world, not a control scheme.
+    #   "premium modules" -- The Price of Neutrality and Side Effects are
+    #                        story adventures, so their content is narrative.
+    r"patch(es)?$|updates?$|character development$|"
+    r"^modding$|^guides$|^add-ons$",
     re.I,
 )
 # Infobox fields that are asset filenames rather than facts.
