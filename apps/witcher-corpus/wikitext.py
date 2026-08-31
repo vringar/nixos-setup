@@ -94,7 +94,11 @@ Node = (
 )
 
 # Where a plain text run has to stop and the parser look at the source again.
-MARKER = re.compile(r"<!--|\{\{|\}\}|\[\[|\]\]|\{\||\|\}|\[|<|'''''|'''|''|\n|\||=")
+# A lone `]` has to be here as well as `]]`: without it parse_text runs
+# straight over the end of an external link, the link's label never
+# terminates, and everything after it is absorbed into the label. That
+# silently emptied 245 articles -- Ciri, Yennefer and Vesemir among them.
+MARKER = re.compile(r"<!--|\{\{|\}\}|\[\[|\]\]|\{\||\|\}|\[|\]|<|'''''|'''|''|\n|\||=")
 
 # Tags whose entire contents are dropped: citations, image galleries and the
 # tab widgets Fandom wraps around alternate artwork.
