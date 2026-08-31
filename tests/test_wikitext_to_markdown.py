@@ -106,3 +106,36 @@ def test_gameplay_categories_are_skipped(category):
 )
 def test_lore_categories_survive(category):
     assert not w2m.SKIP_CATEGORY.search(category)
+
+
+@pytest.mark.parametrize(
+    "category",
+    [
+        "The Witcher 3 books",
+        "Blood and Wine books",
+        "Books",
+        "The Witcher letters",
+        "The Witcher scrolls",
+        "The Witcher 3 notice board postings",
+        "Thronebreaker letters and reports",
+    ],
+)
+def test_diegetic_writing_outranks_the_item_filter(category):
+    """These pages carry Infobox item, so without the override they vanish."""
+    assert w2m.KEEP_CATEGORY.search(category)
+    assert not w2m.SKIP_CATEGORY.search(category)
+
+
+@pytest.mark.parametrize(
+    "category",
+    [
+        # Real-world writing about the series, not writing from inside it.
+        "Books mentioned in the novels",
+        # The board itself is furniture; only what is pinned to it is writing.
+        "The Witcher 3 notice boards",
+        "Crafting diagrams",
+        "The Witcher 3 gwent",
+    ],
+)
+def test_non_diegetic_categories_do_not_get_the_override(category):
+    assert not w2m.KEEP_CATEGORY.search(category)

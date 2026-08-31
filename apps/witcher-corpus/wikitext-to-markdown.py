@@ -53,6 +53,14 @@ SKIP_CATEGORY = re.compile(
     r"^modding$|^guides$|^add-ons$",
     re.I,
 )
+# In-world writing that the wiki files as an item, because in the games it is
+# one: books, letters, scrolls and the contract notices pinned to notice
+# boards. What is written on them is diegetic, so these outrank SKIP_INFOBOX --
+# though not SKIP_CATEGORY or the stub threshold, which still apply.
+KEEP_CATEGORY = re.compile(
+    r"notice board postings$|letters and reports$|\bbooks$|letters$|scrolls$",
+    re.I,
+)
 # Infobox fields that are asset filenames rather than facts.
 SKIP_FIELD = {"image", "coa", "flag", "geo map", "city map", "px", "width", "imagebg"}
 # Below this much prose a page is a stub — a title and a sentence fragment,
@@ -93,18 +101,19 @@ def convert(title: str, wikitext: str) -> str | None:
     """Return the markdown for one article, or None if it should be skipped."""
     tree = parse(wikitext)
 
+    categories = find_categories(tree)
+    if any(SKIP_CATEGORY.search(c) for c in categories):
+        return None
+    diegetic = any(KEEP_CATEGORY.search(c) for c in categories)
+
     box = find_infobox(tree)
     kind = ""
     fields: dict[str, str] = {}
     if box is not None:
         kind = infobox_kind(box.name)
-        if kind in SKIP_INFOBOX:
+        if kind in SKIP_INFOBOX and not diegetic:
             return None
         fields = infobox_fields(box)
-
-    categories = find_categories(tree)
-    if any(SKIP_CATEGORY.search(c) for c in categories):
-        return None
 
     # The infobox is re-emitted as facts below, and every other template
     # renders empty, so the tree can be rendered as-is.
