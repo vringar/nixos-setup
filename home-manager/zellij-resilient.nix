@@ -3,6 +3,16 @@
   pkgs,
   ...
 }: {
+  # Tearing down the session by hand is easy to get wrong in a way that costs
+  # the saved layout, so ship the correct order as a command.
+  home.packages = [
+    (pkgs.writeShellApplication {
+      name = "zellij-teardown";
+      runtimeInputs = with pkgs; [coreutils procps systemd];
+      text = builtins.readFile ../scripts/zellij-teardown.sh;
+    })
+  ];
+
   # systemd-oomd measures memory pressure on a cgroup marked kill, then kills
   # one of its DIRECT children. Konsole marks its own scope, and the whole
   # multiplexer -- server plus every pane -- lives in a single Konsole tab
