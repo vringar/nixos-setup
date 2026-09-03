@@ -78,6 +78,33 @@ in {
 
     programs.zsh = {
       enable = true;
+      # Cap how much heap any single process started from zsh may claim.
+      #
+      # The motivating case is zsh's own filename generation: a multi-component
+      # pattern such as /nix/store/*/lib walks all ~176k store entries and
+      # allocates from zsh's arena without ever releasing, which has grown past
+      # 25 GiB. That is enough to trip systemd-oomd, and because the whole
+      # multiplexer session lives in one cgroup, oomd kills every pane at once.
+      # zsh offers no global cap on match count -- the Yn glob qualifier is
+      # per-pattern -- so bound the memory instead of the matches.
+      #
+      # -d (RLIMIT_DATA) rather than -v (RLIMIT_AS): it bounds heap that is
+      # actually written, while still permitting the large PROT_NONE address
+      # space reservations that language runtimes make at startup.
+      #
+      # This belongs in .zshenv, not .zshrc: a non-interactive `zsh -c` reads
+      # only the former, and that is exactly how tooling runs commands -- the
+      # shape that blew up in the first place.
+      #
+      # Only the soft limit is set, so a deliberately heavy job can lift it for
+      # itself with `ulimit -Sd unlimited`, or by exporting ZSH_HEAP_LIMIT_KB.
+      envExtra = ''
+        () {
+          local limit=''${ZSH_HEAP_LIMIT_KB:-12582912}
+          [[ $limit == none ]] && return
+          ulimit -Sd "$limit" 2>/dev/null
+        }
+      '';
       initContent = ''
         [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
 
