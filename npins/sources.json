@@ -133,9 +133,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "1dc2d1f720ab17fc7981e087346bf54b26d284b1",
-      "url": "https://github.com/nix-community/home-manager/archive/1dc2d1f720ab17fc7981e087346bf54b26d284b1.tar.gz",
-      "hash": "sha256-G0F2rFORVcFkEvVdE/qWQTnYekIc77YP5/vRF9nZlxU="
+      "revision": "d9d750e4fc11c10cab2da677bdd31e427f3a3a71",
+      "url": "https://github.com/nix-community/home-manager/archive/d9d750e4fc11c10cab2da677bdd31e427f3a3a71.tar.gz",
+      "hash": "sha256-gAz5oTI7ur34CfuakQduiQd/2ZhO62Bn2XXg08nZYYQ="
     },
     "lix-module": {
       "type": "Git",
