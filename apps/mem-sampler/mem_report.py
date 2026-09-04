@@ -94,6 +94,49 @@ def rate(records, *path, scale=1.0):
     return out
 
 
+def ratio(records, hit_path, miss_path):
+    """A hit rate from two counters, differenced.
+
+    Taking hits/(hits+misses) from a single reading yields a since-boot average
+    that flatters every cache: it describes the whole uptime, not the workload
+    that was running when something went wrong.
+    """
+    out = [None]
+    for previous, current in zip(records, records[1:]):
+        hits = _delta(previous, current, hit_path)
+        misses = _delta(previous, current, miss_path)
+        total = None if hits is None or misses is None else hits + misses
+        out.append(None if not total else 100.0 * hits / total)
+    return out
+
+
+def _delta(previous, current, path):
+    before, after = dig(previous, *path), dig(current, *path)
+    if before is None or after is None or after < before:
+        return None
+    return after - before
+
+
+def vanished(records, floor=1024**3):
+    """Cgroups that were substantial and then stopped existing.
+
+    A pressure-based kill leaves no mark in the cgroup it destroys -- the whole
+    directory goes -- so absence is the only trace in the data. The floor guards
+    against reporting a cgroup that merely shrank below the sampling threshold,
+    and a name that comes back later is not counted.
+    """
+    seen, events = {}, []
+    ever_after = {}
+    for index, record in enumerate(records):
+        for name, data in (record.get("cg") or {}).items():
+            ever_after.setdefault(name, []).append(index)
+            seen[name] = (index, data.get("current", 0))
+    for name, (last_index, last_size) in seen.items():
+        if last_index < len(records) - 1 and last_size >= floor:
+            events.append((last_index, name, last_size))
+    return sorted(events)
+
+
 def build(records):
     """Turn raw samples into named, plot-ready series.
 
@@ -154,63 +197,107 @@ def build(records):
             ],
         },
         {
-            "title": "Paging",
+            "title": "Paging: evicted vs refaulted",
             "unit": "pages/s",
             "kind": "line",
-            # Compressed into RAM, spilled from the pool to disk, and written to
-            # the swap device: the three stages a page passes through, so a
-            # glance says whether the compressed cache is absorbing the load.
+            # The most useful panel here, and the one that says whether paging is
+            # working. Eviction only frees memory if the page stays evicted, so
+            # a refault line climbing toward the eviction line means the two have
+            # closed into a loop that spends all the reclaim capacity and
+            # releases nothing. That crossover leads the stall by a wide margin,
+            # which makes it the earliest warning in the whole record.
             "series": [
-                ("Compressed (zswpout)", rate(records, "vm", "zswpout")),
+                ("Evicted (zswpout)", rate(records, "vm", "zswpout")),
+                ("Refaulted (anon)", rate(records, "vm", "workingset_refault_anon")),
                 ("Spilled to disk (zswpwb)", rate(records, "vm", "zswpwb")),
-                ("Swapped out (pswpout)", rate(records, "vm", "pswpout")),
+                ("Swapped direct (pswpout)", rate(records, "vm", "pswpout")),
+            ],
+        },
+        {
+            "title": "ARC hit rate",
+            "unit": "%",
+            "kind": "line",
+            # Differenced, so this is the hit rate over each interval rather than
+            # since boot. Metadata and data are split because they price a cap
+            # very differently: a store of many small files lives or dies on
+            # dnode and dbuf lookups, and cached file contents are the cheaper
+            # half to give up.
+            "series": [
+                ("Overall", ratio(records, ("arc", "hits"), ("arc", "misses"))),
+                ("Demand metadata", ratio(records, ("arc", "demand_metadata_hits"),
+                                          ("arc", "demand_metadata_misses"))),
+                ("Demand data", ratio(records, ("arc", "demand_data_hits"),
+                                      ("arc", "demand_data_misses"))),
             ],
         },
     ]
 
-    cgroups = cgroup_panel(records)
-    if cgroups:
-        panels.append(cgroups)
+    for extra in (
+        cgroup_panel(records),
+        # Process count separates a cgroup that is one large program from one
+        # running hundreds of small ones, which is the difference between a leak
+        # and a build fanned out past what the machine can hold.
+        cgroup_panel(records, field="pids", title="Per-cgroup processes",
+                     unit="processes", scale=1),
+    ):
+        if extra:
+            panels.append(extra)
     return times, panels
 
 
-def cgroup_panel(records, limit=5):
-    """Per-child memory, which is what names the victim of a cgroup-scoped kill.
+def shorten(name):
+    """A cgroup path reduced to the part that identifies it.
 
-    Children are ranked by peak and the tail folded into one series rather than
-    cycling colours past the end of the categorical order.
+    systemd names a transient scope run-p<pid>-i<id>.scope, of which only the pid
+    distinguishes one from another and it is what the journal logs; unit suffixes
+    carry no information once the rest of the path is gone.
     """
-    names = set()
-    for record in records:
-        for name in dig(record, "cg") or {}:
-            if name:
-                names.add(name)
+    base = name.rsplit("/", 1)[-1]
+    match = re.match(r"run-(p\d+)-i\d+\.scope$", base)
+    if match:
+        return match.group(1)
+    return re.sub(r"\.(scope|service|slice|mount)$", "", base) or base
+
+
+def leaves(names):
+    """The sampled cgroups that are not a parent of another sampled cgroup.
+
+    Roots are sampled too, but plotting a slice beside its own children double
+    counts every charge and makes the largest line meaningless.
+    """
+    inner = {n.rsplit("/", 1)[0] for n in names if "/" in n}
+    chosen = [n for n in names if n not in inner]
+    return chosen or list(names)
+
+
+def cgroup_panel(records, field="current", title="Per-cgroup memory",
+                 unit="GiB", scale=GIB, limit=5):
+    """Per-cgroup series, which is what names the victim of a scoped kill.
+
+    Ranked by peak with the tail folded into one line rather than cycling colours
+    past the end of the categorical order.
+    """
+    names = {n for r in records for n in (dig(r, "cg") or {})}
+    names = [n for n in leaves(names) if any(dig(r, "cg", n, field) is not None
+                                             for r in records)]
     if not names:
         return None
 
-    tracks = {n: gauge(records, "cg", n, "current", scale=GIB) for n in names}
-    # systemd names a transient scope run-p<pid>-i<id>.scope; only the pid
-    # distinguishes one from another, and it is what the journal logs.
-    short = {n: (re.match(r"run-(p\d+)-i\d+\.scope$", n) or [None, n])[1] for n in names}
+    tracks = {n: gauge(records, "cg", n, field, scale=scale) for n in names}
     ranked = sorted(names, key=lambda n: max((v or 0) for v in tracks[n]), reverse=True)
     head, tail = ranked[:limit], ranked[limit:]
 
-    series = [(short[n], tracks[n]) for n in head]
+    series = [(shorten(n), tracks[n]) for n in head]
     if tail:
         folded = []
         for index in range(len(records)):
             values = [tracks[n][index] for n in tail if tracks[n][index] is not None]
             folded.append(sum(values) if values else None)
         series.append((f"Other ({len(tail)})", folded))
-    return {
-        "title": "Per-cgroup memory",
-        "unit": "GiB",
-        "kind": "line",
-        "series": series,
-    }
+    return {"title": title, "unit": unit, "kind": "line", "series": series}
 
 
-def render(times, panels, out_path):
+def render(times, panels, out_path, marks=()):
     """Draw the panels to a PNG. matplotlib is imported here so that everything
     above stays importable -- and testable -- without it."""
     import matplotlib
@@ -303,6 +390,21 @@ def render(times, panels, out_path):
 
     # A minute of samples and a week of them cannot share a tick format.
     minutes = (times[-1] - times[0]).total_seconds() / 60
+    for axis in axes:
+        for index, name, _ in marks:
+            # Drawn on every panel and not just one: a scoped kill leaves no
+            # trace in the cgroup it destroys, and the point of the mark is to
+            # let cause and effect be lined up vertically across the record.
+            axis.axvline(times[index], color=CRITICAL, linewidth=1.0,
+                         linestyle=(0, (2, 3)), zorder=0)
+    if marks:
+        for index, name, _ in marks:
+            axes[0].annotate(
+                shorten(name) + " gone", xy=(times[index], 1.0),
+                xycoords=("data", "axes fraction"), xytext=(3, -10),
+                textcoords="offset points", fontsize=8, color=CRITICAL,
+            )
+
     axes[-1].xaxis.set_major_formatter(
         mdates.DateFormatter(
             "%H:%M:%S" if minutes < 15 else "%H:%M" if minutes < 24 * 60 else "%d %H:%M"
@@ -310,6 +412,44 @@ def render(times, panels, out_path):
     )
     fig.savefig(out_path, dpi=140, facecolor=SURFACE)
     return out_path
+
+
+def summarise(records, marks):
+    """The few facts worth reading before the picture.
+
+    Chiefly the one that decides how to read everything else: a kernel
+    out-of-memory kill and a kill for sustained stall look identical in a memory
+    graph and call for opposite responses, and only the event counter separates
+    them.
+    """
+    def peak(series):
+        values = [v for v in series if v is not None]
+        return max(values) if values else 0.0
+
+    print()
+    print(f"  peak ARC            {peak(gauge(records, 'arc', 'size', scale=GIB)):6.2f} GiB")
+    print(f"  min free            {peak([-(v or 0) for v in gauge(records, 'mem', 'MemFree', scale=GIB / KIB)]) * -1:6.2f} GiB")
+    print(f"  peak stall (full)   {peak(rate(records, 'psi', 'full_total', scale=10_000)):6.1f} %")
+
+    direct = peak(rate(records, "vm", "pgsteal_direct"))
+    kswapd = peak(rate(records, "vm", "pgsteal_kswapd"))
+    print(f"  peak reclaim        {direct:6.0f} pages/s direct, {kswapd:.0f} background")
+    print(f"  peak refault (anon) {peak(rate(records, 'vm', 'workingset_refault_anon')):6.0f} pages/s")
+
+    kills = sum(1 for r in records for d in (r.get("cg") or {}).values()
+                if d.get("oom_kill"))
+    if kills:
+        print("  kernel OOM kills    yes -- something genuinely ran out of memory")
+    elif marks:
+        # Only worth saying when something did die. A kernel kill and a kill for
+        # sustained stall look identical in a memory graph and call for opposite
+        # responses, so the absence of the former names the latter -- but only
+        # once there is a death to explain.
+        print("  kernel OOM kills    none -- nothing hit a limit, so this was a stall kill")
+    else:
+        print("  kernel OOM kills    none")
+    for index, name, size in marks:
+        print(f"  vanished under load {shorten(name)} (last seen {size / GIB:.2f} GiB)")
 
 
 def read_journal(unit, since, until):
@@ -352,12 +492,14 @@ def main(argv=None):
         sys.exit(f"need at least 2 samples to difference counters, got {len(records)}")
 
     times, panels = build(records)
+    marks = vanished(records)
     out = args.output or Path(
         f"/tmp/mem-report-{times[0]:%Y%m%dT%H%M}-{times[-1]:%H%M}.png"
     )
-    render(times, panels, out)
+    render(times, panels, out, marks)
     span = (times[-1] - times[0]).total_seconds() / 60
     print(f"wrote {out}  ({len(records)} samples over {span:.0f} min)")
+    summarise(records, marks)
     return 0
 
 

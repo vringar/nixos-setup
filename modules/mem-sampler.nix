@@ -10,9 +10,18 @@
 {pkgs, ...}: let
   mem-sampler = pkgs.callPackage ../apps/mem-sampler {};
 
+  cgroups = "/sys/fs/cgroup";
+
   # Direct children of this slice are the units a pressure-based kill chooses
   # between, so sampling them is what names a victim afterwards.
-  paneSlice = "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/zjpanes.slice";
+  paneSlice = "${cgroups}/user.slice/user-1000.slice/user@1000.service/zjpanes.slice";
+
+  # Watched alongside the panes so that a charge can be attributed rather than
+  # merely observed: builds driven through the daemon are accounted here, and
+  # without it there is no way to tell those apart from a compiler running
+  # directly in a shell -- which is the difference between capping the daemon's
+  # parallelism and capping the build tool's.
+  systemSlice = "${cgroups}/system.slice";
 in {
   environment.systemPackages = [mem-sampler];
 
@@ -24,7 +33,12 @@ in {
       # One resident process rather than a timer: at this interval the unit
       # start and stop lines systemd logs per activation would outnumber the
       # samples themselves.
-      ExecStart = "${mem-sampler}/bin/mem-sampler --interval 10 --cgroup ${paneSlice}";
+      ExecStart = builtins.concatStringsSep " " [
+        "${mem-sampler}/bin/mem-sampler"
+        "--interval 10"
+        "--cgroup ${paneSlice}"
+        "--cgroup ${systemSlice}"
+      ];
       Restart = "always";
       RestartSec = 5;
 

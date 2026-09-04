@@ -89,21 +89,69 @@ def test_reads_return_none_rather_than_raising(tmp_path):
 
 
 def test_sample_survives_a_missing_cgroup(tmp_path):
-    record = mem_sampler.sample(tmp_path / "absent")
+    record = mem_sampler.sample([tmp_path / "absent"])
     assert "t" in record and "cg" not in record
 
 
-def test_sample_reads_cgroup_children(tmp_path):
-    slice_dir = tmp_path / "zjpanes.slice"
-    (slice_dir / "pane.scope").mkdir(parents=True)
-    (slice_dir / "memory.current").write_text("1000\n")
-    (slice_dir / "pane.scope" / "memory.current").write_text("512\n")
-    (slice_dir / "pane.scope" / "memory.pressure").write_text("some total=42\n")
+def _cgroup(path, current, **files):
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "memory.current").write_text(f"{current}\n")
+    for name, text in files.items():
+        (path / name.replace("_", ".", 1)).write_text(text)
+    return path
 
-    groups = mem_sampler.sample(slice_dir)["cg"]
-    assert groups[""]["current"] == 1000
-    assert groups["pane.scope"]["current"] == 512
-    assert groups["pane.scope"]["some_total"] == 42
+
+def test_sample_reads_a_root_and_its_children(tmp_path):
+    root = _cgroup(tmp_path / "zjpanes.slice", 1000)
+    _cgroup(root / "pane.scope", 512,
+            memory_pressure="some total=42\n",
+            memory_stat="anon 400\nfile 100\npgsteal 7\n",
+            memory_events="oom_kill 0\n",
+            pids_current="784\n")
+
+    groups = mem_sampler.sample([root], floor=0)["cg"]
+    assert groups[str(root)]["current"] == 1000
+    pane = groups[str(root / "pane.scope")]
+    assert pane["current"] == 512
+    assert pane["some_total"] == 42
+    # anon against file is what says whether a charge is a heap that has to be
+    # paged or a cache that can simply be dropped.
+    assert pane["anon"] == 400 and pane["file"] == 100
+    assert pane["pgsteal"] == 7
+    assert pane["pids"] == 784
+    assert pane["oom_kill"] == 0
+
+
+def test_sample_skips_children_below_the_floor(tmp_path):
+    root = _cgroup(tmp_path / "slice", 10_000_000_000)
+    _cgroup(root / "idle.scope", 1024)
+    _cgroup(root / "busy.scope", 5_000_000_000)
+
+    groups = mem_sampler.sample([root])["cg"]
+    # An idle shell explains nothing and there are many of them; sampling every
+    # one multiplies the line size without ever answering a question.
+    assert str(root / "idle.scope") not in groups
+    assert str(root / "busy.scope") in groups
+
+
+def test_sample_reads_several_roots(tmp_path):
+    # Watching more than one root is what lets a charge be attributed to a
+    # particular slice rather than merely observed somewhere on the machine.
+    a = _cgroup(tmp_path / "a.slice", 1)
+    b = _cgroup(tmp_path / "b.slice", 2)
+    groups = mem_sampler.sample([a, b], floor=0)["cg"]
+    assert {str(a), str(b)} <= set(groups)
+
+
+def test_parse_swaps_keeps_each_device_separate():
+    text = ("Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n"
+            "/dev/sde2                               partition\t50331644\t5662720\t-2\n"
+            "/dev/sdd6                               partition\t104857596\t0\t100\n")
+    swaps = mem_sampler.parse_swaps(text)
+    # With swap split across disks by priority, which device absorbed the writes
+    # is the whole question, and the meminfo total cannot answer it.
+    assert swaps["/dev/sde2"] == {"size": 50331644, "used": 5662720, "prio": -2}
+    assert swaps["/dev/sdd6"]["prio"] == 100
 
 
 # --- reconstruction ------------------------------------------------------
@@ -211,9 +259,73 @@ def test_cgroup_panel_shortens_transient_scope_names_to_the_pid():
     assert [n for n, _ in panel["series"]] == ["p15906"]
 
 
-def test_cgroup_panel_leaves_other_unit_names_alone():
-    records = [{"t": float(t), "cg": {"app.slice": {"current": 9}}} for t in (0, 10)]
-    assert mem_report.cgroup_panel(records)["series"][0][0] == "app.slice"
+def test_shorten_strips_the_path_and_the_unit_suffix():
+    assert mem_report.shorten("user.slice/zjpanes.slice/run-p15906-i15907.scope") == "p15906"
+    assert mem_report.shorten("system.slice/open-webui.service") == "open-webui"
+    assert mem_report.shorten("system.slice") == "system"
+
+
+def test_leaves_drops_a_slice_that_has_sampled_children():
+    # Plotting a slice beside its own children double counts every charge and
+    # makes the largest line meaningless.
+    names = ["a.slice", "a.slice/one.scope", "a.slice/two.scope", "b.slice"]
+    assert set(mem_report.leaves(names)) == {"a.slice/one.scope", "a.slice/two.scope",
+                                             "b.slice"}
+
+
+def test_leaves_keeps_a_root_with_no_sampled_children():
+    assert mem_report.leaves(["only.slice"]) == ["only.slice"]
+
+
+def test_ratio_is_computed_per_interval_not_since_boot():
+    # A hit rate from one reading is a since-boot average that flatters every
+    # cache; only the difference describes the workload that was running.
+    records = [
+        {"t": 0.0, "arc": {"h": 900, "m": 100}},    # 90% up to here
+        {"t": 10.0, "arc": {"h": 900, "m": 1100}},  # but 0% during this interval
+    ]
+    assert mem_report.ratio(records, ("arc", "h"), ("arc", "m")) == [None, 0.0]
+
+
+def test_ratio_yields_none_when_nothing_was_looked_up():
+    records = [{"t": 0.0, "arc": {"h": 5, "m": 1}}, {"t": 10.0, "arc": {"h": 5, "m": 1}}]
+    assert mem_report.ratio(records, ("arc", "h"), ("arc", "m")) == [None, None]
+
+
+def test_vanished_reports_a_large_cgroup_that_stopped_existing():
+    # A scoped kill leaves no trace in the cgroup it destroys, so absence is the
+    # only evidence in the record.
+    records = [
+        {"t": 0.0, "cg": {"z/victim.scope": {"current": 12 * 1024**3}}},
+        {"t": 10.0, "cg": {"z/victim.scope": {"current": 12 * 1024**3}}},
+        {"t": 20.0, "cg": {}},
+    ]
+    assert [n for _, n, _ in mem_report.vanished(records)] == ["z/victim.scope"]
+
+
+def test_vanished_ignores_a_cgroup_that_merely_shrank_below_the_floor():
+    records = [
+        {"t": 0.0, "cg": {"z/small.scope": {"current": 1024}}},
+        {"t": 10.0, "cg": {}},
+    ]
+    assert mem_report.vanished(records) == []
+
+
+def test_vanished_ignores_a_cgroup_still_present_in_the_last_sample():
+    records = [
+        {"t": 0.0, "cg": {"z/alive.scope": {"current": 12 * 1024**3}}},
+        {"t": 10.0, "cg": {"z/alive.scope": {"current": 12 * 1024**3}}},
+    ]
+    assert mem_report.vanished(records) == []
+
+
+def test_cgroup_panel_can_plot_process_counts():
+    records = [
+        {"t": float(t), "cg": {"z/a.scope": {"current": 1, "pids": 784}}}
+        for t in (0, 10)
+    ]
+    panel = mem_report.cgroup_panel(records, field="pids", unit="processes", scale=1)
+    assert panel["series"][0] == ("a", [784.0, 784.0])
 
 
 def test_cgroup_panel_is_absent_without_data():
@@ -236,3 +348,28 @@ def test_report_reads_a_named_file_without_touching_the_journal(tmp_path, monkey
     )
     out = tmp_path / "out.png"
     assert mem_report.main(["--input", str(samples), "-o", str(out)]) == 0
+
+
+def test_summary_only_calls_a_death_a_stall_kill_when_something_died(capsys):
+    # The verdict is about how to read a death. Printed with nothing to explain,
+    # it reads as a finding on an idle machine.
+    quiet = [{"t": float(t), "cg": {}} for t in (0, 10)]
+    mem_report.summarise(quiet, marks=[])
+    assert "stall kill" not in capsys.readouterr().out
+
+    dead = [
+        {"t": 0.0, "cg": {"z/v.scope": {"current": 12 * 1024**3, "oom_kill": 0}}},
+        {"t": 10.0, "cg": {}},
+    ]
+    mem_report.summarise(dead, mem_report.vanished(dead))
+    out = capsys.readouterr().out
+    assert "stall kill" in out and "v (last seen 12.00 GiB)" in out
+
+
+def test_summary_names_a_real_kernel_oom_kill(capsys):
+    records = [
+        {"t": 0.0, "cg": {"z/v.scope": {"current": 1, "oom_kill": 0}}},
+        {"t": 10.0, "cg": {"z/v.scope": {"current": 1, "oom_kill": 1}}},
+    ]
+    mem_report.summarise(records, marks=[])
+    assert "genuinely ran out of memory" in capsys.readouterr().out
