@@ -110,7 +110,31 @@
     options = ["fmask=0022" "dmask=0022"];
   };
 
+  # Swap is split across two disks by priority rather than striped across them.
+  # The pool lives on the same device as the original swap partition, so under
+  # memory pressure swap writes and pool reads queued behind each other on one
+  # SATA queue -- which is part of why a stall became total rather than merely
+  # slow. Equal priorities would round-robin and put writes back on that device
+  # on every swap, so the disk without the pool is given a higher priority and
+  # the original is left as overflow.
   swapDevices = [
+    # Preferred. Also the only drive here that caches its mapping table in
+    # onboard DRAM, which matters for swap specifically: 4K random access with
+    # no locality is the worst case for a controller that has to fetch that
+    # table from flash first.
+    {
+      device = "/dev/disk/by-uuid/2180e14b-1c1e-49ba-99e7-a404f6be78ee";
+      priority = 100;
+      # fstrim covers filesystems, not swap, so a swap partition is never
+      # trimmed unless it is asked for here.
+      discardPolicy = "once";
+    }
+    # Overflow only, on the pool's disk. Deliberately left without an explicit
+    # priority: the kernel auto-assigns a negative one, which is already below
+    # the entry above, and naming a number here would rewrite this unit and make
+    # activation swapoff a device with several GiB live in it -- a bulk fault of
+    # everything it holds back into RAM, which is the one allocation pattern
+    # this whole arrangement exists to avoid.
     {device = "/dev/disk/by-uuid/7a266111-38df-4c46-9303-d10f52ae4f95";}
   ];
 
