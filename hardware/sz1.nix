@@ -20,9 +20,22 @@
   boot.zfs.extraPools = ["zpool"];
   boot.zfs.devNodes = "/dev/disk/by-uuid/15679710222853114018";
   boot.zfs.forceImportRoot = false;
-  # Cap the ZFS ARC at half of physical RAM (~40 GiB). The default lets it grow
-  # to nearly all RAM, starving applications and causing system-wide sluggishness.
-  boot.kernelParams = ["zfs.zfs_arc_max=${toString (20 * 1024 * 1024 * 1024)}"];
+  # Cap the ZFS ARC well below half of physical RAM (~40 GiB). The default lets
+  # it grow to nearly all RAM, starving applications and causing system-wide
+  # sluggishness.
+  #
+  # 16 rather than 20 GiB, from measurement rather than taste. Ghost-list hits --
+  # the cache's own record of what it would have served had it been larger -- ran
+  # at 0.27% of real hits, so the working set fits with room to spare and the top
+  # of the old ceiling was never worth anything. What that headroom did buy was a
+  # peak that left under a gigabyte free before a build had even begun ramping,
+  # which is the state a sudden allocation cannot be absorbed from.
+  #
+  # Not lower: metadata alone accounts for ~8 GiB here and serves seven of every
+  # eight hits, a store of many small files being mostly an exercise in dnode and
+  # dbuf lookups. A cap that squeezes metadata would cost far more than one that
+  # squeezes cached file data.
+  boot.kernelParams = ["zfs.zfs_arc_max=${toString (16 * 1024 * 1024 * 1024)}"];
 
   # Compressed cache in front of the swap partition. A build that outgrows RAM
   # gets its cold pages compressed in place instead of faulting against the SATA
