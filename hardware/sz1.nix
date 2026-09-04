@@ -23,6 +23,20 @@
   # Cap the ZFS ARC at half of physical RAM (~40 GiB). The default lets it grow
   # to nearly all RAM, starving applications and causing system-wide sluggishness.
   boot.kernelParams = ["zfs.zfs_arc_max=${toString (20 * 1024 * 1024 * 1024)}"];
+
+  # Compressed cache in front of the swap partition. A build that outgrows RAM
+  # gets its cold pages compressed in place instead of faulting against the SATA
+  # SSD, which is what the userspace OOM killer actually measures: it kills on
+  # stall time, not on free memory, so cheaper paging is what keeps a build alive.
+  # The pool competes with the ARC for the same RAM, so it is kept well under the
+  # module default of 25% -- 15% of 40 GiB holds roughly three times that in
+  # compressed anonymous pages. The shrinker is what lets the pool hand memory
+  # back rather than becoming a second cache the ARC has to fight.
+  boot.zswap = {
+    enable = true;
+    maxPoolPercent = 15;
+    shrinkerEnabled = true;
+  };
   imports = [
     (modulesPath + "/installer/scan/not-detected.nix")
   ];
