@@ -87,37 +87,18 @@ in {
     28981 # paperless-ngx web UI
   ];
 
-  # configureTika brings up services.gotenberg, and two independent nixpkgs bugs
-  # break its LibreOffice-backed conversions. Both are worked around below; the
-  # upstream fixes are tracked separately.
-
-  # Bug A - the converter. The gotenberg package wires classic `unoconv` 0.9.0 in
-  # as UNOCONVERTER_BIN_PATH, and it calls `unohelper.absolutize`, removed from
-  # LibreOffice 26.2's python bindings - so even once the listener is healthy every
-  # conversion dies with `AttributeError: ... 'absolutize'` (Gotenberg 500). The
-  # calls are no-ops for the absolute paths Gotenberg passes, so strip them.
+  # configureTika brings up services.gotenberg, whose LibreOffice-backed
+  # conversions needed working around here. One of the two bugs is now fixed
+  # upstream; the remaining one is below.
   #
-  # Override the package, not the unit env: gotenberg's preFixup does
-  # `wrapProgram --set UNOCONVERTER_BIN_PATH`, which would clobber an env override.
-  # The grep guards fail the build if a future unoconv bump moves or renames the
-  # call, rather than silently no-op'ing and reintroducing the 500.
-  #
-  # TODO: classic unoconv is archived upstream (2023). Switch to Gotenberg's own
-  # maintained `unoconverter` (which no longer calls the removed API) once it is
-  # packaged, and drop this sed.
-  services.gotenberg.package = pkgs.gotenberg.override {
-    unoconv = pkgs.unoconv.overrideAttrs (old: {
-      postPatch =
-        (old.postPatch or "")
-        + ''
-          grep -q 'unohelper\.absolutize' unoconv \
-            || { echo "unoconv: absolutize call not found; patch is stale" >&2; exit 1; }
-          sed -i -E 's/unohelper\.absolutize\([^,]+, *([^)]+)\)/\1/g' unoconv
-          ! grep -q 'unohelper\.absolutize' unoconv \
-            || { echo "unoconv: absolutize still present after patch" >&2; exit 1; }
-        '';
-    });
-  };
+  # The converter bug is gone. The gotenberg package used to wire classic
+  # `unoconv` 0.9.0 in as UNOCONVERTER_BIN_PATH, and that calls
+  # `unohelper.absolutize`, removed from LibreOffice 26.2's python bindings, so
+  # every conversion died with `AttributeError: ... 'absolutize'` (Gotenberg
+  # 500). nixpkgs now vendors Gotenberg's own maintained `unoconverter` 0.4.0
+  # instead, which does not call it, and no longer exposes `unoconv` as an
+  # overridable argument at all - so the sed that used to live here is both
+  # unnecessary and impossible to express.
 
   # Bug B - the listener won't start. Gotenberg runs LibreOffice as a directly-
   # supervised `--accept=socket;urp;` listener via LIBREOFFICE_BIN_PATH. nixpkgs

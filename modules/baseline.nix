@@ -25,7 +25,7 @@ in {
 
   # Nix settings
   nix.settings = {
-    experimental-features = "nix-command flakes";
+    experimental-features = ["nix-command" "flakes"];
     # Hardlink identical store files at build time, rather than in a periodic
     # full-store sweep under the global lock.
     auto-optimise-store = true;
