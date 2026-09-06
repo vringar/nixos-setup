@@ -373,3 +373,30 @@ def test_summary_names_a_real_kernel_oom_kill(capsys):
     ]
     mem_report.summarise(records, marks=[])
     assert "genuinely ran out of memory" in capsys.readouterr().out
+
+
+def test_render_writes_html_unless_a_raster_is_asked_for(tmp_path, monkeypatch):
+    # Format follows the requested filename rather than a flag, so a caller that
+    # asks for one and silently receives the other cannot happen.
+    chosen = []
+    monkeypatch.setattr(mem_report, "render_png", lambda *a, **k: chosen.append("png"))
+    monkeypatch.setattr(mem_report, "render_html", lambda *a, **k: chosen.append("html"))
+
+    mem_report.render([], [], tmp_path / "r.png")
+    mem_report.render([], [], tmp_path / "r.html")
+    mem_report.render([], [], tmp_path / "r")
+    assert chosen == ["png", "html", "html"]
+
+
+def test_html_escapes_values_that_come_from_cgroup_names(tmp_path):
+    # Names reach the page from the cgroup tree, so they are data rather than
+    # markup and must not be able to close a tag.
+    from datetime import datetime
+
+    out = tmp_path / "r.html"
+    stamps = [datetime(2026, 9, 6, 11, 0), datetime(2026, 9, 6, 12, 0)]
+    mem_report.render_html(stamps, [], out, marks=[(0, "z/<script>x", 1)],
+                           rows=[("note", "a & b")])
+    page = out.read_text()
+    assert "<script>" not in page
+    assert "&lt;script&gt;" in page and "a &amp; b" in page

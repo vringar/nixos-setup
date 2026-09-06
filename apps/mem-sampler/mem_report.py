@@ -297,159 +297,293 @@ def cgroup_panel(records, field="current", title="Per-cgroup memory",
     return {"title": title, "unit": unit, "kind": "line", "series": series}
 
 
-def render(times, panels, out_path, marks=()):
-    """Draw the panels to a PNG. matplotlib is imported here so that everything
-    above stays importable -- and testable -- without it."""
+def _setup():
+    """matplotlib is imported here so everything above stays importable -- and
+    testable -- without it."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.dates as mdates
     import matplotlib.pyplot as plt
 
+    return mdates, plt
+
+
+def _time_format(times, mdates):
+    """A minute of samples and a week of them cannot share a tick format."""
+    minutes = (times[-1] - times[0]).total_seconds() / 60
+    return mdates.DateFormatter(
+        "%H:%M:%S" if minutes < 15 else "%H:%M" if minutes < 24 * 60 else "%d %H:%M"
+    )
+
+
+def draw_panel(axis, panel, times, marks=()):
+    """Draw one panel onto one axis. Shared by both output formats so the two
+    cannot drift into disagreeing about the same data."""
+    axis.set_facecolor(SURFACE)
+    drawn = []
+    labelled = [(n, v) for n, v in panel["series"] if any(x is not None for x in v)]
+
+    if panel["kind"] == "stack":
+        # A stack has to be gapless, so missing samples become zero here
+        # rather than breaking the area into disconnected islands.
+        values = [[x or 0.0 for x in v] for _, v in labelled]
+        axis.stackplot(
+            times, *values, labels=[n for n, _ in labelled],
+            colors=SERIES[: len(labelled)],
+            # A thin surface-coloured seam keeps adjacent bands legible
+            # where two similar values meet.
+            edgecolor=SURFACE, linewidth=1.2,
+        )
+    else:
+        ends = []
+        for slot, (name, values) in enumerate(labelled):
+            axis.plot(times, values, label=name, color=SERIES[slot % len(SERIES)],
+                      linewidth=1.8, solid_capstyle="round")
+            last = next((v for v in reversed(values) if v is not None), None)
+            if last is not None:
+                ends.append(last)
+
+    if panel.get("threshold") is not None:
+        axis.axhline(panel["threshold"], color=CRITICAL, linewidth=1.2,
+                     linestyle=(0, (5, 3)), zorder=1)
+        axis.annotate(
+            f"kill threshold {panel['threshold']:.0f}%",
+            xy=(0.004, panel["threshold"]), xycoords=("axes fraction", "data"),
+            xytext=(0, 4), textcoords="offset points",
+            fontsize=8, color=CRITICAL,
+        )
+
+    columns = min(len(labelled), 5)
+    rows = -(-len(labelled) // columns) if labelled else 0
+    axis.set_title(panel["title"], loc="left", fontsize=11, color=INK,
+                   pad=10 + 15 * rows if len(labelled) > 1 else 8)
+    axis.set_ylabel(panel["unit"], fontsize=9, color=INK_MUTED)
+    axis.tick_params(colors=INK_MUTED, labelsize=8)
+    axis.grid(axis="y", color=GRID, linewidth=0.8)
+    axis.set_axisbelow(True)
+    for side in ("top", "right"):
+        axis.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        axis.spines[side].set_color(GRID)
+    axis.set_ylim(bottom=0)
+    if panel["kind"] != "stack":
+        # One direct label per series at its final value. Labels closer
+        # together than a line of text are dropped rather than overprinted,
+        # which at idle is most of them.
+        span = axis.get_ylim()[1] or 1.0
+        for value in sorted(ends, reverse=True):
+            if any(abs(value - placed) < span * 0.06 for placed in drawn):
+                continue
+            drawn.append(value)
+            axis.annotate(
+                f"{value:,.0f}" if value >= 10 else f"{value:,.2f}",
+                xy=(times[-1], value), xytext=(6, 0),
+                textcoords="offset points", va="center",
+                fontsize=8, color=INK_MUTED, annotation_clip=False,
+            )
+    axis.set_xlim(times[0], times[-1])
+    # Identity is never carried by colour alone: every panel with more than
+    # one series keeps a legend, and each line is directly labelled too.
+    if len(labelled) > 1:
+        # Anchored above the axes rather than inside them: at idle every
+        # series sits near zero, and a legend placed in the plot area lands
+        # squarely on the data it is meant to explain.
+        axis.legend(
+            loc="lower left", bbox_to_anchor=(0, 1.0), fontsize=8,
+            frameon=False, ncols=columns, labelcolor=INK_MUTED,
+            borderaxespad=0, handlelength=1.6, columnspacing=1.4,
+        )
+
+
+    for index, name, _ in marks:
+        # A scoped kill leaves no trace in the cgroup it destroys, so the mark
+        # is drawn on every panel: the point is to let cause and effect be lined
+        # up vertically across the whole record.
+        axis.axvline(times[index], color=CRITICAL, linewidth=1.0,
+                     linestyle=(0, (2, 3)), zorder=0)
+
+
+def render_png(times, panels, out_path, marks=()):
+    """All panels in one tall figure."""
+    mdates, plt = _setup()
     fig, axes = plt.subplots(
         len(panels), 1, figsize=(13, 2.6 * len(panels)), sharex=True,
         facecolor=SURFACE, constrained_layout=True,
     )
     axes = axes if len(panels) > 1 else [axes]
-
     for axis, panel in zip(axes, panels):
-        axis.set_facecolor(SURFACE)
-        drawn = []
-        labelled = [(n, v) for n, v in panel["series"] if any(x is not None for x in v)]
-
-        if panel["kind"] == "stack":
-            # A stack has to be gapless, so missing samples become zero here
-            # rather than breaking the area into disconnected islands.
-            values = [[x or 0.0 for x in v] for _, v in labelled]
-            axis.stackplot(
-                times, *values, labels=[n for n, _ in labelled],
-                colors=SERIES[: len(labelled)],
-                # A thin surface-coloured seam keeps adjacent bands legible
-                # where two similar values meet.
-                edgecolor=SURFACE, linewidth=1.2,
-            )
-        else:
-            ends = []
-            for slot, (name, values) in enumerate(labelled):
-                axis.plot(times, values, label=name, color=SERIES[slot % len(SERIES)],
-                          linewidth=1.8, solid_capstyle="round")
-                last = next((v for v in reversed(values) if v is not None), None)
-                if last is not None:
-                    ends.append(last)
-
-        if panel.get("threshold") is not None:
-            axis.axhline(panel["threshold"], color=CRITICAL, linewidth=1.2,
-                         linestyle=(0, (5, 3)), zorder=1)
-            axis.annotate(
-                f"kill threshold {panel['threshold']:.0f}%",
-                xy=(0.004, panel["threshold"]), xycoords=("axes fraction", "data"),
-                xytext=(0, 4), textcoords="offset points",
-                fontsize=8, color=CRITICAL,
-            )
-
-        columns = min(len(labelled), 5)
-        rows = -(-len(labelled) // columns) if labelled else 0
-        axis.set_title(panel["title"], loc="left", fontsize=11, color=INK,
-                       pad=10 + 15 * rows if len(labelled) > 1 else 8)
-        axis.set_ylabel(panel["unit"], fontsize=9, color=INK_MUTED)
-        axis.tick_params(colors=INK_MUTED, labelsize=8)
-        axis.grid(axis="y", color=GRID, linewidth=0.8)
-        axis.set_axisbelow(True)
-        for side in ("top", "right"):
-            axis.spines[side].set_visible(False)
-        for side in ("left", "bottom"):
-            axis.spines[side].set_color(GRID)
-        axis.set_ylim(bottom=0)
-        if panel["kind"] != "stack":
-            # One direct label per series at its final value. Labels closer
-            # together than a line of text are dropped rather than overprinted,
-            # which at idle is most of them.
-            span = axis.get_ylim()[1] or 1.0
-            for value in sorted(ends, reverse=True):
-                if any(abs(value - placed) < span * 0.06 for placed in drawn):
-                    continue
-                drawn.append(value)
-                axis.annotate(
-                    f"{value:,.0f}" if value >= 10 else f"{value:,.2f}",
-                    xy=(times[-1], value), xytext=(6, 0),
-                    textcoords="offset points", va="center",
-                    fontsize=8, color=INK_MUTED, annotation_clip=False,
-                )
-        axis.set_xlim(times[0], times[-1])
-        # Identity is never carried by colour alone: every panel with more than
-        # one series keeps a legend, and each line is directly labelled too.
-        if len(labelled) > 1:
-            # Anchored above the axes rather than inside them: at idle every
-            # series sits near zero, and a legend placed in the plot area lands
-            # squarely on the data it is meant to explain.
-            axis.legend(
-                loc="lower left", bbox_to_anchor=(0, 1.0), fontsize=8,
-                frameon=False, ncols=columns, labelcolor=INK_MUTED,
-                borderaxespad=0, handlelength=1.6, columnspacing=1.4,
-            )
-
-    # A minute of samples and a week of them cannot share a tick format.
-    minutes = (times[-1] - times[0]).total_seconds() / 60
-    for axis in axes:
-        for index, name, _ in marks:
-            # Drawn on every panel and not just one: a scoped kill leaves no
-            # trace in the cgroup it destroys, and the point of the mark is to
-            # let cause and effect be lined up vertically across the record.
-            axis.axvline(times[index], color=CRITICAL, linewidth=1.0,
-                         linestyle=(0, (2, 3)), zorder=0)
-    if marks:
-        for index, name, _ in marks:
-            axes[0].annotate(
-                shorten(name) + " gone", xy=(times[index], 1.0),
-                xycoords=("data", "axes fraction"), xytext=(3, -10),
-                textcoords="offset points", fontsize=8, color=CRITICAL,
-            )
-
-    axes[-1].xaxis.set_major_formatter(
-        mdates.DateFormatter(
-            "%H:%M:%S" if minutes < 15 else "%H:%M" if minutes < 24 * 60 else "%d %H:%M"
+        draw_panel(axis, panel, times, marks)
+    for index, name, _ in marks:
+        axes[0].annotate(
+            shorten(name) + " gone", xy=(times[index], 1.0),
+            xycoords=("data", "axes fraction"), xytext=(3, -10),
+            textcoords="offset points", fontsize=8, color=CRITICAL,
         )
-    )
+    axes[-1].xaxis.set_major_formatter(_time_format(times, mdates))
     fig.savefig(out_path, dpi=140, facecolor=SURFACE)
     return out_path
 
 
-def summarise(records, marks):
-    """The few facts worth reading before the picture.
+def panel_svg(panel, times, marks=()):
+    """One panel as a standalone SVG fragment.
 
-    Chiefly the one that decides how to read everything else: a kernel
-    out-of-memory kill and a kill for sustained stall look identical in a memory
-    graph and call for opposite responses, and only the event counter separates
-    them.
+    Vector rather than raster because the interesting features here are single
+    samples inside a six-hour window: a spike one pixel wide in a PNG is a spike
+    that cannot be read at all, and zooming a raster only enlarges the pixel.
+
+    Every panel is given identical horizontal margins so that the time axes line
+    up down the page even though each is a separate figure.
     """
+    import io
+
+    mdates, plt = _setup()
+    fig, axis = plt.subplots(figsize=(13, 2.9), facecolor=SURFACE)
+    draw_panel(axis, panel, times, marks)
+    axis.xaxis.set_major_formatter(_time_format(times, mdates))
+    fig.subplots_adjust(left=0.065, right=0.955, top=0.80, bottom=0.16)
+
+    buffer = io.StringIO()
+    fig.savefig(buffer, format="svg", facecolor=SURFACE)
+    plt.close(fig)
+    # Drop the XML prologue and DOCTYPE: the fragment is being inlined into an
+    # HTML document that already has both.
+    svg = buffer.getvalue()
+    return svg[svg.index("<svg"):]
+
+
+PAGE_CSS = """
+  :root {
+    --surface: #fcfcfb; --plane: #f4f4f1; --ink: #0b0b0b;
+    --muted: #52514e; --rule: #e4e3df; --critical: #d03b3b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--plane); color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 2; background: var(--surface);
+    border-bottom: 1px solid var(--rule); padding: 14px 24px;
+  }
+  h1 { margin: 0; font-size: 17px; font-weight: 600; }
+  .range { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  main { max-width: 1500px; margin: 0 auto; padding: 20px 24px 60px; }
+  table.summary {
+    border-collapse: collapse; margin: 0 0 22px; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 8px; overflow: hidden;
+  }
+  table.summary td { padding: 7px 16px; border-bottom: 1px solid var(--rule); }
+  table.summary tr:last-child td { border-bottom: 0; }
+  table.summary td:first-child { color: var(--muted); white-space: nowrap; }
+  table.summary td:last-child { font-variant-numeric: tabular-nums; }
+  td.alert { color: var(--critical); }
+  figure {
+    margin: 0 0 14px; background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 8px; padding: 4px 8px;
+  }
+  /* The SVG scales with the page, so browser zoom stays sharp at any level and
+     a one-sample spike inside a six-hour window remains readable. */
+  figure svg { width: 100%; height: auto; display: block; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 24px; }
+  code { background: var(--plane); padding: 1px 5px; border-radius: 4px; }
+"""
+
+
+def render_html(times, panels, out_path, marks=(), rows=()):
+    """A scrollable page of vector panels.
+
+    Preferred over a single raster image because the features that matter are
+    often one sample wide inside a window of thousands: in a PNG such a spike is
+    a single pixel, and enlarging it enlarges the pixel rather than revealing
+    anything.
+    """
+    import html as html_mod
+
+    def esc(value):
+        return html_mod.escape(str(value))
+
+    summary = "".join(
+        f"<tr><td>{esc(k)}</td>"
+        f"<td class=\"{'alert' if 'vanished' in k or 'yes' in str(v) else ''}\">"
+        f"{esc(v)}</td></tr>"
+        for k, v in rows
+    )
+    figures = "".join(
+        f"<figure>{panel_svg(panel, times, marks)}</figure>" for panel in panels
+    )
+    killed = "".join(
+        f"<tr><td>marker</td><td class=\"alert\">{esc(shorten(name))} "
+        f"stopped existing at {times[index]:%H:%M:%S}</td></tr>"
+        for index, name, _ in marks
+    )
+    span = f"{times[0]:%Y-%m-%d %H:%M:%S} to {times[-1]:%H:%M:%S}"
+
+    Path(out_path).write_text(
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        f"<title>memory {times[0]:%Y-%m-%d %H:%M}</title>"
+        f"<style>{PAGE_CSS}</style></head><body>"
+        f"<header><h1>Memory report</h1><div class=\"range\">{esc(span)} "
+        f"&middot; {len(times)} samples</div></header><main>"
+        f"<table class=\"summary\">{summary}{killed}</table>"
+        f"{figures}"
+        "<footer>Counters are differenced into rates; a single reading of a "
+        "running total describes no particular moment. Vertical dashed lines "
+        "mark a cgroup that stopped existing.</footer>"
+        "</main></body></html>\n",
+        encoding="utf-8",
+    )
+    return out_path
+
+
+def render(times, panels, out_path, marks=(), rows=()):
+    """Dispatch on the requested format; HTML unless a raster is asked for."""
+    if str(out_path).endswith(".png"):
+        return render_png(times, panels, out_path, marks)
+    return render_html(times, panels, out_path, marks, rows)
+
+
+def summary_rows(records, marks):
+    """The few facts worth reading before any picture."""
     def peak(series):
         values = [v for v in series if v is not None]
         return max(values) if values else 0.0
 
-    print()
-    print(f"  peak ARC            {peak(gauge(records, 'arc', 'size', scale=GIB)):6.2f} GiB")
-    print(f"  min free            {peak([-(v or 0) for v in gauge(records, 'mem', 'MemFree', scale=GIB / KIB)]) * -1:6.2f} GiB")
-    print(f"  peak stall (full)   {peak(rate(records, 'psi', 'full_total', scale=10_000)):6.1f} %")
+    def trough(series):
+        values = [v for v in series if v is not None]
+        return min(values) if values else 0.0
 
-    direct = peak(rate(records, "vm", "pgsteal_direct"))
-    kswapd = peak(rate(records, "vm", "pgsteal_kswapd"))
-    print(f"  peak reclaim        {direct:6.0f} pages/s direct, {kswapd:.0f} background")
-    print(f"  peak refault (anon) {peak(rate(records, 'vm', 'workingset_refault_anon')):6.0f} pages/s")
+    rows = [
+        ("peak ARC", f"{peak(gauge(records, 'arc', 'size', scale=GIB)):.2f} GiB"),
+        ("min free", f"{trough(gauge(records, 'mem', 'MemFree', scale=GIB / KIB)):.2f} GiB"),
+        ("peak stall (full)", f"{peak(rate(records, 'psi', 'full_total', scale=10_000)):.1f} %"),
+        ("peak direct reclaim", f"{peak(rate(records, 'vm', 'pgsteal_direct')):.0f} pages/s"),
+        ("peak background reclaim", f"{peak(rate(records, 'vm', 'pgsteal_kswapd')):.0f} pages/s"),
+        ("peak refault (anon)", f"{peak(rate(records, 'vm', 'workingset_refault_anon')):.0f} pages/s"),
+    ]
 
     kills = sum(1 for r in records for d in (r.get("cg") or {}).values()
                 if d.get("oom_kill"))
     if kills:
-        print("  kernel OOM kills    yes -- something genuinely ran out of memory")
+        rows.append(("kernel OOM kills", "yes -- something genuinely ran out of memory"))
     elif marks:
         # Only worth saying when something did die. A kernel kill and a kill for
         # sustained stall look identical in a memory graph and call for opposite
         # responses, so the absence of the former names the latter -- but only
         # once there is a death to explain.
-        print("  kernel OOM kills    none -- nothing hit a limit, so this was a stall kill")
+        rows.append(("kernel OOM kills", "none -- nothing hit a limit, so this was a stall kill"))
     else:
-        print("  kernel OOM kills    none")
-    for index, name, size in marks:
-        print(f"  vanished under load {shorten(name)} (last seen {size / GIB:.2f} GiB)")
+        rows.append(("kernel OOM kills", "none"))
+    for _, name, size in marks:
+        rows.append(("vanished under load", f"{shorten(name)} (last seen {size / GIB:.2f} GiB)"))
+    return rows
+
+
+def summarise(records, marks):
+    print()
+    for label_text, value in summary_rows(records, marks):
+        print(f"  {label_text:<24}{value}")
 
 
 def read_journal(unit, since, until):
@@ -473,7 +607,10 @@ def main(argv=None):
         "--input", help="read samples from a file, or '-' for stdin, "
                         "instead of querying the journal",
     )
-    parser.add_argument("-o", "--output", type=Path, help="PNG path")
+    parser.add_argument(
+        "-o", "--output", type=Path,
+        help="output path; HTML unless it ends in .png (default: HTML in /tmp)",
+    )
     args = parser.parse_args(argv)
 
     # The journal is the default source whether or not there is a terminal
@@ -493,10 +630,11 @@ def main(argv=None):
 
     times, panels = build(records)
     marks = vanished(records)
+    rows = summary_rows(records, marks)
     out = args.output or Path(
-        f"/tmp/mem-report-{times[0]:%Y%m%dT%H%M}-{times[-1]:%H%M}.png"
+        f"/tmp/mem-report-{times[0]:%Y%m%dT%H%M}-{times[-1]:%H%M}.html"
     )
-    render(times, panels, out, marks)
+    render(times, panels, out, marks, rows)
     span = (times[-1] - times[0]).total_seconds() / 60
     print(f"wrote {out}  ({len(records)} samples over {span:.0f} min)")
     summarise(records, marks)
