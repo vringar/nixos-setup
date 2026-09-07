@@ -128,6 +128,12 @@ in {
       5000 # nix-serve binary cache
     ];
 
+    # Give unpatched dynamically-linked binaries (vendored toolchains,
+    # language-server releases, prebuilt wheels) an ELF interpreter to find, so
+    # they run on this non-FHS system without being patchelf'd first. Only sz1:
+    # it is where such binaries actually get run.
+    programs.nix-ld.enable = true;
+
     deployment.tags = ["personal"];
     deployment.allowLocalDeployment = true;
     deployment.targetUser = "vringar";
