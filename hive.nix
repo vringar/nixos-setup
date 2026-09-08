@@ -64,6 +64,7 @@ in {
       ./modules/local-llm.nix
       ./modules/mem-sampler.nix
       ./modules/paperless.nix
+      ./modules/scanner.nix
       {home-manager.users.vringar = import ./home-manager/ghidra.nix;}
       {home-manager.users.vringar = import ./home-manager/zellij-resilient.nix;}
     ];
