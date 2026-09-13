@@ -130,6 +130,25 @@ in {
         fi
         (( $+functions[_clap_dynamic_completer_jj] )) && compdef _jj_alias_complete jj
       '';
+      # Neither of these is an oh-my-zsh builtin; they are standalone plugin
+      # repos packaged in nixpkgs, so they load through programs.zsh.plugins.
+      plugins = [
+        {
+          # chisui/zsh-nix-shell: wraps nix-shell so the spawned shell is zsh
+          # rather than bash. `--pure` still gets bash, by upstream design.
+          name = "zsh-nix-shell";
+          src = pkgs.zsh-nix-shell;
+          file = "share/zsh-nix-shell/nix-shell.plugin.zsh";
+        }
+        {
+          # spwhitt/nix-zsh-completions: completions for the nix-* and nixos-*
+          # commands. share/zsh/site-functions lands on fpath before oh-my-zsh
+          # runs compinit (plugin fpath is order 560, oh-my-zsh is 800).
+          name = "nix-zsh-completions";
+          src = pkgs.nix-zsh-completions;
+          file = "share/zsh/plugins/nix/nix-zsh-completions.plugin.zsh";
+        }
+      ];
       shellAliases = {
         tmux = "tmux -u";
         tf = "terraform";
@@ -146,8 +165,6 @@ in {
           "git"
           "python"
           "rust"
-          "nix-shell"
-          "nix-zsh-completions"
         ];
         extraConfig = ''
           COMPLETION_WAITING_DOTS="true"
