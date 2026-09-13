@@ -137,6 +137,22 @@
       "url": "https://github.com/nix-community/home-manager/archive/cda90fd8838825c689fde9d3f3b4e937937790df.tar.gz",
       "hash": "sha256-t+U1mijItLJ64xZOifpfQ17kpAL73nU7pDI48ScacVc="
     },
+    "htmx": {
+      "type": "GitRelease",
+      "repository": {
+        "type": "GitHub",
+        "owner": "bigskysoftware",
+        "repo": "htmx"
+      },
+      "pre_releases": false,
+      "version_upper_bound": null,
+      "release_prefix": null,
+      "submodules": false,
+      "version": "v4.0.0",
+      "revision": "4195bc0dc26b612ea5bea46f5914c6386eadeba3",
+      "url": "https://api.github.com/repos/bigskysoftware/htmx/tarball/refs/tags/v4.0.0",
+      "hash": "sha256-SX2hAFDkOEyAjSxlr6Hsl1NEr46V4L+bWVyzdlRr7R0="
+    },
     "lix-module": {
       "type": "Git",
       "repository": {

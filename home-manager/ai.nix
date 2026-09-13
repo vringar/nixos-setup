@@ -101,6 +101,7 @@
   rtk = import ../apps/rtk {inherit pkgs sources;};
   claude-sandbox = import ../apps/claude-sandbox {inherit pkgs;};
   claude-recall = import ../apps/claude-recall {inherit pkgs;};
+  message-board = import ../apps/message-board {inherit pkgs sources;};
   bpmnlint = import ../apps/bpmnlint {inherit pkgs sources;};
   bpmn-auto-layout = import ../apps/bpmn-auto-layout {
     inherit pkgs sources;
@@ -236,6 +237,7 @@ in {
         pkgs.rust-analyzer
         claude-sandbox
         claude-recall
+        message-board
       ]
       ++ lib.optionals config.my.work.enable [
         bpmnlint
@@ -306,6 +308,26 @@ in {
       fi
       printf '%s\n' "$_merged" > "$_settings"
     '';
+
+    # Local message board for coordinating multi-repo agent work. Long-lived
+    # user service; binds 127.0.0.1 only (no auth yet). The DB lives in the
+    # user state dir so it survives restarts and re-derives the board.
+    systemd.user.services.message-board = {
+      Unit = {
+        Description = "Local long-poll message board for agent coordination";
+      };
+      Install = {
+        WantedBy = ["default.target"];
+      };
+      Service = {
+        Type = "simple";
+        ExecStart = "${message-board}/bin/board serve";
+        Restart = "on-failure";
+        RestartSec = "5s";
+        StateDirectory = "message-board";
+        Environment = ["BOARD_DB=%S/message-board/board.db"];
+      };
+    };
 
     # Nightly transcript archive + index rebuild for `claude-recall`.
     #
