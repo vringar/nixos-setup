@@ -860,6 +860,10 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
         # Jujutsu config (read-only, symlink resolves via /nix bind)
         "--ro-bind", os.path.join(home_dir, ".config", "jj"),
                      os.path.join(home_dir, ".config", "jj"),
+        # direnv allow/deny state (read-write): keeps .envrc approvals from
+        # being lost with the sandbox's tmpfs HOME on every launch.
+        "--bind", os.path.join(home_dir, ".local", "share", "direnv"),
+                  os.path.join(home_dir, ".local", "share", "direnv"),
         # User nix profile (claude, etc. live here)
         "--ro-bind", os.path.join(home_dir, ".nix-profile"),
                      os.path.join(home_dir, ".nix-profile"),
@@ -908,6 +912,14 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     gh_config = os.path.join(home_dir, ".config", "gh")
     if os.path.isdir(gh_config):
         args += ["--ro-bind", gh_config, gh_config]
+
+    # direnv config (read-only): nix-direnv's direnvrc is sourced from here.
+    # Without it direnv falls back to its built-in use_nix/use_flake, which
+    # re-evaluate on every entry and register no GC roots. Optional: a host
+    # without direnv has no such directory, and bwrap fails on a missing source.
+    direnv_config = os.path.join(home_dir, ".config", "direnv")
+    if os.path.isdir(direnv_config):
+        args += ["--ro-bind", direnv_config, direnv_config]
 
     # SSH config (read-only, no private keys)
     ssh_known_hosts = os.path.join(home_dir, ".ssh", "known_hosts")
@@ -1216,6 +1228,10 @@ def main():
             file=sys.stderr,
         )
         sys.exit(1)
+
+    # direnv keeps its .envrc approvals here; the bind below needs the source
+    # to exist, and it does not until the first `direnv allow` on the host.
+    os.makedirs(os.path.join(home_dir, ".local", "share", "direnv"), exist_ok=True)
 
     shell_path = resolve_shell(home_dir)
 
