@@ -41,9 +41,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "0ba04f8f4ba20afecdaf00aa4695c208a9f32756",
-      "url": "https://github.com/bpmn-io/bpmnlint/archive/0ba04f8f4ba20afecdaf00aa4695c208a9f32756.tar.gz",
-      "hash": "sha256-bIVMSl9O2A8j9zCbDlvgeKbYwvLQB0ZkAEK5DY9+ig0="
+      "revision": "ab3c607fd05e71825bc4d9fea30332e5e1118980",
+      "url": "https://github.com/bpmn-io/bpmnlint/archive/ab3c607fd05e71825bc4d9fea30332e5e1118980.tar.gz",
+      "hash": "sha256-yTgAWAdxWCQO8y7j3jKuRNhj5aSz/1hSArIeJQ+eAdc="
     },
     "bpmnlint-aitools": {
       "type": "Git",
@@ -104,9 +104,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "e7b6ad835e2e8a6647e4d01850c2129d142e7057",
-      "url": "https://github.com/dollspace-gay/crosslink/archive/e7b6ad835e2e8a6647e4d01850c2129d142e7057.tar.gz",
-      "hash": "sha256-H9o2I00e/NURIoPtwAYgjL0TgKFIbwKsctyWxov5u/M="
+      "revision": "655dcbfdb9b985619d1be5b82cc0407871e541fb",
+      "url": "https://github.com/dollspace-gay/crosslink/archive/655dcbfdb9b985619d1be5b82cc0407871e541fb.tar.gz",
+      "hash": "sha256-MWgbN7yiq08bVuxlVwwwAicDkB/D6SlBWXX7ab3+S1c="
     },
     "dmnlint": {
       "type": "GitRelease",
@@ -133,9 +133,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "2c0350c759688177331b8f5242311fae8877bdb3",
-      "url": "https://github.com/nix-community/home-manager/archive/2c0350c759688177331b8f5242311fae8877bdb3.tar.gz",
-      "hash": "sha256-v9wJd32eZ2bvhBzVOd7TIjLQd011P7nwOhjKtWlci5I="
+      "revision": "cda90fd8838825c689fde9d3f3b4e937937790df",
+      "url": "https://github.com/nix-community/home-manager/archive/cda90fd8838825c689fde9d3f3b4e937937790df.tar.gz",
+      "hash": "sha256-t+U1mijItLJ64xZOifpfQ17kpAL73nU7pDI48ScacVc="
     },
     "lix-module": {
       "type": "Git",
@@ -161,9 +161,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "bce65886b0d094ccbd725a0ba4a8ee0682b0fa67",
-      "url": "https://git.lix.systems/lix-project/lix/archive/bce65886b0d094ccbd725a0ba4a8ee0682b0fa67.tar.gz",
-      "hash": "sha256-IAJu2tFq7h4OZ9DFsemBvpQ670M7bX8Ga3CGGJS0/Gs="
+      "revision": "f04a78f6871e0ccf8404b3cdcd68bbd63f16a2c1",
+      "url": "https://git.lix.systems/lix-project/lix/archive/f04a78f6871e0ccf8404b3cdcd68bbd63f16a2c1.tar.gz",
+      "hash": "sha256-rI6ESsiP8BOMz7P2FZYblrMv4sMwkCqM34bKepsMzO8="
     },
     "mcp": {
       "type": "Git",
@@ -173,9 +173,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "10f7f1eca5d5168703b4c238b66d9b6d5dfe00ed",
+      "revision": "f9447e4c13f5a144bae8202eecba0ccca09835d3",
       "url": null,
-      "hash": "sha256-pG8hzPFVLYdYbPsNBZSkobhRAl6kyO0oghz1y2Ur8fE="
+      "hash": "sha256-sDGtwx1fUdA3CqFO2WhAplYieRiq+Y47MAGSWvrBTD8="
     },
     "nixGL": {
       "type": "Git",
@@ -194,8 +194,8 @@
       "type": "Channel",
       "name": "nixos-unstable",
       "artifact": "nixexprs.tar.xz",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1068949.dc5d91f84032/nixexprs.tar.xz",
-      "hash": "sha256-jaBxqP3GfXq5Ilyfz5wulKO7xyBUmToFxqTU+caFyus="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1073009.ef34387ddd75/nixexprs.tar.xz",
+      "hash": "sha256-3i80JnZ9pZ7tWReb/Sqpc32cfzffCu8TWLnbnH0hN9c="
     },
     "nucleus": {
       "type": "Git",
@@ -234,10 +234,10 @@
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "v0.48.0",
-      "revision": "fde0a8f185945556f51718de0f4c430bb62b3df6",
-      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.48.0",
-      "hash": "sha256-6iktqnF+TgBpl02YAcGGR5637WXT2Ht9BPihAIrP4AQ="
+      "version": "v0.49.0",
+      "revision": "b1c0dc00649c50fbe8930f849c800d4d6ca12091",
+      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.49.0",
+      "hash": "sha256-wlb+yPTsMiZsh3AKzLNM1eFpOvbnLgLb/cCsLG/YrJU="
     },
     "skills": {
       "type": "Git",
@@ -248,9 +248,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "7b253c11e5fa03b974b5ae99e72b637a50a5e19e",
-      "url": "https://github.com/camunda/skills/archive/7b253c11e5fa03b974b5ae99e72b637a50a5e19e.tar.gz",
-      "hash": "sha256-BJhA5Kth/7WWYbBB/Jp2CgduVnMkTtdvYySzhPWjHlc="
+      "revision": "34afa0f738fcd1948f4f71048bb3679c85d066e5",
+      "url": "https://github.com/camunda/skills/archive/34afa0f738fcd1948f4f71048bb3679c85d066e5.tar.gz",
+      "hash": "sha256-Ry608Cc2vtOKFWBOpwAhNyD2nPE8X0ysWmwUTVwZdcY="
     }
   },
   "version": 8
