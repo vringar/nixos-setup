@@ -36,6 +36,21 @@ examples:
   {prog} --nix-file nix/shell.nix .        # explicit nix file
   {prog} --shell ~/projects/foo            # interactive shell in sandbox
   {prog} --project-dir ~/p/foo -- cmd arg  # run a custom command
+
+ssh agent:
+  No SSH agent is exposed to the sandbox by default. The login agent usually
+  holds a key that authorized_keys accepts on every host, so passing it through
+  would grant anything inside silent SSH to the whole fleet.
+
+  To give the sandbox its own key, run a second agent holding only that key and
+  point {SANDBOX_SSH_SOCK_ENV} at its socket:
+
+    ssh-agent -a "$XDG_RUNTIME_DIR/ssh-agent-sandbox" >/dev/null
+    SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent-sandbox" ssh-add ~/.ssh/forge_key
+    export {SANDBOX_SSH_SOCK_ENV}="$XDG_RUNTIME_DIR/ssh-agent-sandbox"
+
+  {FULL_AGENT_ENV}=1 exposes the login agent instead. That hands over every key
+  it holds; prefer a dedicated agent.
 """
     parser = argparse.ArgumentParser(
         prog=prog,
@@ -207,6 +222,56 @@ def crossbridge_own_slug(project_dir):
     return last or None
 
 
+# Environment variable naming a dedicated ssh-agent socket for the sandbox —
+# one holding only keys the sandbox is meant to have, typically a single key
+# authorised on the forge and nowhere else.
+SANDBOX_SSH_SOCK_ENV = "CLAUDE_SANDBOX_SSH_AUTH_SOCK"
+
+# Escape hatch restoring the old behaviour of passing the login agent straight
+# through. Deliberately awkward to reach for.
+FULL_AGENT_ENV = "CLAUDE_SANDBOX_SSH_FULL_AGENT"
+
+
+def ssh_agent_bind_args(env=None, exists=os.path.exists):
+    """bwrap arguments for the SSH agent socket, and a warning to print.
+
+    The login agent typically holds a key listed in authorized_keys on every
+    host, so passing it through grants anything inside the sandbox silent SSH
+    to the whole fleet — including hosts with passwordless sudo. A socket is a
+    capability, not a secret: --ro-bind buys nothing, because *using* an agent
+    is a write to the socket.
+
+    So nothing is passed through by default. SSH_AUTH_SOCK is actively unset
+    rather than left inherited, because bwrap keeps the environment otherwise
+    and a variable pointing at an unbound path fails as a baffling
+    "Permission denied (publickey)" instead of an honest "no agent".
+    """
+    env = os.environ if env is None else env
+
+    dedicated = env.get(SANDBOX_SSH_SOCK_ENV)
+    if dedicated:
+        if exists(dedicated):
+            return (
+                ["--ro-bind", dedicated, dedicated, "--setenv", "SSH_AUTH_SOCK", dedicated],
+                None,
+            )
+        return (
+            ["--unsetenv", "SSH_AUTH_SOCK"],
+            f"{SANDBOX_SSH_SOCK_ENV} is set to {dedicated}, which does not exist; "
+            "continuing with no SSH agent.",
+        )
+
+    login_sock = env.get("SSH_AUTH_SOCK")
+    if env.get(FULL_AGENT_ENV) and login_sock and exists(login_sock):
+        return (
+            ["--ro-bind", login_sock, login_sock, "--setenv", "SSH_AUTH_SOCK", login_sock],
+            f"{FULL_AGENT_ENV} is set: the login SSH agent is exposed to the "
+            "sandbox, which can use every key it holds.",
+        )
+
+    return (["--unsetenv", "SSH_AUTH_SOCK"], None)
+
+
 def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     claude_config_dir = os.environ.get(
         "CLAUDE_CONFIG_DIR",
@@ -339,10 +404,11 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
         if os.path.isdir(crossbridge_dir):
             args += ["--ro-bind", crossbridge_dir, crossbridge_dir]
 
-    # SSH agent passthrough
-    ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
-    if ssh_auth_sock:
-        args += ["--ro-bind", ssh_auth_sock, ssh_auth_sock]
+    # SSH agent: opt-in, and scoped by default. See ssh_agent_bind_args.
+    ssh_args, ssh_warning = ssh_agent_bind_args()
+    if ssh_warning:
+        print(f"claude-sandbox: {ssh_warning}", file=sys.stderr)
+    args += ssh_args
 
     # c8ctl config (read-only): plugins and profiles for preprod debugging
     c8ctl_plugins_dir = os.path.join(home_dir, ".config", "c8ctl", "plugins")
