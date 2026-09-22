@@ -5,8 +5,13 @@
 # points to the REPO root rather than the workspace. Hooks then run against the
 # repo root's working copy, not the workspace's files.
 #
-# Solution: override GIT_WORK_TREE to point at the workspace, and pass the
-# changed files explicitly via --files so pre-commit never touches the index.
+# Solution: override GIT_DIR only (git then defaults the work tree to cwd,
+# i.e. the workspace root) and pass the changed files explicitly via --files
+# so pre-commit never touches the index. Deliberately NOT setting
+# GIT_WORK_TREE: it's process-wide and leaks into hook subprocesses (e.g. a
+# hook's env-install step doing its own unrelated `git clone`), where git
+# misinterprets it as "destination already checked out" and fails. GIT_DIR
+# alone doesn't have that problem.
 # For pure-jj repos (no git backend), a temporary bare git dir is created just
 # to satisfy pre-commit's requirement for a git root.
 #
@@ -63,5 +68,5 @@ if [[ -z "$GIT_DIR" ]]; then
   GIT_DIR="$_tmpdir/.git"
 fi
 
-GIT_DIR="$GIT_DIR" GIT_WORK_TREE="$WORKSPACE_ROOT" \
+GIT_DIR="$GIT_DIR" \
   pre-commit run --files "${CHANGED[@]}" "${EXTRA_ARGS[@]}"
