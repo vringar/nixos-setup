@@ -30,9 +30,17 @@ if (!fs.existsSync(file)) {
   process.exit(2);
 }
 
+const ADHOC_SUBPROCESS_RE = /<([a-zA-Z0-9]+:)?adHocSubProcess\b/;
+
 (async () => {
-  const { layoutProcess } = require(PKG_NAME);
   const xml = fs.readFileSync(file, 'utf8');
+  if (ADHOC_SUBPROCESS_RE.test(xml)) {
+    console.error(
+      `bpmn-auto-layout: ${path.basename(file)} — refusing to run: process contains an ad-hoc sub-process, whose layout bpmn-auto-layout does not preserve correctly`
+    );
+    process.exit(1);
+  }
+  const { layoutProcess } = require(PKG_NAME);
   const out = await layoutProcess(xml);
   fs.writeFileSync(file, out);
   console.log(`bpmn-auto-layout: ${path.basename(file)} — element & edge layout regenerated`);
