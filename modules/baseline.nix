@@ -85,9 +85,7 @@ in {
     wget
     curl
     npins
-    (pkgs.callPackage "${sources.agenix}/pkgs/agenix.nix" {
-      substituteAll = {src, ...} @ args: pkgs.replaceVars src (builtins.removeAttrs args ["src"]);
-    })
+    (pkgs.callPackage "${sources.agenix}/pkgs/agenix.nix" { })
     lixPackageSets.git.colmena
     git
     git-lfs
