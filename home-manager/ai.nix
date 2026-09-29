@@ -90,6 +90,7 @@
   claudeCleanupDays = builtins.toString claudeSettings.cleanupPeriodDays;
   claudeOutputStyle = claudeSettings.outputStyle;
   skillsDir = ./files/ai/skills;
+  workSkillsDir = ./files/ai/skills-work;
   customAgentsDir = ./files/ai/agents;
   sources = import ../npins;
   crosslink = import ../apps/crosslink {
@@ -107,6 +108,7 @@
     inherit pkgs sources;
     scriptSrc = "${skillsDir}/bpmn-generate/scripts/bpmn-auto-layout.cjs";
   };
+  bpmn-to-image = import ../apps/bpmn-to-image {inherit pkgs sources;};
   nucleus = sources.nucleus;
 
   # Private repos — only forced when my.work.enable = true
@@ -152,6 +154,8 @@
     cp -r ${sources.crossbridge}/skill/. $out/
     chmod -R u+w $out
     cp -r ${skillsDir}/. $out/
+    chmod -R u+w $out
+    cp -r ${workSkillsDir}/. $out/
   '';
   baseAgents = pkgs.runCommand "base-agents" {} ''
     mkdir -p $out
@@ -183,6 +187,11 @@ in {
         # Direct binary path for bpmnlint — avoids npx overhead (~370 ms → ~65 ms).
         # Consumed by BPMN skills via $BPMNLINT_BIN.
         BPMNLINT_BIN = "${bpmnlint}/bin/bpmnlint";
+        # Direct binary path for bpmn-to-image — avoids the npx first-run
+        # package fetch and puppeteer's own Chromium download (Chromium and
+        # PUPPETEER_EXECUTABLE_PATH are baked into the wrapper already).
+        # Consumed by the bpmn-render skill via $BPMN_TO_IMAGE_BIN.
+        BPMN_TO_IMAGE_BIN = "${bpmn-to-image}/bin/bpmn-to-image";
       };
 
     programs.bash.initExtra = lib.mkAfter ''
@@ -242,6 +251,7 @@ in {
       ++ lib.optionals config.my.work.enable [
         bpmnlint
         bpmn-auto-layout
+        bpmn-to-image
         dmnlint
         feel-mcp-server
         c8ctl-plugin-model
