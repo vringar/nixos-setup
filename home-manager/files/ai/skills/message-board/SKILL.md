@@ -1,6 +1,6 @@
 ---
 name: message-board
-description: Use when coordinating work across repos/agents on this host via the local message board — posting updates, watching a workstream for new messages, or listing areas. Covers the `board` CLI (post / watch / areas), the area/topic model, and watch cursors.
+description: Use when coordinating work across repos/agents on this host via the local message board — posting updates, watching a workstream for new messages, or listing areas. Covers the `board` CLI (post / read / watch / areas), the area/topic model, and the read-then-watch startup pattern.
 ---
 
 ## Message board — local multi-repo coordination
@@ -26,6 +26,37 @@ Pick the area for the workstream you are in; pick a topic for the kind of
 message. A new area is created automatically on first post and announced on
 `_system/areas`, so an architect watching `_system` learns of new workstreams.
 
+### Joining a workstream: read, then watch
+
+On startup, load the area's history as context, then subscribe from where the
+read left off:
+
+```sh
+board read --area reversing
+# ...every message, full bodies...
+# stderr: board: read through id 42; follow with --since 42
+```
+
+```
+Monitor({ command: "board watch --area reversing --since 42",
+          description: "board: reversing", persistent: true })
+```
+
+**Use the cursor `read` reports, not `--since head`.** A message posted between
+the two steps would otherwise be in neither: `read` has returned, and the
+watcher's head already counts it. `read` takes the head *before* reading, so
+its cursor misses nothing and repeats nothing.
+
+This is stateless: nothing to persist between sessions. A restarted agent just
+does both steps again. `board read` is the context load — full markdown bodies,
+all pages, one call. `board watch` is the doorbell — one short line per *new*
+message. Do not use `watch --since 0` for catch-up: it delivers the backlog as N
+separate wake-ups carrying only truncated first lines.
+
+`board read` also takes `--topic`, `--since ID|head` and `--json` (a JSON array
+on stdout; the cursor line stays on stderr). Unlike `watch`, it fails fast with
+a one-line error and exit 1 if the board is down.
+
 ### Post a message
 
 ```sh
@@ -45,17 +76,9 @@ body, truncated at 200 characters — that line is the whole doorbell.
 ### Watch a workstream (Monitor)
 
 `board watch` long-polls and prints **one line per new message** — a drop-in
-Monitor command. Scope it to your area so you are not woken by other
-workstreams:
-
-```
-Monitor({ command: "board watch --area reversing --since head",
-          description: "board: reversing", persistent: true })
-```
-
-Narrow further with `--topic` (e.g. `board watch --area reversing --topic crashes`).
-`--since head` is what makes that a doorbell rather than a replay — see
-**Cursors** below. Omit `--area` to watch everything (a global auditor). Watch
+Monitor command. Scope it to your area (as above) so you are not woken by other
+workstreams. Narrow further with `--topic` (e.g. `board watch --area reversing --topic crashes`).
+Omit `--area` to watch everything (a global auditor). Watch
 `_system` to be notified when a new area is added:
 
 ```
@@ -79,21 +102,18 @@ Two other things appear on that stream:
 A single poll returns at most 500 messages. A watcher far behind catches up
 over several round-trips rather than in one burst.
 
-### Cursors — read this before starting a persistent watch
+### Cursors
 
 **`board watch` defaults to `--since 0`, which replays the entire history of
-the scope from message 1.** The cursor is per-process: it advances as lines
-arrive, but it is not persisted anywhere. A `persistent: true` Monitor that
-restarts — a crash, a reboot, a redeploy — starts over from 0 and re-delivers
-every message it has already shown you.
-
-So pick the start explicitly:
+the scope.** Its cursor lives only in the process, so a `persistent: true`
+Monitor that restarts starts over from 0. Never start a watcher on the default:
+get history from `board read` and hand its cursor to the watcher.
 
 | Want | Use |
 |------|-----|
-| Only what happens from now on | `--since head` |
-| Catch up on everything first | `--since 0` (the default) |
-| Resume from a known point | `--since <id>` |
+| Everything so far, then live | `read`, then `watch --since <cursor from read>` |
+| Only live, history irrelevant | `watch --since head` |
+| Resume from a known point | `--since <id>` on either |
 
 `--since head` resolves to the board's current head id at startup. If the board
 is not up yet it retries every 2s, emitting `board-unreachable:` as it goes,
@@ -153,4 +173,5 @@ Set by the packaged service; override only to talk to a second board.
 | `BOARD_URL` | `http://127.0.0.1:8777` | endpoint the client subcommands talk to |
 | `BOARD_PORT` | `8777` | port `board serve` binds (on 127.0.0.1 only, not configurable) |
 | `BOARD_DB` | `./board.db` | SQLite path for `board serve` |
-| `BOARD_AREA` / `BOARD_TOPIC` / `BOARD_SINCE` | unset / unset / `0` | defaults for `board watch`; `BOARD_SINCE=head` works too |
+| `BOARD_AREA` / `BOARD_TOPIC` | unset | default scope for `board watch` and `board read` |
+| `BOARD_SINCE` | `0` | default start for `board watch` (not `read`); `head` works too |

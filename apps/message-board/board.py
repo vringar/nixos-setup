@@ -7,6 +7,7 @@ Single host, stdlib only, one command with subcommands:
     board post <area> <topic> <from> <body>  post a markdown message
     board watch [--area A] [--topic T]       long-poll -> one line per message
                 [--since ID|head]            'head' = only messages from now on
+    board read [--area A] [--topic T]        one-shot: full backlog, then exit
     board areas                              list areas
 
 The address is two levels:
@@ -415,6 +416,41 @@ def cmd_post(args):
         print(resp.read().decode("utf-8"))
 
 
+def read_all(since, area, topic):
+    """Every message after `since`, oldest first, paging past the poll cap."""
+    out = []
+    while True:
+        params = urlencode({"since": since, "area": area, "topic": topic,
+                            "timeout": 0})
+        page = json.loads(_client_get(f"/poll?{params}"))
+        if not page:
+            return out
+        out.extend(page)
+        since = page[-1]["id"]
+
+
+def cmd_read(args):
+    """One-shot backlog read: full bodies for context, not doorbell lines.
+
+    Ends by reporting a resume cursor on stderr. The head is taken *before*
+    reading, so `watch --since <cursor>` misses nothing posted after the read
+    and repeats nothing the read already showed.
+    """
+    head = _head()  # one-shot: a down board fails fast instead of retrying
+    since = head if args.since == "head" else args.since
+    msgs = read_all(since, args.area or "", args.topic or "")
+    cursor = max([head] + [m["id"] for m in msgs])
+    if args.json:
+        print(json.dumps(msgs, indent=2))
+    else:
+        for m in msgs:
+            print(f"#{m['id']}  {m['ts']}  [{m['area']}/{m['topic']}] {m['from']}")
+            print(m["body"].rstrip())
+            print()
+    print(f"board: read through id {cursor}; follow with --since {cursor}",
+          file=sys.stderr)
+
+
 def cmd_areas(_args):
     for a in json.loads(_client_get("/areas")):
         desc = f" — {a['description']}" if a["description"] else ""
@@ -431,8 +467,13 @@ def _since_arg(value):
         raise argparse.ArgumentTypeError("expected a message id or 'head'")
 
 
+def _head():
+    """The board's current head id (one request, no retry)."""
+    return int(json.loads(_client_get("/healthz"))["head"])
+
+
 def _resolve_since(value):
-    """Turn 'head' into the board's current head id.
+    """Turn 'head' into the board's current head id, for a watcher.
 
     Retries rather than failing: a persistent watcher is routinely started
     before the service is up, and dying there would look like "no news".
@@ -441,7 +482,7 @@ def _resolve_since(value):
         return value
     while True:
         try:
-            return int(json.loads(_client_get("/healthz"))["head"])
+            return _head()
         except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
             print(f"board-unreachable: {exc}", flush=True)
             time.sleep(2)
@@ -496,6 +537,14 @@ def main(argv=None):
     sw.add_argument("--timeout", type=int, default=50)
     sw.set_defaults(fn=cmd_watch)
 
+    sr = sub.add_parser("read", help="print the full backlog of an area/topic and exit")
+    sr.add_argument("--area", default=os.environ.get("BOARD_AREA", ""))
+    sr.add_argument("--topic", default=os.environ.get("BOARD_TOPIC", ""))
+    sr.add_argument("--since", type=_since_arg, metavar="ID|head", default="0",
+                    help="start after this message id (default: everything)")
+    sr.add_argument("--json", action="store_true", help="emit a JSON array")
+    sr.set_defaults(fn=cmd_read)
+
     sub.add_parser("areas", help="list areas").set_defaults(fn=cmd_areas)
 
     args = p.parse_args(argv)
@@ -503,6 +552,9 @@ def main(argv=None):
         args.fn(args)
     except KeyboardInterrupt:
         sys.exit(130)
+    except urllib.error.URLError as exc:
+        # A down board is an expected condition, not a crash: one line, no trace.
+        sys.exit(f"board: cannot reach {BASE_URL}: {exc.reason}")
 
 
 if __name__ == "__main__":
