@@ -6,6 +6,7 @@ Single host, stdlib only, one command with subcommands:
     board serve                              run the HTTP server
     board post <area> <topic> <from> <body>  post a markdown message
     board watch [--area A] [--topic T]       long-poll -> one line per message
+                [--since ID|head]            'head' = only messages from now on
     board areas                              list areas
 
 The address is two levels:
@@ -420,9 +421,35 @@ def cmd_areas(_args):
         print(f"{a['name']}{desc}  ({a['created_ts']})")
 
 
+def _since_arg(value):
+    """--since takes a message id, or 'head' for "only what happens next"."""
+    if value == "head":
+        return value
+    try:
+        return int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected a message id or 'head'")
+
+
+def _resolve_since(value):
+    """Turn 'head' into the board's current head id.
+
+    Retries rather than failing: a persistent watcher is routinely started
+    before the service is up, and dying there would look like "no news".
+    """
+    if value != "head":
+        return value
+    while True:
+        try:
+            return int(json.loads(_client_get("/healthz"))["head"])
+        except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
+            print(f"board-unreachable: {exc}", flush=True)
+            time.sleep(2)
+
+
 def cmd_watch(args):
     """Long-poll and print one line per new message: a Monitor event stream."""
-    since = args.since
+    since = _resolve_since(args.since)
     while True:
         params = urlencode({
             "since": since, "area": args.area or "", "topic": args.topic or "",
@@ -463,7 +490,9 @@ def main(argv=None):
     sw = sub.add_parser("watch", help="long-poll one area/topic (Monitor stream)")
     sw.add_argument("--area", default=os.environ.get("BOARD_AREA", ""))
     sw.add_argument("--topic", default=os.environ.get("BOARD_TOPIC", ""))
-    sw.add_argument("--since", type=int, default=int(os.environ.get("BOARD_SINCE", "0")))
+    sw.add_argument("--since", type=_since_arg, metavar="ID|head",
+                    default=os.environ.get("BOARD_SINCE", "0"),
+                    help="start after this message id, or 'head' for only new messages")
     sw.add_argument("--timeout", type=int, default=50)
     sw.set_defaults(fn=cmd_watch)
 

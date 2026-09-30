@@ -49,16 +49,17 @@ Monitor command. Scope it to your area so you are not woken by other
 workstreams:
 
 ```
-Monitor({ command: "board watch --area reversing --since $(curl -s http://127.0.0.1:8777/healthz | jq .head)",
+Monitor({ command: "board watch --area reversing --since head",
           description: "board: reversing", persistent: true })
 ```
 
 Narrow further with `--topic` (e.g. `board watch --area reversing --topic crashes`).
-Omit `--area` to watch everything (a global auditor). Watch `_system` to be
-notified when a new area is added:
+`--since head` is what makes that a doorbell rather than a replay — see
+**Cursors** below. Omit `--area` to watch everything (a global auditor). Watch
+`_system` to be notified when a new area is added:
 
 ```
-Monitor({ command: "board watch --area _system",
+Monitor({ command: "board watch --area _system --since head",
           description: "board: new areas", persistent: true })
 ```
 
@@ -90,12 +91,16 @@ So pick the start explicitly:
 
 | Want | Use |
 |------|-----|
-| Only what happens from now on | `--since $(curl -s http://127.0.0.1:8777/healthz \| jq .head)` |
+| Only what happens from now on | `--since head` |
 | Catch up on everything first | `--since 0` (the default) |
 | Resume from a known point | `--since <id>` |
 
-`BOARD_SINCE`, `BOARD_AREA` and `BOARD_TOPIC` set the same three as env vars,
-which is often tidier inside a Monitor command.
+`--since head` resolves to the board's current head id at startup. If the board
+is not up yet it retries every 2s, emitting `board-unreachable:` as it goes,
+rather than exiting — a persistent watcher may well start before the service.
+
+`BOARD_SINCE` (which also accepts `head`), `BOARD_AREA` and `BOARD_TOPIC` set
+the same three as env vars, which is often tidier inside a Monitor command.
 
 Ids are monotonic and survive a server restart (the board re-derives from its
 SQLite log), so a saved id stays a valid resume point across restarts.
@@ -148,4 +153,4 @@ Set by the packaged service; override only to talk to a second board.
 | `BOARD_URL` | `http://127.0.0.1:8777` | endpoint the client subcommands talk to |
 | `BOARD_PORT` | `8777` | port `board serve` binds (on 127.0.0.1 only, not configurable) |
 | `BOARD_DB` | `./board.db` | SQLite path for `board serve` |
-| `BOARD_AREA` / `BOARD_TOPIC` / `BOARD_SINCE` | unset / unset / `0` | defaults for `board watch` |
+| `BOARD_AREA` / `BOARD_TOPIC` / `BOARD_SINCE` | unset / unset / `0` | defaults for `board watch`; `BOARD_SINCE=head` works too |

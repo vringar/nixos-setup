@@ -1,6 +1,7 @@
 """Unit tests for the message-board server core (no HTTP layer)."""
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -81,3 +82,41 @@ def test_client_disconnect_is_not_logged_as_an_error(monkeypatch, exc):
     handler.close_connection = False
     handler.handle_one_request()  # must not raise
     assert handler.close_connection is True
+
+
+def test_since_arg_accepts_ids_and_head():
+    assert board._since_arg("0") == 0
+    assert board._since_arg("42") == 42
+    assert board._since_arg("head") == "head"
+    with pytest.raises(Exception):
+        board._since_arg("banana")
+
+
+def test_resolve_since_passes_ids_through(monkeypatch):
+    monkeypatch.setattr(board, "_client_get", lambda p: pytest.fail("no call needed"))
+    assert board._resolve_since(7) == 7
+
+
+def test_resolve_since_head_reads_the_current_head(db, monkeypatch):
+    db.post("reversing", "ghidra", "g", "already here")
+    monkeypatch.setattr(board, "_client_get",
+                        lambda p: json.dumps({"head": board.head_id()}))
+    # 'head' means "skip what is already on the board"
+    assert board._resolve_since("head") == db.head_id()
+    assert db.query_since(board._resolve_since("head"), "reversing", "") == []
+
+
+def test_resolve_since_head_retries_while_board_is_down(monkeypatch, capsys):
+    attempts = []
+
+    def flaky(_path):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise OSError("connection refused")
+        return json.dumps({"head": 9})
+
+    monkeypatch.setattr(board, "_client_get", flaky)
+    monkeypatch.setattr(board.time, "sleep", lambda _s: None)
+    assert board._resolve_since("head") == 9
+    # silence must never look like "no news"
+    assert capsys.readouterr().out.count("board-unreachable:") == 2
