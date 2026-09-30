@@ -278,6 +278,16 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):  # stay quiet; the DB is the record
         pass
 
+    def handle_one_request(self):
+        # A client that walks away mid-response -- a watcher restarted, a
+        # `board watch | head`, a browser tab closed -- is routine, not a
+        # fault. Swallow it so socketserver does not dump a traceback into
+        # the service log for every disconnect.
+        try:
+            super().handle_one_request()
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
+
     def _send(self, code, body, ctype="application/json"):
         payload = body.encode("utf-8") if isinstance(body, str) else body
         self.send_response(code)

@@ -66,3 +66,18 @@ def test_poll_returns_immediately_when_data_present(db):
     # timeout is irrelevant when matching messages already exist
     rows = db.poll(0, "reversing", "", timeout=30)
     assert [m["body"] for m in rows] == ["ready"]
+
+
+@pytest.mark.parametrize("exc", [BrokenPipeError, ConnectionResetError])
+def test_client_disconnect_is_not_logged_as_an_error(monkeypatch, exc):
+    """A client that walks away mid-response must not surface as a fault."""
+    from http.server import BaseHTTPRequestHandler
+
+    def boom(self):
+        raise exc(32, "gone")
+
+    monkeypatch.setattr(BaseHTTPRequestHandler, "handle_one_request", boom)
+    handler = board.Handler.__new__(board.Handler)  # no socket setup needed
+    handler.close_connection = False
+    handler.handle_one_request()  # must not raise
+    assert handler.close_connection is True
