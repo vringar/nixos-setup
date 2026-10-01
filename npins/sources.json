@@ -149,9 +149,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "7b4c5ec4bedaf1e062bbc1bcaeddbc6bd242aa1b",
-      "url": "https://github.com/nix-community/home-manager/archive/7b4c5ec4bedaf1e062bbc1bcaeddbc6bd242aa1b.tar.gz",
-      "hash": "sha256-iQ0ebhiVo64NktTnwft9hNxlFu4j5cvljVxyJaEVIP4="
+      "revision": "c8ecc29e5175452bee4a2aa1ba2383856d795338",
+      "url": "https://github.com/nix-community/home-manager/archive/c8ecc29e5175452bee4a2aa1ba2383856d795338.tar.gz",
+      "hash": "sha256-rvubAPbh3QCliic3sAK+CXTrPCGgJstY52OTs/5H1J4="
     },
     "htmx": {
       "type": "GitRelease",
@@ -226,8 +226,8 @@
       "type": "Channel",
       "name": "nixos-unstable",
       "artifact": "nixexprs.tar.xz",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1080855.7a0f122f5090/nixexprs.tar.xz",
-      "hash": "sha256-EvoKOTtoIJ7Xflls2Nfo5WDcqjFJB0kuzwOz0nLWs0w="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1083223.c59305bab206/nixexprs.tar.xz",
+      "hash": "sha256-VBA0QerzzmL+4wxgtwiCdiLwLpJg2/9xOxhgO3BRJQA="
     },
     "nucleus": {
       "type": "Git",
@@ -280,9 +280,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "6b57f857fef51c34b7303e36a35a7693fd247107",
-      "url": "https://github.com/camunda/skills/archive/6b57f857fef51c34b7303e36a35a7693fd247107.tar.gz",
-      "hash": "sha256-7i9gdcgkgH8yQG7mpye5FRoEgVSj2kTMVp45Zm7WVBc="
+      "revision": "38462e3ab934add56ca2b4f3b7a6587c1d931065",
+      "url": "https://github.com/camunda/skills/archive/38462e3ab934add56ca2b4f3b7a6587c1d931065.tar.gz",
+      "hash": "sha256-DuHTd/occYuNL4/EEA09oIacuBudwkxx0la/Su3D+OQ="
     }
   },
   "version": 8
