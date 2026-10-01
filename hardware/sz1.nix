@@ -5,6 +5,7 @@
   name,
   config,
   lib,
+  pkgs,
   modulesPath,
   ...
 }: {
@@ -24,18 +25,35 @@
   # it grow to nearly all RAM, starving applications and causing system-wide
   # sluggishness.
   #
-  # 16 rather than 20 GiB, from measurement rather than taste. Ghost-list hits --
-  # the cache's own record of what it would have served had it been larger -- ran
-  # at 0.27% of real hits, so the working set fits with room to spare and the top
-  # of the old ceiling was never worth anything. What that headroom did buy was a
-  # peak that left under a gigabyte free before a build had even begun ramping,
-  # which is the state a sudden allocation cannot be absorbed from.
-  #
-  # Not lower: metadata alone accounts for ~8 GiB here and serves seven of every
-  # eight hits, a store of many small files being mostly an exercise in dnode and
-  # dbuf lookups. A cap that squeezes metadata would cost far more than one that
-  # squeezes cached file data.
-  boot.kernelParams = ["zfs.zfs_arc_max=${toString (16 * 1024 * 1024 * 1024)}"];
+  # 8 GiB is a trial, not a settled value. sz1 is shut down nightly, so every
+  # session starts with a cold ARC and nothing in it outlives the day. Over one
+  # full session at 16 GiB, ghost-list hits -- what a larger cache would have
+  # served -- were 16% of misses and under 0.04% of hits, so most of that cap
+  # held blocks read once. The risk of going lower is metadata, ~6 GiB in that
+  # same session and the bulk of all hits on a store of many small files.
+  # arc-session-stats below logs each session's counters so the trial is
+  # judged against the 16 GiB sessions: misses per hour of uptime, metadata
+  # misses especially.
+  boot.kernelParams = ["zfs.zfs_arc_max=${toString (8 * 1024 * 1024 * 1024)}"];
+
+  # One journal line per boot with the ARC's counters as of shutdown. They reset
+  # at boot, so the line covers exactly one session. Read with:
+  #   journalctl -u arc-session-stats -o short-iso
+  systemd.services.arc-session-stats = {
+    description = "Log ZFS ARC counters at shutdown";
+    wantedBy = ["multi-user.target"];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    preStop = ''
+      ${pkgs.gawk}/bin/awk '
+        FNR == NR { printf "uptime_s=%d", $1; next }
+        $1 ~ /^(c_max|size|arc_meta_used|hits|misses|demand_data_misses|demand_metadata_misses|mru_ghost_hits|mfu_ghost_hits|memory_direct_count)$/ { printf " %s=%s", $1, $3 }
+        END { print "" }
+      ' /proc/uptime /proc/spl/kstat/zfs/arcstats
+    '';
+  };
 
   # Compressed cache in front of the swap partition. A build that outgrows RAM
   # gets its cold pages compressed in place instead of faulting against the SATA
