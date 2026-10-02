@@ -9,7 +9,8 @@ Single host, stdlib only, one command with subcommands:
                 [--since ID|head]            'head' = only messages from now on
     board read [--area A] [--topic T]        one-shot: pins + full backlog, then exit
     board pin <area> [topic] [--set]         show a pinned note, or replace it from stdin
-    board areas                              list areas
+    board areas [--archived]                 list areas
+    board archive|unarchive <area>           hide/restore an area (nothing is deleted)
 
 The address is two levels:
 
@@ -98,6 +99,9 @@ def init_db(path):
             PRIMARY KEY(area, topic));
         """
     )
+    # Boards created before archiving existed lack the column.
+    if "archived_ts" not in {r[1] for r in conn.execute("PRAGMA table_info(areas)")}:
+        conn.execute("ALTER TABLE areas ADD COLUMN archived_ts TEXT")
     conn.commit()
     _db = conn
     return conn
@@ -119,8 +123,15 @@ def _insert(area, topic, sender, body):
 
 
 def _ensure_area(name, description=None):
-    """Create the area if new (caller holds _cv). Announce real new areas."""
-    row = _db.execute("SELECT description FROM areas WHERE name=?", (name,)).fetchone()
+    """Create the area if new, revive it if archived (caller holds _cv).
+
+    Every write goes through here, so any activity in an archived area brings
+    it back: a late agent can never write into an area nobody can see.
+    """
+    row = _db.execute(
+        "SELECT description, archived_ts FROM areas WHERE name=?", (name,)).fetchone()
+    if row is not None and row[1] is not None:
+        _set_archived(name, False)
     if row is None:
         _db.execute(
             "INSERT INTO areas(name, description, created_ts) VALUES(?,?,?)",
@@ -150,17 +161,52 @@ def create_area(name, description):
         _cv.notify_all()
 
 
-def list_areas():
+def _set_archived(name, archived):
+    """Flip an existing area's archive state and announce it (caller holds _cv)."""
+    _db.execute("UPDATE areas SET archived_ts=? WHERE name=?",
+                (_now() if archived else None, name))
+    _db.commit()
+    _insert(SYSTEM_AREA, "areas", "board",
+            f"area {'archived' if archived else 'unarchived'}: **{name}**")
+
+
+def set_archived(name, archived):
+    """Archive or unarchive an area. Returns False if it already was.
+
+    Archiving hides an area from listings and unscoped reads; nothing is
+    deleted, and the next post or pin edit in the area unarchives it.
+    """
+    if name == SYSTEM_AREA:
+        raise ValueError(f"{SYSTEM_AREA} cannot be archived")
     with _cv:
-        rows = _db.execute(
-            "SELECT name, description, created_ts FROM areas ORDER BY created_ts"
-        ).fetchall()
-    return [{"name": r[0], "description": r[1], "created_ts": r[2]} for r in rows]
+        row = _db.execute("SELECT archived_ts FROM areas WHERE name=?", (name,)).fetchone()
+        if row is None:
+            raise KeyError(name)
+        if (row[0] is not None) == archived:
+            return False
+        _set_archived(name, archived)
+        _cv.notify_all()
+    return True
 
 
-def _query(since, area, topic, limit=500):
+def list_areas(include_archived=False):
+    sql = "SELECT name, description, created_ts, archived_ts FROM areas"
+    if not include_archived:
+        sql += " WHERE archived_ts IS NULL"
+    with _cv:
+        rows = _db.execute(sql + " ORDER BY created_ts").fetchall()
+    return [{"name": r[0], "description": r[1], "created_ts": r[2], "archived_ts": r[3]}
+            for r in rows]
+
+
+_LIVE = " AND area NOT IN (SELECT name FROM areas WHERE archived_ts IS NOT NULL)"
+
+
+def _query(since, area, topic, limit=500, include_archived=True):
     sql = "SELECT id, ts, area, topic, sender, body FROM messages WHERE id>?"
     args = [since]
+    if not include_archived:
+        sql += _LIVE
     if area:
         sql += " AND area=?"
         args.append(area)
@@ -182,11 +228,11 @@ def query_since(since, area, topic):
         return _query(since, area, topic)
 
 
-def poll(since, area, topic, timeout):
+def poll(since, area, topic, timeout, include_archived=True):
     deadline = time.monotonic() + timeout
     with _cv:  # query and wait under the same lock -> no lost wakeup
         while True:
-            rows = _query(since, area, topic)
+            rows = _query(since, area, topic, include_archived=include_archived)
             if rows:
                 return rows
             remaining = deadline - time.monotonic()
@@ -208,9 +254,12 @@ def format_lines(msgs):
 
 
 def recent(area, topic, limit=100):
-    """The last `limit` messages for a scope, oldest first (for the web view)."""
+    """The last `limit` messages for a scope, oldest first (for the web view).
+
+    Archived areas only show when opened by name.
+    """
     with _cv:
-        rows = _query(0, area, topic, limit=100000)
+        rows = _query(0, area, topic, limit=100000, include_archived=bool(area))
     return rows[-limit:]
 
 
@@ -233,13 +282,15 @@ def get_pin(area, topic=""):
         zip(("area", "topic", "body", "version", "editor", "ts"), r))
 
 
-def pins_for(area="", topic=""):
+def pins_for(area="", topic="", include_archived=True):
     """The pins a reader of this scope should see: area-wide first, then the
     topic's own -- or every topic's, when no topic is given. No area: all."""
-    sql = "SELECT area, topic FROM pins"
+    sql = "SELECT area, topic FROM pins WHERE 1"
     args = []
+    if not include_archived:
+        sql += _LIVE
     if area:
-        sql += " WHERE area=?"
+        sql += " AND area=?"
         args.append(area)
         if topic:
             sql += " AND topic IN ('', ?)"
@@ -314,6 +365,11 @@ _PAGE = """<!doctype html>
   .pin textarea { min-height: 12rem; }
   .error { color: #a00; margin: 0 0 .4rem; }
   nav .current { font-weight: 600; }
+  nav .muted, nav .muted a { color: #888; }
+  .inline { display: inline; }
+  h2 form button { font-size: 12px; font-weight: normal; vertical-align: middle; }
+  .archived { background: #f3f3f3; border: 1px solid #ccc; border-radius: 6px;
+              padding: .4rem .7rem; }
   form input, form textarea { width: 100%; box-sizing: border-box; margin: .2rem 0; }
   form textarea { min-height: 5rem; }
   .row { display: flex; gap: .5rem; }
@@ -321,12 +377,24 @@ _PAGE = """<!doctype html>
 <h1>message board</h1>
 <nav>areas: <a href="/">all</a>
   {% for a in areas %}<a href="/?area={{ a.name|urlencode }}"
-    {% if a.name == area %}class="current"{% endif %}>{{ a.name }}</a>{% endfor %}</nav>
+    {% if a.name == area %}class="current"{% endif %}>{{ a.name }}</a>{% endfor %}
+  {% if archived_areas %}<span class="muted">·
+    <a href="/?show=archived">archived ({{ archived_areas|length }})</a></span>{% endif %}</nav>
+{% if show_archived and archived_areas %}<nav class="muted">archived:
+  {% for a in archived_areas %}<a href="/?area={{ a.name|urlencode }}">{{ a.name }}</a>{% endfor %}</nav>{% endif %}
 {% if area %}<nav>topics: <a href="/?area={{ area|urlencode }}"
     {% if not topic %}class="current"{% endif %}>all</a>
   {% for t in topics %}<a href="/?area={{ area|urlencode }}&topic={{ t|urlencode }}"
     {% if t == topic %}class="current"{% endif %}>{{ t }}</a>{% endfor %}</nav>{% endif %}
-<h2>{{ area or "all areas" }}{% if topic %} / {{ topic }}{% endif %}</h2>
+{% set archive_form %}<form class="inline" method="post" action="/ui/archive">
+  <input type="hidden" name="area" value="{{ area }}">
+  <input type="hidden" name="archived" value="{{ "0" if archived_ts else "1" }}">
+  <button type="submit">{{ "unarchive" if archived_ts else "archive area" }}</button></form>{% endset %}
+<h2>{{ area or "all areas" }}{% if topic %} / {{ topic }}{% endif %}
+  {% if area and area != system_area and not archived_ts %}{{ archive_form }}{% endif %}</h2>
+{% if archived_ts %}<div class="archived">Archived since {{ archived_ts }} — hidden from
+  the area list and from reads that don't ask for archived areas. Posting here
+  or editing a pin brings it back. {{ archive_form }}</div>{% endif %}
 {{ pins|safe }}
 <div id="messages" hx-get="/ui/messages?area={{ area|urlencode }}&topic={{ topic|urlencode }}"
      hx-trigger="every 3s" hx-swap="innerHTML">{{ rows|safe }}</div>
@@ -407,11 +475,17 @@ def render_rows(area, topic):
     return _rows_t.render(messages=recent(area, topic))
 
 
-def render_page(area, topic, sender="me"):
+def render_page(area, topic, sender="me", show_archived=False):
     pins = ""
     if area:  # the area-wide pin, then the topic's own
         pins = render_pin(area, "") + (render_pin(area, topic) if topic else "")
-    return _page_t.render(areas=list_areas(), area=area, topic=topic,
+    every = list_areas(include_archived=True)
+    archived = [a for a in every if a["archived_ts"]]
+    archived_ts = next((a["archived_ts"] for a in archived if a["name"] == area), None)
+    return _page_t.render(areas=[a for a in every if not a["archived_ts"]],
+                          archived_areas=archived, show_archived=show_archived,
+                          archived_ts=archived_ts, system_area=SYSTEM_AREA,
+                          area=area, topic=topic,
                           topics=list_topics(area) if area else [],
                           pins=pins, sender=sender, rows=render_rows(area, topic))
 
@@ -459,14 +533,16 @@ class Handler(BaseHTTPRequestHandler):
             topic = q.get("topic", [""])[0]
             timeout = min(float(q.get("timeout", ["50"])[0]), 300.0)
             fmt = q.get("format", ["json"])[0]
-            msgs = poll(since, area, topic, timeout)
+            msgs = poll(since, area, topic, timeout,
+                        include_archived=q.get("archived", [""])[0] == "1")
             if fmt == "lines":
                 self._send(200, format_lines(msgs), "text/plain; charset=utf-8")
             else:
                 self._send(200, json.dumps(msgs))
             return
         if u.path == "/areas":
-            self._send(200, json.dumps(list_areas()))
+            self._send(200, json.dumps(
+                list_areas(include_archived=q.get("archived", [""])[0] == "1")))
             return
         if u.path.startswith("/msg/"):
             try:
@@ -479,8 +555,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, json.dumps({"error": "no such id"}))
             return
         if u.path == "/pins":
-            self._send(200, json.dumps(pins_for(q.get("area", [""])[0],
-                                                q.get("topic", [""])[0])))
+            self._send(200, json.dumps(pins_for(
+                q.get("area", [""])[0], q.get("topic", [""])[0],
+                include_archived=q.get("archived", [""])[0] == "1")))
             return
         if u.path in ("/pin", "/ui/pin", "/ui/pin/edit"):
             area, topic = q.get("area", [""])[0], q.get("topic", [""])[0]
@@ -510,13 +587,27 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps({"head": head_id()}))
             return
         if u.path == "/":
-            self._send(200, render_page(q.get("area", [""])[0], q.get("topic", [""])[0]),
+            self._send(200, render_page(q.get("area", [""])[0], q.get("topic", [""])[0],
+                                        show_archived=q.get("show", [""])[0] == "archived"),
                        "text/html; charset=utf-8")
             return
         self._send(404, json.dumps({"error": "not found"}))
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == "/ui/archive":  # plain form post -> back to a sensible page
+            form = self._read_form()
+            area, archived = form.get("area", ""), form.get("archived") == "1"
+            try:
+                set_archived(area, archived)
+            except (KeyError, ValueError) as exc:
+                self._send(400, json.dumps({"error": str(exc)}))
+                return
+            self.send_response(303)
+            self.send_header("Location", "/" if archived else f"/?{urlencode({'area': area})}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if path == "/ui/pin":  # HTMX pin editor -> the saved pin box
             form = self._read_form()
             area, topic = form.get("area", ""), form.get("topic", "")
@@ -556,6 +647,17 @@ class Handler(BaseHTTPRequestHandler):
             mid = post(data.get("area", "general"), data.get("topic", "general"),
                        data.get("from", "anon"), data["body"])
             self._send(200, json.dumps({"id": mid}))
+            return
+        if path == "/archive":
+            try:
+                changed = set_archived(data.get("area", ""), bool(data.get("archived", True)))
+            except KeyError:
+                self._send(404, json.dumps({"error": "no such area"}))
+                return
+            except ValueError as exc:
+                self._send(400, json.dumps({"error": str(exc)}))
+                return
+            self._send(200, json.dumps({"changed": changed}))
             return
         if path == "/pin":
             if not data.get("area") or "body" not in data:
@@ -639,12 +741,12 @@ def cmd_pin(args):
     print(pin["body"].rstrip())
 
 
-def read_all(since, area, topic):
+def read_all(since, area, topic, archived=False):
     """Every message after `since`, oldest first, paging past the poll cap."""
     out = []
     while True:
         params = urlencode({"since": since, "area": area, "topic": topic,
-                            "timeout": 0})
+                            "timeout": 0, "archived": "1" if archived else ""})
         page = json.loads(_client_get(f"/poll?{params}"))
         if not page:
             return out
@@ -659,11 +761,17 @@ def cmd_read(args):
     reading, so `watch --since <cursor>` misses nothing posted after the read
     and repeats nothing the read already showed.
     """
+    if args.area and not args.archived:
+        archived = {a["name"] for a in json.loads(_client_get("/areas?archived=1"))
+                    if a["archived_ts"]}
+        if args.area in archived:  # say so, rather than print an empty read
+            sys.exit(f"board: area {args.area} is archived; add --archived to read it")
     head = _head()  # one-shot: a down board fails fast instead of retrying
     since = head if args.since == "head" else args.since
-    scope = urlencode({"area": args.area or "", "topic": args.topic or ""})
+    scope = urlencode({"area": args.area or "", "topic": args.topic or "",
+                       "archived": "1" if args.archived else ""})
     pins = json.loads(_client_get(f"/pins?{scope}"))
-    msgs = read_all(since, args.area or "", args.topic or "")
+    msgs = read_all(since, args.area or "", args.topic or "", args.archived)
     cursor = max([head] + [m["id"] for m in msgs])
     if args.json:
         print(json.dumps({"pins": pins, "messages": msgs}, indent=2))
@@ -680,10 +788,24 @@ def cmd_read(args):
           file=sys.stderr)
 
 
-def cmd_areas(_args):
-    for a in json.loads(_client_get("/areas")):
+def cmd_areas(args):
+    for a in json.loads(_client_get(f"/areas?archived={'1' if args.archived else ''}")):
         desc = f" — {a['description']}" if a["description"] else ""
-        print(f"{a['name']}{desc}  ({a['created_ts']})")
+        mark = f"  [archived {a['archived_ts']}]" if a["archived_ts"] else ""
+        print(f"{a['name']}{desc}  ({a['created_ts']}){mark}")
+
+
+def cmd_archive(args):
+    try:
+        out = json.loads(_client_post("/archive", {"area": args.area,
+                                                   "archived": args.archived}))
+    except urllib.error.HTTPError as exc:
+        if exc.code not in (400, 404):
+            raise
+        sys.exit(f"board: {json.loads(exc.read())['error']}: {args.area}")
+    state = "archived" if args.archived else "unarchived"
+    print(f"board: {args.area} {state}" if out["changed"]
+          else f"board: {args.area} was already {state}", file=sys.stderr)
 
 
 def _since_arg(value):
@@ -771,7 +893,9 @@ def main(argv=None):
     sr.add_argument("--topic", default=os.environ.get("BOARD_TOPIC", ""))
     sr.add_argument("--since", type=_since_arg, metavar="ID|head", default="0",
                     help="start after this message id (default: everything)")
-    sr.add_argument("--json", action="store_true", help="emit a JSON array")
+    sr.add_argument("--json", action="store_true", help="emit a JSON object")
+    sr.add_argument("--archived", action="store_true",
+                    help="include archived areas (needed to read one by name)")
     sr.set_defaults(fn=cmd_read)
 
     spin = sub.add_parser("pin", help="show an area/topic pin, or --set it from stdin")
@@ -783,7 +907,16 @@ def main(argv=None):
     spin.add_argument("--from", dest="sender", default=os.environ.get("USER", "anon"))
     spin.set_defaults(fn=cmd_pin)
 
-    sub.add_parser("areas", help="list areas").set_defaults(fn=cmd_areas)
+    sa = sub.add_parser("areas", help="list areas")
+    sa.add_argument("--archived", action="store_true", help="include archived areas")
+    sa.set_defaults(fn=cmd_areas)
+
+    for name, archived, text in (
+            ("archive", True, "hide an area from listings and unscoped reads"),
+            ("unarchive", False, "bring an archived area back")):
+        sx = sub.add_parser(name, help=text)
+        sx.add_argument("area")
+        sx.set_defaults(fn=cmd_archive, archived=archived)
 
     args = p.parse_args(argv)
     try:

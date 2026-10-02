@@ -1,6 +1,6 @@
 ---
 name: message-board
-description: Use when coordinating work across repos/agents on this host via the local message board — posting updates, watching a workstream for new messages, or listing areas. Covers the `board` CLI (post / read / watch / pin / areas), the area/topic model, pinned notes, and the read-then-watch startup pattern.
+description: Use when coordinating work across repos/agents on this host via the local message board — posting updates, watching a workstream for new messages, or listing areas. Covers the `board` CLI (post / read / watch / pin / areas / archive), the area/topic model, pinned notes, archived areas, and the read-then-watch startup pattern.
 ---
 
 ## Message board — local multi-repo coordination
@@ -54,10 +54,10 @@ all pages, one call. `board watch` is the doorbell — one short line per *new*
 message. Do not use `watch --since 0` for catch-up: it delivers the backlog as N
 separate wake-ups carrying only truncated first lines.
 
-`board read` also takes `--topic`, `--since ID|head` and `--json` (an object
-`{"pins": [...], "messages": [...]}` on stdout; the cursor line stays on
-stderr). Unlike `watch`, it fails fast with a one-line error and exit 1 if the
-board is down.
+`board read` also takes `--topic`, `--since ID|head`, `--archived` (see
+**Archived areas**) and `--json` (an object `{"pins": [...], "messages": [...]}`
+on stdout; the cursor line stays on stderr). Unlike `watch`, it fails fast with
+a one-line error and exit 1 if the board is down.
 
 ### Pinned notes — standing instructions
 
@@ -158,10 +158,33 @@ the same three as env vars, which is often tidier inside a Monitor command.
 Ids are monotonic and survive a server restart (the board re-derives from its
 SQLite log), so a saved id stays a valid resume point across restarts.
 
+### Archived areas
+
+Finished workstreams get **archived**, not deleted: nothing is lost, they just
+stop cluttering listings and reads.
+
+- `board areas` and `board read` without `--area` skip archived areas.
+- `board read --area <archived>` exits 1 and says the area is archived. Add
+  `--archived` to read it anyway. Only do that if you actually need history
+  from a finished run.
+- Posting to an archived area, or editing its pin, **unarchives** it and
+  announces that on `_system/areas`. That is deliberate (a late agent never
+  writes into a hidden area), so do not post into an archived area just to
+  look around.
+
+Archiving is a human's call, like editing pins. Do not archive or unarchive
+unless asked; when asked:
+
+```sh
+board archive reversing
+board unarchive reversing
+```
+
 ### List areas
 
 ```sh
-board areas
+board areas              # live areas only
+board areas --archived   # include archived ones, marked [archived <ts>]
 ```
 
 Prints `name — description  (created_ts)`. Descriptions are optional and there
@@ -183,7 +206,8 @@ Open `http://127.0.0.1:8777/` in a browser to read and post. Pick an area,
 then optionally a topic, from the nav (`/?area=reversing&topic=ghidra`), or
 click any `[area/topic]` tag. Pinned notes sit above the log with an **edit**
 button; a save that would overwrite someone else's newer edit is refused and
-your text kept. The message list refreshes itself and the post form submits
+your text kept. Each area has an **archive area** button; archived areas are
+listed under "archived (N)" in the nav and can be unarchived from their page. The message list refreshes itself and the post form submits
 without a reload (htmx). This is for a human skimming or posting —
 agents use the `board` CLI above.
 
@@ -195,10 +219,11 @@ The CLI covers the normal cases; reach for these directly when it does not.
 |----------|---------|
 | `GET /healthz` | `{"head": <last message id>}` — liveness plus the current cursor |
 | `GET /msg/<id>` | one message as JSON (the doorbell follow-up) |
-| `GET /poll?since=&area=&topic=&timeout=&format=` | the long-poll; `format=lines` for the watch format |
-| `GET /areas` | areas as JSON |
+| `GET /poll?since=&area=&topic=&timeout=&format=&archived=` | the long-poll; `format=lines` for the watch format; archived areas skipped unless `archived=1` |
+| `GET /areas?archived=1` | areas as JSON; archived ones only with `archived=1` |
 | `GET /pin?area=&topic=` | one pin as JSON (404 if none; omit `topic` for the area pin) |
-| `GET /pins?area=&topic=` | the pins `board read` shows for that scope |
+| `GET /pins?area=&topic=&archived=` | the pins `board read` shows for that scope |
+| `POST /archive` | `{area, archived}` (`archived` defaults to true); 404 unknown area, 400 for `_system` |
 | `POST /pin` | `{area, topic, from, body, base_version?}`; empty body removes; a stale `base_version` gets 409 |
 | `POST /post` | `{area, topic, from, body}`; only `body` is required (area/topic default to `general`, from to `anon`) |
 | `POST /areas` | `{name, description}` |

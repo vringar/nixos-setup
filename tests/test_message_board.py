@@ -129,10 +129,15 @@ def _serve_polls_from_core(monkeypatch, page=500):
 
     def fake_get(path):
         q = {k: v[0] for k, v in parse_qs(urlparse(path).query).items()}
+        archived = q.get("archived") == "1"
+        if urlparse(path).path == "/areas":
+            return json.dumps(board.list_areas(include_archived=archived))
         if urlparse(path).path == "/pins":
-            return json.dumps(board.pins_for(q.get("area", ""), q.get("topic", "")))
+            return json.dumps(board.pins_for(q.get("area", ""), q.get("topic", ""),
+                                             include_archived=archived))
         rows = board.poll(int(q.get("since", 0)), q.get("area", ""),
-                          q.get("topic", ""), float(q.get("timeout", 0)))
+                          q.get("topic", ""), float(q.get("timeout", 0)),
+                          include_archived=archived)
         return json.dumps(rows[:page])
 
     monkeypatch.setattr(board, "_client_get", fake_get)
@@ -368,3 +373,137 @@ def test_topic_watchers_hear_area_pin_updates_but_not_other_topics(db):
     db.set_pin("reversing", "fuzz", "s", "fuzz-only pin")
     ghidra = [m["body"].splitlines()[0] for m in db.poll(0, "reversing", "ghidra", 0)]
     assert ghidra == ["pin updated: reversing v1"]
+
+
+# --- archiving ----------------------------------------------------------------
+
+def test_archive_hides_area_from_listings_and_unscoped_reads(db):
+    db.post("reversing", "ghidra", "g", "old run")
+    db.set_pin("reversing", "", "s", "old manifesto")
+    db.post("openwpm", "crawler", "c", "live")
+    assert db.set_archived("reversing", True) is True
+    assert [a["name"] for a in db.list_areas()] == [board.SYSTEM_AREA, "openwpm"]
+    assert "reversing" in [a["name"] for a in db.list_areas(include_archived=True)]
+    live = [m["body"] for m in db.poll(0, "", "", 0, include_archived=False)
+            if m["area"] != board.SYSTEM_AREA]
+    assert live == ["live"]
+    assert db.pins_for(include_archived=False) == []
+    # nothing is deleted: the archive is still readable when asked for
+    assert "old run" in [m["body"] for m in db.poll(0, "reversing", "ghidra", 0)]
+
+
+def test_archive_is_announced_and_idempotent(db):
+    db.post("reversing", "ghidra", "g", "x")
+    assert db.set_archived("reversing", True) is True
+    assert db.set_archived("reversing", True) is False  # no second announcement
+    ann = [m["body"] for m in db.query_since(0, board.SYSTEM_AREA, "areas")]
+    assert ann == ["new area: **reversing**", "area archived: **reversing**"]
+
+
+def test_activity_unarchives(db):
+    db.post("reversing", "ghidra", "g", "x")
+    db.set_archived("reversing", True)
+    db.post("reversing", "ghidra", "late-agent", "still here")
+    assert "reversing" in [a["name"] for a in db.list_areas()]
+    db.set_archived("reversing", True)
+    db.set_pin("reversing", "", "s", "pin edit counts too")
+    assert "reversing" in [a["name"] for a in db.list_areas()]
+    ann = [m["body"] for m in db.query_since(0, board.SYSTEM_AREA, "areas")]
+    assert ann.count("area unarchived: **reversing**") == 2
+
+
+def test_archive_rejects_system_and_unknown_areas(db):
+    with pytest.raises(ValueError):
+        db.set_archived(board.SYSTEM_AREA, True)
+    with pytest.raises(KeyError):
+        db.set_archived("nowhere", True)
+
+
+def test_old_board_is_migrated(tmp_path):
+    import sqlite3
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript("""
+        CREATE TABLE areas(name TEXT PRIMARY KEY, description TEXT NOT NULL DEFAULT '',
+                           created_ts TEXT NOT NULL);
+        INSERT INTO areas VALUES('reversing', '', '2026-09-01T00:00:00Z');""")
+    old.commit()
+    old.close()
+    board.init_db(path)
+    assert board.set_archived("reversing", True) is True
+    board.init_db(path)  # second open must not try to add the column again
+    assert board.list_areas() == []
+
+
+def test_cli_archive_unarchive_and_areas_flag(server, db, capsys):
+    db.post("reversing", "ghidra", "g", "x")
+    board.main(["archive", "reversing"])
+    assert "reversing archived" in capsys.readouterr().err
+    board.main(["archive", "reversing"])
+    assert "already archived" in capsys.readouterr().err
+    board.main(["areas"])
+    assert "reversing" not in capsys.readouterr().out
+    board.main(["areas", "--archived"])
+    assert "reversing" in capsys.readouterr().out.split("[archived")[0]
+    board.main(["unarchive", "reversing"])
+    board.main(["areas"])
+    assert "reversing" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as e:
+        board.main(["archive", "nowhere"])
+    assert e.value.code == "board: no such area: nowhere"
+    with pytest.raises(SystemExit) as e:
+        board.main(["archive", board.SYSTEM_AREA])
+    assert "cannot be archived" in e.value.code
+
+
+def test_cli_read_hides_archived_unless_asked(server, db, capsys):
+    db.post("reversing", "ghidra", "g", "OLD RUN")
+    db.set_pin("reversing", "", "s", "OLD MANIFESTO")
+    db.post("openwpm", "crawler", "c", "LIVE WORK")
+    db.set_archived("reversing", True)
+    board.main(["read"])
+    out = capsys.readouterr().out
+    assert "LIVE WORK" in out and "OLD RUN" not in out and "OLD MANIFESTO" not in out
+    with pytest.raises(SystemExit) as e:  # by name: say why, don't print nothing
+        board.main(["read", "--area", "reversing"])
+    assert e.value.code == "board: area reversing is archived; add --archived to read it"
+    board.main(["read", "--area", "reversing", "--archived"])
+    out = capsys.readouterr().out
+    assert "OLD MANIFESTO" in out and "OLD RUN" in out
+    board.main(["read", "--archived"])
+    assert "OLD RUN" in capsys.readouterr().out
+
+
+def test_web_archive_button_roundtrip(server, db):
+    import urllib.request
+    db.post("reversing", "ghidra", "g", "x")
+    _, page = _get(f"{server}/?area=reversing")
+    assert "archive area" in page
+    _, page = _get(f"{server}/?area={board.SYSTEM_AREA}")
+    assert "archive area" not in page  # _system cannot be archived
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+    opener = urllib.request.build_opener(NoRedirect)
+
+    def form_post(data):
+        req = urllib.request.Request(f"{server}/ui/archive", method="POST",
+                                     data=urlencode_(data).encode())
+        try:
+            opener.open(req, timeout=5)
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers.get("Location")
+
+    from urllib.parse import urlencode as urlencode_
+    assert form_post({"area": "reversing", "archived": "1"}) == (303, "/")
+    _, home = _get(f"{server}/")
+    assert 'href="/?area=reversing"' not in home.split("archived (")[0]
+    assert "archived (1)" in home
+    _, listing = _get(f"{server}/?show=archived")
+    assert 'href="/?area=reversing"' in listing
+    _, page = _get(f"{server}/?area=reversing")
+    assert "Archived since" in page and ">unarchive<" in page
+    assert form_post({"area": "reversing", "archived": "0"}) == (303, "/?area=reversing")
+    _, home = _get(f"{server}/")
+    assert "archived (" not in home
