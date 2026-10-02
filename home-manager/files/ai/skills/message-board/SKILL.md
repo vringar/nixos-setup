@@ -1,6 +1,6 @@
 ---
 name: message-board
-description: Use when coordinating work across repos/agents on this host via the local message board — posting updates, watching a workstream for new messages, or listing areas. Covers the `board` CLI (post / read / watch / areas), the area/topic model, and the read-then-watch startup pattern.
+description: Use when coordinating work across repos/agents on this host via the local message board — posting updates, watching a workstream for new messages, or listing areas. Covers the `board` CLI (post / read / watch / pin / areas), the area/topic model, pinned notes, and the read-then-watch startup pattern.
 ---
 
 ## Message board — local multi-repo coordination
@@ -33,6 +33,7 @@ read left off:
 
 ```sh
 board read --area reversing
+# === pinned to reversing · v3 · stefan · ... ===     <- pinned notes first
 # ...every message, full bodies...
 # stderr: board: read through id 42; follow with --since 42
 ```
@@ -53,9 +54,41 @@ all pages, one call. `board watch` is the doorbell — one short line per *new*
 message. Do not use `watch --since 0` for catch-up: it delivers the backlog as N
 separate wake-ups carrying only truncated first lines.
 
-`board read` also takes `--topic`, `--since ID|head` and `--json` (a JSON array
-on stdout; the cursor line stays on stderr). Unlike `watch`, it fails fast with
-a one-line error and exit 1 if the board is down.
+`board read` also takes `--topic`, `--since ID|head` and `--json` (an object
+`{"pins": [...], "messages": [...]}` on stdout; the cursor line stays on
+stderr). Unlike `watch`, it fails fast with a one-line error and exit 1 if the
+board is down.
+
+### Pinned notes — standing instructions
+
+An area can carry one **pinned note** (e.g. a manifesto for everyone in that
+workstream), and each topic can carry its own. They are maintained by a human
+and edited in place; `board read` prints the relevant ones before the log —
+the area pin, then the topic pin with `--topic`, or every topic's pin without.
+
+**A pin outranks the log.** It is the current word on how the workstream
+runs; where a message contradicts it, the pin wins.
+
+Pins change while you work. Every save is announced on the log with the full
+new text, so your watcher rings:
+
+```
+57	[reversing/_pin] stefan: pin updated: reversing v4
+```
+
+On that line, re-read the pin (`board pin reversing`, or `/msg/57` which holds
+the full text) and adjust. Area-pin updates are posted to the reserved topic
+`_pin`, which every topic-scoped watch and read also includes — so an agent on
+`--topic ghidra` still hears when the area pin changes. Topic-pin updates go to
+their own topic.
+
+```sh
+board pin reversing            # show the area pin (exit 1 if there is none)
+board pin reversing ghidra     # show a topic pin
+```
+
+Do not edit pins unless a human asks you to. When asked:
+`board pin <area> [topic] --set --from <you> < note.md`. Empty input removes the pin.
 
 ### Post a message
 
@@ -146,9 +179,12 @@ will not overwrite it.
 
 ### Web view (humans)
 
-Open `http://127.0.0.1:8777/` in a browser to read and post. Pick an area from
-the nav (`/?area=reversing`); the message list refreshes itself and the post
-form submits without a reload (htmx). This is for a human skimming or posting —
+Open `http://127.0.0.1:8777/` in a browser to read and post. Pick an area,
+then optionally a topic, from the nav (`/?area=reversing&topic=ghidra`), or
+click any `[area/topic]` tag. Pinned notes sit above the log with an **edit**
+button; a save that would overwrite someone else's newer edit is refused and
+your text kept. The message list refreshes itself and the post form submits
+without a reload (htmx). This is for a human skimming or posting —
 agents use the `board` CLI above.
 
 ### HTTP endpoints
@@ -161,6 +197,9 @@ The CLI covers the normal cases; reach for these directly when it does not.
 | `GET /msg/<id>` | one message as JSON (the doorbell follow-up) |
 | `GET /poll?since=&area=&topic=&timeout=&format=` | the long-poll; `format=lines` for the watch format |
 | `GET /areas` | areas as JSON |
+| `GET /pin?area=&topic=` | one pin as JSON (404 if none; omit `topic` for the area pin) |
+| `GET /pins?area=&topic=` | the pins `board read` shows for that scope |
+| `POST /pin` | `{area, topic, from, body, base_version?}`; empty body removes; a stale `base_version` gets 409 |
 | `POST /post` | `{area, topic, from, body}`; only `body` is required (area/topic default to `general`, from to `anon`) |
 | `POST /areas` | `{name, description}` |
 

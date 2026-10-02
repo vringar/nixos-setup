@@ -7,7 +7,8 @@ Single host, stdlib only, one command with subcommands:
     board post <area> <topic> <from> <body>  post a markdown message
     board watch [--area A] [--topic T]       long-poll -> one line per message
                 [--since ID|head]            'head' = only messages from now on
-    board read [--area A] [--topic T]        one-shot: full backlog, then exit
+    board read [--area A] [--topic T]        one-shot: pins + full backlog, then exit
+    board pin <area> [topic] [--set]         show a pinned note, or replace it from stdin
     board areas                              list areas
 
 The address is two levels:
@@ -87,6 +88,14 @@ def init_db(path):
             sender TEXT NOT NULL,
             body TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_messages_area ON messages(area, id);
+        CREATE TABLE IF NOT EXISTS pins(
+            area TEXT NOT NULL,
+            topic TEXT NOT NULL,  -- '' = the area-wide pin
+            body TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            editor TEXT NOT NULL,
+            ts TEXT NOT NULL,
+            PRIMARY KEY(area, topic));
         """
     )
     conn.commit()
@@ -155,9 +164,9 @@ def _query(since, area, topic, limit=500):
     if area:
         sql += " AND area=?"
         args.append(area)
-    if topic:
-        sql += " AND topic=?"
-        args.append(topic)
+    if topic:  # an area pin applies to every topic, so its updates do too
+        sql += " AND topic IN (?, ?)"
+        args += [topic, PIN_TOPIC]
     sql += " ORDER BY id LIMIT ?"
     args.append(limit)
     return [
@@ -205,6 +214,78 @@ def recent(area, topic, limit=100):
     return rows[-limit:]
 
 
+# Pins: one editable note per area ('' topic) and per topic, shown above the
+# log. The log itself stays append-only; every pin save is also posted to it,
+# which both wakes watchers and keeps the pin's full history.
+PIN_TOPIC = "_pin"  # where area-wide pin updates are announced
+
+
+class StalePin(Exception):
+    """The pin changed since the editor loaded it."""
+
+
+def get_pin(area, topic=""):
+    with _cv:
+        r = _db.execute(
+            "SELECT area, topic, body, version, editor, ts FROM pins"
+            " WHERE area=? AND topic=?", (area, topic)).fetchone()
+    return None if r is None else dict(
+        zip(("area", "topic", "body", "version", "editor", "ts"), r))
+
+
+def pins_for(area="", topic=""):
+    """The pins a reader of this scope should see: area-wide first, then the
+    topic's own -- or every topic's, when no topic is given. No area: all."""
+    sql = "SELECT area, topic FROM pins"
+    args = []
+    if area:
+        sql += " WHERE area=?"
+        args.append(area)
+        if topic:
+            sql += " AND topic IN ('', ?)"
+            args.append(topic)
+    with _cv:
+        keys = _db.execute(sql + " ORDER BY area, topic", args).fetchall()
+        return [get_pin(a, t) for a, t in keys]
+
+
+def set_pin(area, topic, editor, body, base_version=None):
+    """Create, replace or (empty body) remove a pin; announce it on the log.
+
+    `base_version` is the version the editor started from; a mismatch raises
+    StalePin instead of silently overwriting someone else's edit.
+    """
+    with _cv:
+        cur = get_pin(area, topic)
+        current = cur["version"] if cur else 0
+        if base_version is not None and base_version != current:
+            raise StalePin(current)
+        where = f"{area}/{topic}" if topic else area
+        if not body.strip():
+            _db.execute("DELETE FROM pins WHERE area=? AND topic=?", (area, topic))
+            note = f"pin removed: {where}"
+            version = current
+        else:
+            version = current + 1
+            _db.execute(
+                "INSERT OR REPLACE INTO pins VALUES(?,?,?,?,?,?)",
+                (area, topic, body, version, editor, _now()))
+            note = f"pin updated: {where} v{version}\n\n{body}"
+        _db.commit()
+        _ensure_area(area)
+        _insert(area, topic or PIN_TOPIC, editor, note)
+        _cv.notify_all()
+    return version
+
+
+def list_topics(area):
+    with _cv:
+        return [r[0] for r in _db.execute(
+            "SELECT topic FROM messages WHERE area=? UNION"
+            " SELECT topic FROM pins WHERE area=? AND topic<>'' ORDER BY 1",
+            (area, area))]
+
+
 # ---------------------------------------------------------------------------
 # Web view (Jinja + HTMX). Jinja is imported lazily in _web_init so the core
 # and its unit tests stay stdlib-only.
@@ -226,15 +307,28 @@ _PAGE = """<!doctype html>
   .meta { color: #666; font-size: 12px; }
   .body { white-space: pre-wrap; margin-top: .15rem; }
   .empty { color: #999; }
+  .pin { border: 1px solid #e3c96b; background: #fffbea; border-radius: 6px;
+         padding: .5rem .7rem; margin: .6rem 0; }
+  .pin.missing { background: none; border-style: dashed; }
+  .pin .body { margin-top: .3rem; }
+  .pin textarea { min-height: 12rem; }
+  .error { color: #a00; margin: 0 0 .4rem; }
+  nav .current { font-weight: 600; }
   form input, form textarea { width: 100%; box-sizing: border-box; margin: .2rem 0; }
   form textarea { min-height: 5rem; }
   .row { display: flex; gap: .5rem; }
 </style></head><body>
 <h1>message board</h1>
 <nav>areas: <a href="/">all</a>
-  {% for a in areas %}<a href="/?area={{ a.name }}">{{ a.name }}</a>{% endfor %}</nav>
+  {% for a in areas %}<a href="/?area={{ a.name|urlencode }}"
+    {% if a.name == area %}class="current"{% endif %}>{{ a.name }}</a>{% endfor %}</nav>
+{% if area %}<nav>topics: <a href="/?area={{ area|urlencode }}"
+    {% if not topic %}class="current"{% endif %}>all</a>
+  {% for t in topics %}<a href="/?area={{ area|urlencode }}&topic={{ t|urlencode }}"
+    {% if t == topic %}class="current"{% endif %}>{{ t }}</a>{% endfor %}</nav>{% endif %}
 <h2>{{ area or "all areas" }}{% if topic %} / {{ topic }}{% endif %}</h2>
-<div id="messages" hx-get="/ui/messages?area={{ area }}&topic={{ topic }}"
+{{ pins|safe }}
+<div id="messages" hx-get="/ui/messages?area={{ area|urlencode }}&topic={{ topic|urlencode }}"
      hx-trigger="every 3s" hx-swap="innerHTML">{{ rows|safe }}</div>
 <h3>post a message</h3>
 <form hx-post="/ui/post" hx-target="#messages" hx-swap="innerHTML"
@@ -249,20 +343,64 @@ _PAGE = """<!doctype html>
 </form></body></html>"""
 
 _ROWS = """{% for m in messages %}<div class="msg">
-<span class="meta">#{{ m.id }} [{{ m.area }}/{{ m.topic }}] {{ m['from'] }} · {{ m.ts }}</span>
+<span class="meta">#{{ m.id }}
+<a href="/?area={{ m.area|urlencode }}&topic={{ m.topic|urlencode }}">[{{ m.area }}/{{ m.topic }}]</a>
+{{ m['from'] }} · {{ m.ts }}</span>
 <div class="body">{{ m.body }}</div></div>
 {% else %}<p class="empty">no messages yet</p>{% endfor %}"""
 
+# One pin box. `q` is the pin's own query string, so the box can re-fetch
+# itself (cancel) or its edit form without knowing what page it sits on.
+_PIN = """{% set q = "area=" ~ (area|urlencode) ~ "&topic=" ~ (topic|urlencode) %}
+{% set where = area ~ ("/" ~ topic if topic else "") %}
+{% if pin %}<div class="pin">
+<div class="meta">pinned to {{ where }} · v{{ pin.version }} · {{ pin.editor }} · {{ pin.ts }}
+<button hx-get="/ui/pin/edit?{{ q }}" hx-target="closest .pin" hx-swap="outerHTML">edit</button></div>
+<div class="body">{{ pin.body }}</div></div>
+{% else %}<div class="pin missing">
+<button hx-get="/ui/pin/edit?{{ q }}" hx-target="closest .pin" hx-swap="outerHTML">pin a note to {{ where }}</button></div>
+{% endif %}"""
+
+_PIN_FORM = """{% set q = "area=" ~ (area|urlencode) ~ "&topic=" ~ (topic|urlencode) %}
+<form class="pin" hx-post="/ui/pin" hx-target="this" hx-swap="outerHTML">
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<input type="hidden" name="area" value="{{ area }}">
+<input type="hidden" name="topic" value="{{ topic }}">
+<input type="hidden" name="base_version" value="{{ base_version }}">
+<input name="from" placeholder="from" value="{{ sender }}" required>
+<textarea name="body" placeholder="markdown; leave empty to remove the pin">{{ body }}</textarea>
+<button type="submit">save</button>
+<button type="button" hx-get="/ui/pin?{{ q }}" hx-target="closest .pin" hx-swap="outerHTML">cancel</button>
+</form>"""
+
 _page_t = None
 _rows_t = None
+_pin_t = None
+_pin_form_t = None
 
 
 def _web_init():
-    global _page_t, _rows_t
+    global _page_t, _rows_t, _pin_t, _pin_form_t
     import jinja2  # lazy: only the server needs it
     env = jinja2.Environment(autoescape=True)
     _page_t = env.from_string(_PAGE)
     _rows_t = env.from_string(_ROWS)
+    _pin_t = env.from_string(_PIN)
+    _pin_form_t = env.from_string(_PIN_FORM)
+
+
+def render_pin(area, topic):
+    return _pin_t.render(area=area, topic=topic, pin=get_pin(area, topic))
+
+
+def render_pin_form(area, topic, sender="me", body=None, base_version=None, error=""):
+    pin = get_pin(area, topic)
+    if base_version is None:
+        base_version = pin["version"] if pin else 0
+    if body is None:
+        body = pin["body"] if pin else ""
+    return _pin_form_t.render(area=area, topic=topic, sender=sender, body=body,
+                              base_version=base_version, error=error)
 
 
 def render_rows(area, topic):
@@ -270,8 +408,12 @@ def render_rows(area, topic):
 
 
 def render_page(area, topic, sender="me"):
+    pins = ""
+    if area:  # the area-wide pin, then the topic's own
+        pins = render_pin(area, "") + (render_pin(area, topic) if topic else "")
     return _page_t.render(areas=list_areas(), area=area, topic=topic,
-                          sender=sender, rows=render_rows(area, topic))
+                          topics=list_topics(area) if area else [],
+                          pins=pins, sender=sender, rows=render_rows(area, topic))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -297,6 +439,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def _read_form(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        return {k: v[0] for k, v in
+                parse_qs(self.rfile.read(length).decode("utf-8"),
+                         keep_blank_values=True).items()}
 
     def _read_json(self):
         length = int(self.headers.get("Content-Length", "0"))
@@ -330,6 +478,23 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, IndexError):
                 self._send(404, json.dumps({"error": "no such id"}))
             return
+        if u.path == "/pins":
+            self._send(200, json.dumps(pins_for(q.get("area", [""])[0],
+                                                q.get("topic", [""])[0])))
+            return
+        if u.path in ("/pin", "/ui/pin", "/ui/pin/edit"):
+            area, topic = q.get("area", [""])[0], q.get("topic", [""])[0]
+            if not area:
+                self._send(400, json.dumps({"error": "need an 'area'"}))
+            elif u.path == "/ui/pin":
+                self._send(200, render_pin(area, topic), "text/html; charset=utf-8")
+            elif u.path == "/ui/pin/edit":
+                self._send(200, render_pin_form(area, topic), "text/html; charset=utf-8")
+            else:
+                pin = get_pin(area, topic)
+                self._send(200 if pin else 404,
+                           json.dumps(pin or {"error": "no pin"}))
+            return
         if u.path == "/ui/messages":
             self._send(200, render_rows(q.get("area", [""])[0], q.get("topic", [""])[0]),
                        "text/html; charset=utf-8")
@@ -352,10 +517,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == "/ui/pin":  # HTMX pin editor -> the saved pin box
+            form = self._read_form()
+            area, topic = form.get("area", ""), form.get("topic", "")
+            if not area:
+                self._send(400, json.dumps({"error": "need an 'area'"}))
+                return
+            try:
+                set_pin(area, topic, form.get("from") or "anon", form.get("body", ""),
+                        base_version=int(form.get("base_version") or 0))
+                html = render_pin(area, topic)
+            except StalePin as stale:
+                # Keep their text; the next save is a deliberate overwrite.
+                html = render_pin_form(
+                    area, topic, form.get("from") or "anon", form.get("body", ""),
+                    base_version=stale.args[0],
+                    error=f"Someone saved v{stale.args[0]} while you were editing."
+                          " Your text is below; save again to overwrite theirs.")
+            self._send(200, html, "text/html; charset=utf-8")
+            return
         if path == "/ui/post":  # HTMX form submit -> return the refreshed list
-            length = int(self.headers.get("Content-Length", "0"))
-            form = {k: v[0] for k, v in
-                    parse_qs(self.rfile.read(length).decode("utf-8")).items()}
+            form = self._read_form()
             if form.get("body"):
                 post(form.get("area") or "general", form.get("topic") or "general",
                      form.get("from") or "anon", form["body"])
@@ -374,6 +556,20 @@ class Handler(BaseHTTPRequestHandler):
             mid = post(data.get("area", "general"), data.get("topic", "general"),
                        data.get("from", "anon"), data["body"])
             self._send(200, json.dumps({"id": mid}))
+            return
+        if path == "/pin":
+            if not data.get("area") or "body" not in data:
+                self._send(400, json.dumps({"error": "need 'area' and 'body'"}))
+                return
+            try:
+                version = set_pin(data["area"], data.get("topic", ""),
+                                  data.get("from", "anon"), data["body"],
+                                  base_version=data.get("base_version"))
+            except StalePin as stale:
+                self._send(409, json.dumps({"error": "pin changed since base_version",
+                                            "version": stale.args[0]}))
+                return
+            self._send(200, json.dumps({"version": version}))
             return
         if path == "/areas":
             if "name" not in data:
@@ -403,17 +599,44 @@ def _client_get(path):
         return resp.read().decode("utf-8")
 
 
-def cmd_post(args):
-    payload = json.dumps({
-        "area": args.area, "topic": args.topic,
-        "from": args.sender, "body": " ".join(args.body),
-    }).encode("utf-8")
+def _client_post(path, data):
     req = urllib.request.Request(
-        f"{BASE_URL}/post", data=payload,
+        f"{BASE_URL}{path}", data=json.dumps(data).encode("utf-8"),
         headers={"content-type": "application/json"}, method="POST",
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
-        print(resp.read().decode("utf-8"))
+        return resp.read().decode("utf-8")
+
+
+def cmd_post(args):
+    print(_client_post("/post", {
+        "area": args.area, "topic": args.topic,
+        "from": args.sender, "body": " ".join(args.body),
+    }))
+
+
+def _pin_header(p):
+    where = f"{p['area']}/{p['topic']}" if p["topic"] else p["area"]
+    return f"=== pinned to {where} · v{p['version']} · {p['editor']} · {p['ts']} ==="
+
+
+def cmd_pin(args):
+    """Show a pin, or with --set replace it from stdin (empty input removes it)."""
+    if args.set:
+        out = json.loads(_client_post("/pin", {
+            "area": args.area, "topic": args.topic or "",
+            "from": args.sender, "body": sys.stdin.read(),
+        }))
+        print(f"board: pin saved as v{out['version']}", file=sys.stderr)
+        return
+    try:
+        pin = json.loads(_client_get(f"/pin?{urlencode({'area': args.area, 'topic': args.topic or ''})}"))
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        sys.exit(f"board: no pin on {args.area}{'/' + args.topic if args.topic else ''}")
+    print(_pin_header(pin))
+    print(pin["body"].rstrip())
 
 
 def read_all(since, area, topic):
@@ -438,11 +661,17 @@ def cmd_read(args):
     """
     head = _head()  # one-shot: a down board fails fast instead of retrying
     since = head if args.since == "head" else args.since
+    scope = urlencode({"area": args.area or "", "topic": args.topic or ""})
+    pins = json.loads(_client_get(f"/pins?{scope}"))
     msgs = read_all(since, args.area or "", args.topic or "")
     cursor = max([head] + [m["id"] for m in msgs])
     if args.json:
-        print(json.dumps(msgs, indent=2))
+        print(json.dumps({"pins": pins, "messages": msgs}, indent=2))
     else:
+        for p in pins:  # standing instructions come before the log
+            print(_pin_header(p))
+            print(p["body"].rstrip())
+            print()
         for m in msgs:
             print(f"#{m['id']}  {m['ts']}  [{m['area']}/{m['topic']}] {m['from']}")
             print(m["body"].rstrip())
@@ -544,6 +773,15 @@ def main(argv=None):
                     help="start after this message id (default: everything)")
     sr.add_argument("--json", action="store_true", help="emit a JSON array")
     sr.set_defaults(fn=cmd_read)
+
+    spin = sub.add_parser("pin", help="show an area/topic pin, or --set it from stdin")
+    spin.add_argument("area")
+    spin.add_argument("topic", nargs="?", default="",
+                      help="omit for the area-wide pin")
+    spin.add_argument("--set", action="store_true",
+                      help="replace the pin with stdin (empty stdin removes it)")
+    spin.add_argument("--from", dest="sender", default=os.environ.get("USER", "anon"))
+    spin.set_defaults(fn=cmd_pin)
 
     sub.add_parser("areas", help="list areas").set_defaults(fn=cmd_areas)
 
