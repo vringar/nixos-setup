@@ -199,16 +199,20 @@ def test_read_cursor_covers_posts_racing_the_read(db, monkeypatch, capsys):
     assert sorted(shown + followed) == sorted(["before", "raced the read", "after"])
 
 
-def test_pin_versions_and_announces_with_full_body(db):
+def test_pin_versions_and_announces_as_a_doorbell_not_a_copy(db):
     assert db.set_pin("reversing", "", "stefan", "manifesto v1") == 1
     assert db.set_pin("reversing", "", "stefan", "manifesto v2\nline two") == 2
     pin = db.get_pin("reversing")
     assert (pin["body"], pin["version"]) == ("manifesto v2\nline two", 2)
-    # every save lands on the log: watchers wake, and history is kept
+    # every save lands on the log: watchers wake, and history is kept -- but
+    # the log carries a pointer, not the pin's own text (which may be
+    # unrelated or sensitive-sounding out of the context a human reading the
+    # pin box gets; see `pins_for`'s no-area case for the same principle)
     log = db.query_since(0, "reversing", board.PIN_TOPIC)
-    assert [m["body"].splitlines()[0] for m in log] == [
-        "pin updated: reversing v1", "pin updated: reversing v2"]
-    assert log[-1]["body"].endswith("manifesto v2\nline two")
+    assert [m["body"] for m in log] == [
+        "pin updated: reversing v1 — see `board pin reversing`",
+        "pin updated: reversing v2 — see `board pin reversing`"]
+    assert "manifesto" not in log[-1]["body"]
 
 
 def test_topic_pin_is_announced_in_its_topic(db):
@@ -242,6 +246,8 @@ def test_pins_for_scope(db):
     assert bodies(db.pins_for("reversing", "ghidra")) == ["area", "g"]
     assert bodies(db.pins_for("reversing")) == ["area", "f", "g"]
     assert db.pins_for("nowhere") == []
+    # no area: nothing, not "every area" -- area is the isolation boundary
+    assert db.pins_for() == []
 
 
 def test_list_topics_includes_pinned_only_topics(db):
@@ -371,8 +377,8 @@ def test_topic_watchers_hear_area_pin_updates_but_not_other_topics(db):
     db.post("reversing", "fuzz", "f", "fuzz chatter")
     db.set_pin("reversing", "", "s", "manifesto")
     db.set_pin("reversing", "fuzz", "s", "fuzz-only pin")
-    ghidra = [m["body"].splitlines()[0] for m in db.poll(0, "reversing", "ghidra", 0)]
-    assert ghidra == ["pin updated: reversing v1"]
+    ghidra = [m["body"] for m in db.poll(0, "reversing", "ghidra", 0)]
+    assert ghidra == ["pin updated: reversing v1 — see `board pin reversing`"]
 
 
 # --- archiving ----------------------------------------------------------------
@@ -387,7 +393,8 @@ def test_archive_hides_area_from_listings_and_unscoped_reads(db):
     live = [m["body"] for m in db.poll(0, "", "", 0, include_archived=False)
             if m["area"] != board.SYSTEM_AREA]
     assert live == ["live"]
-    assert db.pins_for(include_archived=False) == []
+    assert db.pins_for("reversing", include_archived=False) == []
+    assert db.pins_for("reversing", include_archived=True) != []
     # nothing is deleted: the archive is still readable when asked for
     assert "old run" in [m["body"] for m in db.poll(0, "reversing", "ghidra", 0)]
 
@@ -456,22 +463,27 @@ def test_cli_archive_unarchive_and_areas_flag(server, db, capsys):
     assert "cannot be archived" in e.value.code
 
 
+def test_cli_read_requires_an_area(server, db):
+    # No silent "every area merged": that was exactly how an unrelated
+    # agent's first move pulled in another workstream's pinned instructions.
+    with pytest.raises(SystemExit) as e:
+        board.main(["read"])
+    assert "no --area given" in e.value.code
+    with pytest.raises(SystemExit) as e:
+        board.main(["read", "--archived"])  # --archived alone still needs a scope
+    assert "no --area given" in e.value.code
+
+
 def test_cli_read_hides_archived_unless_asked(server, db, capsys):
     db.post("reversing", "ghidra", "g", "OLD RUN")
     db.set_pin("reversing", "", "s", "OLD MANIFESTO")
-    db.post("openwpm", "crawler", "c", "LIVE WORK")
     db.set_archived("reversing", True)
-    board.main(["read"])
-    out = capsys.readouterr().out
-    assert "LIVE WORK" in out and "OLD RUN" not in out and "OLD MANIFESTO" not in out
     with pytest.raises(SystemExit) as e:  # by name: say why, don't print nothing
         board.main(["read", "--area", "reversing"])
     assert e.value.code == "board: area reversing is archived; add --archived to read it"
     board.main(["read", "--area", "reversing", "--archived"])
     out = capsys.readouterr().out
     assert "OLD MANIFESTO" in out and "OLD RUN" in out
-    board.main(["read", "--archived"])
-    assert "OLD RUN" in capsys.readouterr().out
 
 
 def test_web_archive_button_roundtrip(server, db):

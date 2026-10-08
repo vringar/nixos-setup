@@ -284,17 +284,22 @@ def get_pin(area, topic=""):
 
 def pins_for(area="", topic="", include_archived=True):
     """The pins a reader of this scope should see: area-wide first, then the
-    topic's own -- or every topic's, when no topic is given. No area: all."""
-    sql = "SELECT area, topic FROM pins WHERE 1"
-    args = []
+    topic's own -- or every topic's, when no topic is given.
+
+    No area means no pins, not "every area's" -- a pin is a standing
+    instruction for its own workstream, and dumping every workstream's into
+    an unscoped read would cross the area isolation boundary the rest of the
+    board enforces.
+    """
+    if not area:
+        return []
+    sql = "SELECT area, topic FROM pins WHERE area=?"
+    args = [area]
     if not include_archived:
         sql += _LIVE
-    if area:
-        sql += " AND area=?"
-        args.append(area)
-        if topic:
-            sql += " AND topic IN ('', ?)"
-            args.append(topic)
+    if topic:
+        sql += " AND topic IN ('', ?)"
+        args.append(topic)
     with _cv:
         keys = _db.execute(sql + " ORDER BY area, topic", args).fetchall()
         return [get_pin(a, t) for a, t in keys]
@@ -321,7 +326,13 @@ def set_pin(area, topic, editor, body, base_version=None):
             _db.execute(
                 "INSERT OR REPLACE INTO pins VALUES(?,?,?,?,?,?)",
                 (area, topic, body, version, editor, _now()))
-            note = f"pin updated: {where} v{version}\n\n{body}"
+            # A doorbell, not a copy: the full body used to go straight into
+            # every topic's log (pins_for already shows it to a real reader of
+            # the area). That meant an agent scoped to one topic saw another
+            # topic's -- or the whole area's -- pin text as an ordinary
+            # message, out of the context a human reading the pin box gets.
+            ref = f"board pin {area} {topic}" if topic else f"board pin {area}"
+            note = f"pin updated: {where} v{version} — see `{ref}`"
         _db.commit()
         _ensure_area(area)
         _insert(area, topic or PIN_TOPIC, editor, note)
@@ -761,7 +772,13 @@ def cmd_read(args):
     reading, so `watch --since <cursor>` misses nothing posted after the read
     and repeats nothing the read already showed.
     """
-    if args.area and not args.archived:
+    if not args.area:
+        # No silent "every area merged": area is the isolation boundary, and
+        # an unscoped read is exactly how an unrelated agent's first action
+        # used to pull in another workstream's pinned instructions.
+        sys.exit("board: no --area given; an unscoped read shows nothing. "
+                 "See `board areas`, then `board read --area <area>`.")
+    if not args.archived:
         archived = {a["name"] for a in json.loads(_client_get("/areas?archived=1"))
                     if a["archived_ts"]}
         if args.area in archived:  # say so, rather than print an empty read
