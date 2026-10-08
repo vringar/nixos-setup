@@ -15,6 +15,7 @@ pkgs.rustPlatform.buildRustPackage {
   nativeBuildInputs = [
     pkgs.pkg-config
     pkgs.installShellFiles
+    pkgs.makeWrapper
   ];
   buildInputs = [pkgs.sqlite];
 
@@ -51,8 +52,42 @@ pkgs.rustPlatform.buildRustPackage {
     EOF
   '';
 
+  # The `crosslink` command this package puts on PATH is gate.py, not the
+  # real binary: crosslink grew its own autonomous-agent framework (kickoff/
+  # swarm/sentinel/agent/daemon/...) alongside its issue tracker, and this
+  # deployment only wants the issue tracker. The real binary moves to
+  # crosslink-real; gate.py forwards allowed commands to it, blocks denied
+  # ones with a reason, and -- for a top-level command that's neither kept
+  # nor denied -- checks known-commands.txt (generated below, against this
+  # same build) to tell "crosslink added something new, go review it" apart
+  # from "not a real command at all, let the real binary's own error say
+  # so". See apps/crosslink/gate.py for the full policy and reasoning.
   postInstall = ''
-    bash ${./generate-completions.sh} $out/bin/crosslink > _crosslink
+    mv $out/bin/crosslink $out/bin/crosslink-real
+
+    bash ${./generate-completions.sh} $out/bin/crosslink-real > _crosslink
     installShellCompletion --zsh --name _crosslink _crosslink
+
+    mkdir -p $out/share/crosslink
+    bash ${./extract-known-commands.sh} $out/bin/crosslink-real \
+      > $out/share/crosslink/known-commands.txt
+    # A near-empty result means crosslink's `help` output changed shape and
+    # the extraction silently broke -- fail the build instead of shipping a
+    # gate that can no longer tell a real new command from a hallucinated
+    # one (see gate.py: an empty known-commands list makes every unreviewed
+    # command look fake, forwarding it unchecked).
+    known_count=$(wc -l < $out/share/crosslink/known-commands.txt)
+    if [ "$known_count" -lt 20 ]; then
+      echo "crosslink: extract-known-commands.sh only found $known_count" \
+           "top-level commands (expected 20+) -- 'crosslink help' output" \
+           "shape probably changed; fix extract-known-commands.sh" >&2
+      exit 1
+    fi
+
+    install -Dm644 ${./gate.py} $out/share/crosslink/gate.py
+    makeWrapper ${pkgs.python3}/bin/python3 $out/bin/crosslink \
+      --add-flags $out/share/crosslink/gate.py \
+      --set CROSSLINK_REAL_BIN $out/bin/crosslink-real \
+      --set CROSSLINK_KNOWN_COMMANDS $out/share/crosslink/known-commands.txt
   '';
 }

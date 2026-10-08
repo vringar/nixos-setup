@@ -115,13 +115,13 @@
       "type": "Git",
       "repository": {
         "type": "GitHub",
-        "owner": "dollspace-gay",
+        "owner": "Corvidae-Coding-Projects",
         "repo": "crosslink"
       },
       "branch": "main",
       "submodules": false,
       "revision": "655dcbfdb9b985619d1be5b82cc0407871e541fb",
-      "url": "https://github.com/dollspace-gay/crosslink/archive/655dcbfdb9b985619d1be5b82cc0407871e541fb.tar.gz",
+      "url": "https://github.com/Corvidae-Coding-Projects/crosslink/archive/655dcbfdb9b985619d1be5b82cc0407871e541fb.tar.gz",
       "hash": "sha256-MWgbN7yiq08bVuxlVwwwAicDkB/D6SlBWXX7ab3+S1c="
     },
     "dmnlint": {
@@ -283,6 +283,19 @@
       "revision": "38462e3ab934add56ca2b4f3b7a6587c1d931065",
       "url": "https://github.com/camunda/skills/archive/38462e3ab934add56ca2b4f3b7a6587c1d931065.tar.gz",
       "hash": "sha256-DuHTd/occYuNL4/EEA09oIacuBudwkxx0la/Su3D+OQ="
+    },
+    "vetinari": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "vringar",
+        "repo": "vetinari"
+      },
+      "branch": "remove-crossbridge",
+      "submodules": false,
+      "revision": "274cb983bec272a3a162cc0a814ca81c961003a6",
+      "url": "https://github.com/vringar/vetinari/archive/274cb983bec272a3a162cc0a814ca81c961003a6.tar.gz",
+      "hash": "sha256-UWvQuHMZQlo7Tj+wghLrCECmsJ/3DmY8jffV9crY8A0="
     }
   },
   "version": 8
