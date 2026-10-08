@@ -16,5 +16,6 @@
   ]);
 in
   pkgs.writeShellScriptBin "claude-recall" ''
+    export FASTEMBED_CACHE_PATH="''${FASTEMBED_CACHE_PATH:-$HOME/.cache/fastembed}"
     exec ${python}/bin/python3 ${./claude_recall.py} "$@"
   ''
