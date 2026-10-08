@@ -13,3 +13,4 @@ echo "==> Build logs: $log_dir"
 
 scripts/update-pins.py --capture-logs "$log_dir"
 apps/c8ctl/update.sh
+apps/claude-code/update.sh

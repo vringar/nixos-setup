@@ -100,6 +100,10 @@
   crossbridge = import ../apps/crossbridge {inherit pkgs sources;};
   cpitd = import ../apps/crosslink/cpitd.nix {inherit pkgs sources;};
   rtk = import ../apps/rtk {inherit pkgs sources;};
+  # Track Anthropic's release manifest directly rather than waiting on nixpkgs.
+  claude-code = pkgs.claude-code.override {
+    manifest = lib.importJSON ../apps/claude-code/manifest.zst.json;
+  };
   claude-sandbox = import ../apps/claude-sandbox {inherit pkgs;};
   claude-recall = import ../apps/claude-recall {inherit pkgs;};
   message-board = import ../apps/message-board {inherit pkgs sources;};
@@ -241,7 +245,7 @@ in {
         rtk
         pkgs.jq
         pkgs.uv
-        pkgs.claude-code
+        claude-code
         pkgs.jdt-language-server
         pkgs.rust-analyzer
         claude-sandbox
@@ -383,7 +387,7 @@ in {
     home.activation.claudeMcpServers = lib.mkIf config.my.work.enable (
       lib.hm.dag.entryAfter ["writeBoundary"] (
         let
-          claude = "${pkgs.claude-code}/bin/claude";
+          claude = "${claude-code}/bin/claude";
           addServer = name: cfg: let
             # Use -- separator when args contain flags (start with -) to prevent
             # claude mcp add from parsing them as its own options.
