@@ -205,9 +205,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "4cf3e84377043ff7279e878210cc8aaa6646c66c",
+      "revision": "8a9515f8b0bf2aae4b01618b6382305e63c4c1d2",
       "url": null,
-      "hash": "sha256-Dyz1Mc/ZWkQI+U0zCoOOdfXvRU8MipaGHcwIgTicdF8="
+      "hash": "sha256-BRx0plnBZpEPKOakwoggDpEiwK9DxlwwZyGDaTqTdG4="
     },
     "nixGL": {
       "type": "Git",
