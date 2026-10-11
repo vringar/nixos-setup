@@ -1,4 +1,4 @@
-"""Unit tests for the message-board server core (no HTTP layer)."""
+"""Unit tests for the message-board storage core, the HTTP server and the `board` client."""
 
 import importlib.util
 import json
@@ -8,16 +8,20 @@ from pathlib import Path
 import pytest
 
 _APP = Path(__file__).parent.parent / "apps" / "message-board"
+sys.path.insert(0, str(_APP))  # board_core / board_server import by name
+import board_core as core  # noqa: E402
+import board_server  # noqa: E402
+
 _spec = importlib.util.spec_from_file_location("board", _APP / "board.py")
-board = importlib.util.module_from_spec(_spec)
+board = importlib.util.module_from_spec(_spec)  # the agent-facing client
 sys.modules["board"] = board
 _spec.loader.exec_module(board)
 
 
 @pytest.fixture
 def db(tmp_path):
-    board.init_db(str(tmp_path / "board.db"))
-    return board
+    core.init_db(str(tmp_path / "board.db"))
+    return core
 
 
 def test_post_returns_monotonic_ids(db):
@@ -28,7 +32,7 @@ def test_post_returns_monotonic_ids(db):
 
 def test_new_area_is_announced_on_system(db):
     db.post("reversing", "ghidra", "g", "hi")
-    ann = db.query_since(0, board.SYSTEM_AREA, "areas")
+    ann = db.query_since(0, core.SYSTEM_AREA, "areas")
     assert len(ann) == 1
     assert "reversing" in ann[0]["body"]
 
@@ -78,7 +82,7 @@ def test_client_disconnect_is_not_logged_as_an_error(monkeypatch, exc):
         raise exc(32, "gone")
 
     monkeypatch.setattr(BaseHTTPRequestHandler, "handle_one_request", boom)
-    handler = board.Handler.__new__(board.Handler)  # no socket setup needed
+    handler = board_server.Handler.__new__(board_server.Handler)  # no socket setup needed
     handler.close_connection = False
     handler.handle_one_request()  # must not raise
     assert handler.close_connection is True
@@ -100,7 +104,7 @@ def test_resolve_since_passes_ids_through(monkeypatch):
 def test_resolve_since_head_reads_the_current_head(db, monkeypatch):
     db.post("reversing", "ghidra", "g", "already here")
     monkeypatch.setattr(board, "_client_get",
-                        lambda p: json.dumps({"head": board.head_id()}))
+                        lambda p: json.dumps({"head": core.head_id()}))
     # 'head' means "skip what is already on the board"
     assert board._resolve_since("head") == db.head_id()
     assert db.query_since(board._resolve_since("head"), "reversing", "") == []
@@ -131,11 +135,11 @@ def _serve_polls_from_core(monkeypatch, page=500):
         q = {k: v[0] for k, v in parse_qs(urlparse(path).query).items()}
         archived = q.get("archived") == "1"
         if urlparse(path).path == "/areas":
-            return json.dumps(board.list_areas(include_archived=archived))
+            return json.dumps(core.list_areas(include_archived=archived))
         if urlparse(path).path == "/pins":
-            return json.dumps(board.pins_for(q.get("area", ""), q.get("topic", ""),
+            return json.dumps(core.pins_for(q.get("area", ""), q.get("topic", ""),
                                              include_archived=archived))
-        rows = board.poll(int(q.get("since", 0)), q.get("area", ""),
+        rows = core.poll(int(q.get("since", 0)), q.get("area", ""),
                           q.get("topic", ""), float(q.get("timeout", 0)),
                           include_archived=archived)
         return json.dumps(rows[:page])
@@ -208,7 +212,7 @@ def test_pin_versions_and_announces_as_a_doorbell_not_a_copy(db):
     # the log carries a pointer, not the pin's own text (which may be
     # unrelated or sensitive-sounding out of the context a human reading the
     # pin box gets; see `pins_for`'s no-area case for the same principle)
-    log = db.query_since(0, "reversing", board.PIN_TOPIC)
+    log = db.query_since(0, "reversing", core.PIN_TOPIC)
     assert [m["body"] for m in log] == [
         "pin updated: reversing v1 — see `board pin reversing`",
         "pin updated: reversing v2 — see `board pin reversing`"]
@@ -224,7 +228,7 @@ def test_topic_pin_is_announced_in_its_topic(db):
 def test_stale_pin_edit_is_rejected(db):
     db.set_pin("reversing", "", "a", "v1")
     db.set_pin("reversing", "", "b", "v2", base_version=1)
-    with pytest.raises(board.StalePin):
+    with pytest.raises(core.StalePin):
         db.set_pin("reversing", "", "a", "lost update", base_version=1)
     assert db.get_pin("reversing")["body"] == "v2"
 
@@ -233,7 +237,7 @@ def test_empty_body_removes_pin(db):
     db.set_pin("reversing", "", "s", "v1")
     db.set_pin("reversing", "", "s", "   ")
     assert db.get_pin("reversing") is None
-    assert db.query_since(0, "reversing", board.PIN_TOPIC)[-1]["body"] == \
+    assert db.query_since(0, "reversing", core.PIN_TOPIC)[-1]["body"] == \
         "pin removed: reversing"
 
 
@@ -255,7 +259,7 @@ def test_list_topics_includes_pinned_only_topics(db):
     db.set_pin("reversing", "", "s", "area pin")
     db.create_area("reversing", "")
     db.set_pin("reversing", "ghidra", "s", "topic pin")
-    assert db.list_topics("reversing") == [board.PIN_TOPIC, "fuzz", "ghidra"]
+    assert db.list_topics("reversing") == [core.PIN_TOPIC, "fuzz", "ghidra"]
 
 
 # --- HTTP layer: a real server on an ephemeral port --------------------------
@@ -265,8 +269,8 @@ def server(db, monkeypatch):
     import threading
     from http.server import ThreadingHTTPServer
 
-    board._web_init()
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), board.Handler)
+    board_server._web_init()
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), board_server.Handler)
     srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_address[1]}"
@@ -388,10 +392,10 @@ def test_archive_hides_area_from_listings_and_unscoped_reads(db):
     db.set_pin("reversing", "", "s", "old manifesto")
     db.post("openwpm", "crawler", "c", "live")
     assert db.set_archived("reversing", True) is True
-    assert [a["name"] for a in db.list_areas()] == [board.SYSTEM_AREA, "openwpm"]
+    assert [a["name"] for a in db.list_areas()] == [core.SYSTEM_AREA, "openwpm"]
     assert "reversing" in [a["name"] for a in db.list_areas(include_archived=True)]
     live = [m["body"] for m in db.poll(0, "", "", 0, include_archived=False)
-            if m["area"] != board.SYSTEM_AREA]
+            if m["area"] != core.SYSTEM_AREA]
     assert live == ["live"]
     assert db.pins_for("reversing", include_archived=False) == []
     assert db.pins_for("reversing", include_archived=True) != []
@@ -403,7 +407,7 @@ def test_archive_is_announced_and_idempotent(db):
     db.post("reversing", "ghidra", "g", "x")
     assert db.set_archived("reversing", True) is True
     assert db.set_archived("reversing", True) is False  # no second announcement
-    ann = [m["body"] for m in db.query_since(0, board.SYSTEM_AREA, "areas")]
+    ann = [m["body"] for m in db.query_since(0, core.SYSTEM_AREA, "areas")]
     assert ann == ["new area: **reversing**", "area archived: **reversing**"]
 
 
@@ -415,13 +419,13 @@ def test_activity_unarchives(db):
     db.set_archived("reversing", True)
     db.set_pin("reversing", "", "s", "pin edit counts too")
     assert "reversing" in [a["name"] for a in db.list_areas()]
-    ann = [m["body"] for m in db.query_since(0, board.SYSTEM_AREA, "areas")]
+    ann = [m["body"] for m in db.query_since(0, core.SYSTEM_AREA, "areas")]
     assert ann.count("area unarchived: **reversing**") == 2
 
 
 def test_archive_rejects_system_and_unknown_areas(db):
     with pytest.raises(ValueError):
-        db.set_archived(board.SYSTEM_AREA, True)
+        db.set_archived(core.SYSTEM_AREA, True)
     with pytest.raises(KeyError):
         db.set_archived("nowhere", True)
 
@@ -436,10 +440,10 @@ def test_old_board_is_migrated(tmp_path):
         INSERT INTO areas VALUES('reversing', '', '2026-09-01T00:00:00Z');""")
     old.commit()
     old.close()
-    board.init_db(path)
-    assert board.set_archived("reversing", True) is True
-    board.init_db(path)  # second open must not try to add the column again
-    assert board.list_areas() == []
+    core.init_db(path)
+    assert core.set_archived("reversing", True) is True
+    core.init_db(path)  # second open must not try to add the column again
+    assert core.list_areas() == []
 
 
 def test_cli_archive_unarchive_and_areas_flag(server, db, capsys):
@@ -459,7 +463,7 @@ def test_cli_archive_unarchive_and_areas_flag(server, db, capsys):
         board.main(["archive", "nowhere"])
     assert e.value.code == "board: no such area: nowhere"
     with pytest.raises(SystemExit) as e:
-        board.main(["archive", board.SYSTEM_AREA])
+        board.main(["archive", core.SYSTEM_AREA])
     assert "cannot be archived" in e.value.code
 
 
@@ -491,7 +495,7 @@ def test_web_archive_button_roundtrip(server, db):
     db.post("reversing", "ghidra", "g", "x")
     _, page = _get(f"{server}/?area=reversing")
     assert "archive area" in page
-    _, page = _get(f"{server}/?area={board.SYSTEM_AREA}")
+    _, page = _get(f"{server}/?area={core.SYSTEM_AREA}")
     assert "archive area" not in page  # _system cannot be archived
 
     class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -519,3 +523,13 @@ def test_web_archive_button_roundtrip(server, db):
     assert form_post({"area": "reversing", "archived": "0"}) == (303, "/?area=reversing")
     _, home = _get(f"{server}/")
     assert "archived (" not in home
+
+
+def test_agent_cli_cannot_start_a_server(capsys):
+    """Starting the server is board-server's job; `board` is a pure client."""
+    with pytest.raises(SystemExit) as exc:
+        board.main(["serve"])
+    assert exc.value.code == 2
+    assert "serve" in capsys.readouterr().err
+    assert not hasattr(board, "ThreadingHTTPServer")
+    assert not hasattr(board, "init_db")

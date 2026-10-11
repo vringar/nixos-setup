@@ -22,16 +22,15 @@ what was removed and when, since unlike archive this cannot be undone.
 
 Stops the message-board systemd user service for the duration of the
 session (only if it was running, and only via systemctl -- never touches a
-board serve it didn't start stopping), and restarts it on exit, crash or
+board-server it didn't start stopping), and restarts it on exit, crash or
 Ctrl-C included.
 
 Usage: board-admin
-Config via env, same as board: BOARD_DB, BOARD_URL (checked, not written to).
+Config via env, same as board-server: BOARD_DB, BOARD_URL (checked, not written to).
 """
 from __future__ import annotations
 
 import curses
-import importlib.util
 import os
 import subprocess
 import sys
@@ -46,10 +45,12 @@ from pathlib import Path
 # that owns this DB.
 SERVICE = os.environ.get("BOARD_ADMIN_SERVICE", "message-board")
 
-_HERE = Path(__file__).resolve().parent
-_spec = importlib.util.spec_from_file_location("board", _HERE / "board.py")
-board = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(board)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import board_core as core  # noqa: E402
+from board_core import (  # noqa: E402
+    area_counts, delete_message, delete_topic, messages_in, topic_counts,
+)
 
 AUDIT_LOG = Path(
     os.environ.get("BOARD_ADMIN_LOG", str(Path.home() / ".local/state/message-board/admin-deletions.log"))
@@ -57,8 +58,8 @@ AUDIT_LOG = Path(
 
 
 def resolve_db_path(environ=os.environ) -> Path:
-    """The same file `board serve` opens under systemd (BOARD_DB in the
-    unit is %S/message-board/board.db). board.py's own default is a bare
+    """The same file `board-server` opens under systemd (BOARD_DB in the
+    unit is %S/message-board/board.db). board_core's own default is a bare
     ./board.db relative to the cwd, which is right for a dev run and wrong
     here: run from the wrong directory, this tool would open (and create)
     an empty database and show a board with nothing on it."""
@@ -90,7 +91,7 @@ def service_start() -> None:
 
 
 def service_is_live(url: str, timeout: float = 2.0) -> bool:
-    """True if `board serve` answers on url. Mutating the DB file while the
+    """True if `board-server` answers on url. Mutating the DB file while the
     service holds it open risks corruption, not just a stale read -- refuse
     rather than race it."""
     try:
@@ -98,57 +99,6 @@ def service_is_live(url: str, timeout: float = 2.0) -> bool:
         return True
     except (urllib.error.URLError, OSError):
         return False
-
-
-def area_counts(include_archived: bool = True) -> list[tuple[str, bool, int]]:
-    """(area, archived, message_count) for every area, including empty ones."""
-    areas = board.list_areas(include_archived=include_archived)
-    with board._cv:
-        rows = {
-            r[0]: r[1]
-            for r in board._db.execute("SELECT area, COUNT(*) FROM messages GROUP BY area")
-        }
-    return [(a["name"], bool(a["archived_ts"]), rows.get(a["name"], 0)) for a in areas]
-
-
-def topic_counts(area: str) -> list[tuple[str, int]]:
-    """(topic, message_count) for every topic that has messages in `area`."""
-    with board._cv:
-        return list(
-            board._db.execute(
-                "SELECT topic, COUNT(*) FROM messages WHERE area=? GROUP BY topic ORDER BY topic",
-                (area,),
-            )
-        )
-
-
-def messages_in(area: str, topic: str) -> list[dict]:
-    with board._cv:
-        return [
-            {"id": r[0], "ts": r[1], "sender": r[2], "body": r[3]}
-            for r in board._db.execute(
-                "SELECT id, ts, sender, body FROM messages WHERE area=? AND topic=? ORDER BY id",
-                (area, topic),
-            )
-        ]
-
-
-def delete_message(mid: int) -> bool:
-    """True if a row was actually deleted."""
-    with board._cv:
-        cur = board._db.execute("DELETE FROM messages WHERE id=?", (mid,))
-        board._db.commit()
-        return cur.rowcount > 0
-
-
-def delete_topic(area: str, topic: str) -> int:
-    """Returns the number of messages deleted. Leaves `pins` untouched --
-    a topic's own pin (if any) is a separate row and this tool's scope is
-    messages, not pins/areas (archive already covers areas)."""
-    with board._cv:
-        cur = board._db.execute("DELETE FROM messages WHERE area=? AND topic=?", (area, topic))
-        board._db.commit()
-        return cur.rowcount
 
 
 def audit_line(action: str, detail: str) -> str:
@@ -318,16 +268,16 @@ def main() -> int:
                 )
         elif service_is_live(url):
             # systemctl thinks it's down but the port answers anyway: an
-            # unmanaged `board serve` is running (someone's own shell, a stale
+            # unmanaged `board-server` is running (someone's own shell, a stale
             # process). We only know how to stop the *managed* instance --
             # don't guess at killing an unknown process.
             sys.exit(
                 f"board-admin: {url} is answering but systemctl says {SERVICE} is not "
-                "active -- an unmanaged board serve is running somewhere. Stop it "
+                "active -- an unmanaged board-server is running somewhere. Stop it "
                 "yourself, this tool only manages the systemd service."
             )
 
-        board.init_db(str(db_path))
+        core.init_db(str(db_path))
         curses.wrapper(_run)
     finally:
         # Everything after the stop is inside this try, so *any* way out --

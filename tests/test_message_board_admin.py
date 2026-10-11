@@ -1,7 +1,7 @@
 """board-admin (the deleting TUI) and board (the server) share one SQLite
 file and must not disagree about it. These tests run the two against the
 same database: pure admin operations, main()'s service handling, a real
-`board serve` process with admin deletions between two server runs, and the
+`board-server` process with admin deletions between two server runs, and the
 curses TUI itself driven through a pty.
 """
 
@@ -29,14 +29,14 @@ _APP = Path(__file__).parent.parent / "apps" / "message-board"
 _spec = importlib.util.spec_from_file_location("board_admin", _APP / "board-admin.py")
 admin = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(admin)
-board = admin.board  # the very module instance admin operates on
+board = admin.core  # the very module instance admin operates on
 
 # The integration tests below launch the two programs as processes. By
 # default that's the source files; point these at the installed wrappers to
 # test what actually gets deployed (the Nix package's bin/board and
 # bin/board-admin), e.g.
-#   BOARD_BIN=$out/bin/board BOARD_ADMIN_BIN=$out/bin/board-admin pytest ...
-BOARD_CMD = shlex.split(os.environ.get("BOARD_BIN", "")) or [sys.executable, str(_APP / "board.py")]
+#   BOARD_SERVER_BIN=$out/bin/board-server BOARD_ADMIN_BIN=$out/bin/board-admin pytest ...
+BOARD_CMD = shlex.split(os.environ.get("BOARD_SERVER_BIN", "")) or [sys.executable, str(_APP / "board_server.py")]
 ADMIN_CMD = shlex.split(os.environ.get("BOARD_ADMIN_BIN", "")) or [sys.executable, str(_APP / "board-admin.py")]
 
 
@@ -258,7 +258,7 @@ def _free_port():
 
 
 class Server:
-    """A real `board.py serve` process on a private port and database."""
+    """A real `board-server` process on a private port and database."""
 
     def __init__(self, dbpath):
         self.port = _free_port()
@@ -268,7 +268,7 @@ class Server:
 
     def start(self):
         self.proc = subprocess.Popen(
-            [*BOARD_CMD, "serve"],
+            BOARD_CMD,
             env=self.env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -279,7 +279,7 @@ class Server:
                 return self
             except OSError:
                 time.sleep(0.1)
-        raise AssertionError("board serve never came up")
+        raise AssertionError("board-server never came up")
 
     def stop(self):
         if self.proc and self.proc.poll() is None:

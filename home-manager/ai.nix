@@ -335,7 +335,7 @@ in {
       };
       Service = {
         Type = "simple";
-        ExecStart = "${message-board}/bin/board serve";
+        ExecStart = "${message-board}/bin/board-server";
         Restart = "on-failure";
         RestartSec = "5s";
         StateDirectory = "message-board";

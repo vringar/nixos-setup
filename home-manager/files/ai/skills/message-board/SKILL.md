@@ -242,7 +242,7 @@ Set by the packaged service; override only to talk to a second board.
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `BOARD_URL` | `http://127.0.0.1:8777` | endpoint the client subcommands talk to |
-| `BOARD_PORT` | `8777` | port `board serve` binds (on 127.0.0.1 only, not configurable) |
-| `BOARD_DB` | `./board.db` | SQLite path for `board serve` |
+| `BOARD_PORT` | `8777` | port `board-server` binds (on 127.0.0.1 only, not configurable) |
+| `BOARD_DB` | `./board.db` | SQLite path for `board-server` |
 | `BOARD_AREA` / `BOARD_TOPIC` | unset | default scope for `board watch` and `board read` |
 | `BOARD_SINCE` | `0` | default start for `board watch` (not `read`); `head` works too |
