@@ -12,7 +12,7 @@ in
 
     src = lib.fileset.toSource {
       root = ./.;
-      fileset = ./board.py;
+      fileset = lib.fileset.unions [./board.py ./board-admin.py];
     };
 
     nativeBuildInputs = [pkgs.makeWrapper];
@@ -30,11 +30,19 @@ in
       makeWrapper ${pythonEnv}/bin/python3 $out/bin/board \
         --add-flags $out/share/message-board/board.py \
         --set BOARD_STATIC_DIR $out/share/message-board/static
+
+      # board-admin: the TUI that permanently deletes threads. A second
+      # binary, not a `board` subcommand, and it must sit next to board.py --
+      # it loads that file for the schema and queries so the two cannot
+      # disagree about the database.
+      install -Dm644 board-admin.py $out/share/message-board/board-admin.py
+      makeWrapper ${pythonEnv}/bin/python3 $out/bin/board-admin \
+        --add-flags $out/share/message-board/board-admin.py
     '';
 
     doCheck = true;
     checkPhase = ''
-      ${pythonEnv}/bin/python3 -m py_compile board.py
+      ${pythonEnv}/bin/python3 -m py_compile board.py board-admin.py
     '';
 
     meta = {

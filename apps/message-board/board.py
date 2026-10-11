@@ -108,8 +108,17 @@ def init_db(path):
 
 
 def head_id():
+    """The highest message id ever issued -- not the highest still present.
+
+    SQLite's AUTOINCREMENT already guarantees an id is never handed out
+    twice, even after the newest row is deleted (board-admin can do that);
+    MAX(id) would let the head fall back below ids that watchers have
+    already seen, and every cursor derived from it with it. sqlite_sequence
+    holds the real high-water mark.
+    """
     with _cv:
-        return _db.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0]
+        row = _db.execute("SELECT seq FROM sqlite_sequence WHERE name='messages'").fetchone()
+        return row[0] if row else 0
 
 
 def _insert(area, topic, sender, body):
