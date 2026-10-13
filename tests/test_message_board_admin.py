@@ -437,7 +437,9 @@ def _drive_tui(dbpath, keys, tmp_path):
         for k in keys:
             os.write(master, k)
             drain(0.25)
-        deadline = time.time() + 5
+        # A bound on a hang, not a speed check: on a loaded box the delete's
+        # commit (an fsync) alone can take seconds.
+        deadline = time.time() + 30
         while proc.poll() is None and time.time() < deadline:
             drain(0.1)
         if proc.poll() is None:
