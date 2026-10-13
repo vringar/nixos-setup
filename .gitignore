@@ -1,6 +1,6 @@
 *.kate-swp
 chat-dump.txt
-result
+/result*
 __pycache__/
 *.pyc
 .direnv
