@@ -242,4 +242,31 @@ in {
     system.stateVersion = "24.11";
   };
 
+  # Underpowered IdeaPad, mostly a terminal into sz1. It never builds: sz1
+  # builds the closure and colmena pushes it, hence no allowLocalDeployment.
+  sz2 = {...}: {
+    imports = [
+      (import "${sources.lix-module}/module.nix" {
+        lix = sources.lix-src;
+        versionSuffix = sources.lix-src.revision;
+      })
+      ./hardware/sz2.nix
+      ./modules/bluetooth.nix
+      ./modules/desktop.nix
+    ];
+
+    deployment.tags = ["personal"];
+    deployment.targetUser = "vringar";
+
+    nix.settings = {
+      # A build that would run here fails instead of grinding through it.
+      max-jobs = 0;
+      # sz1 over the LAN, then over the tailnet when away from home, where
+      # sz1.fritz.box does not resolve and so fails fast.
+      extra-substituters = ["http://sz1.fritz.box:5000" "http://sz1:5000"];
+      extra-trusted-public-keys = ["sz1.fritz.box:CB1Zd3dpBNECfzeGVpkDNJYds4O/eKJhV2Tlx2NGqEc="];
+    };
+
+    system.stateVersion = "26.11";
+  };
 }

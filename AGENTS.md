@@ -12,7 +12,7 @@ nixos-setup/
 ├── home.nix              # Standalone home-manager entry point (non-NixOS)
 ├── hm-switch.sh          # Non-NixOS deployment wrapper (home-manager switch)
 ├── rebuild.sh            # NixOS deployment wrapper (colmena apply-local)
-├── hardware/             # Host-specific hardware configs (sz1, sz3, pi)
+├── hardware/             # Host-specific hardware configs (sz1, sz2, sz3, pi)
 ├── modules/              # System-level NixOS modules
 ├── home-manager/         # User environment (shell, editors, packages)
 ├── user/                 # User definition (groups, shell, packages)
@@ -81,8 +81,8 @@ Home-manager modules are split into tiers based on what kind of machine they tar
 | Module | Hosts |
 |--------|-------|
 | `home-manager/baseline.nix` | All hosts (headless and graphical) |
-| `home-manager/graphical.nix` | Any machine with a GUI: sz1, sz3, non-NixOS work laptop |
-| `home-manager/workstation.nix` | NixOS personal machines only: sz1, sz3 |
+| `home-manager/graphical.nix` | Any machine with a GUI: sz1, sz2, sz3, non-NixOS work laptop |
+| `home-manager/workstation.nix` | NixOS personal machines only: sz1, sz2, sz3 |
 | `home-manager/ai.nix` | Any graphical machine (same as graphical tier) |
 
 On NixOS hosts, `modules/desktop.nix` imports `graphical.nix`, `workstation.nix`, and `ai.nix` together.
@@ -114,10 +114,12 @@ Custom options use the `my.*` namespace, defined in `home-manager/baseline.nix`.
 | Host | Hardware | Filesystem | Use |
 |------|----------|------------|-----|
 | sz1  | AMD      | ZFS        | Desktop workstation |
+| sz2  | x86      | Btrfs+LUKS | Thin-client laptop, never builds |
 | sz3  | Intel    | Btrfs+LUKS | Laptop |
 | t20  | Raspberry Pi 3 | ext4 | Headless server: internet-facing Caddy |
 
-sz1 and sz3 have tag `@personal` and allow local deployment. t20 has tag `@personal` but is remote-only.
+sz1 and sz3 have tag `@personal` and allow local deployment. sz2 and t20 have tag `@personal` but are
+remote-only: sz1 builds their closures and colmena pushes them.
 
 t20 terminates TLS on :443 for `*.home.zabka.it` and proxies to sz1. It is the
 only host exposed to the internet.
