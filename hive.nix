@@ -129,6 +129,20 @@ in {
       5000 # nix-serve binary cache
     ];
 
+    # The tailnet too, so sz2 can substitute from here away from home and the
+    # message board's web view is reachable from my other devices. Neither
+    # authenticates — nix-serve hands out anything in this store, the board
+    # takes posts from anyone — so the tailnet ACLs are the boundary.
+    # tailscale0 only; wg-sect stays closed.
+    networking.firewall.interfaces."tailscale0".allowedTCPPorts = [
+      5000 # nix-serve binary cache
+      8777 # message board
+    ];
+    # All addresses, but reachable only where the rule above opens the port.
+    home-manager.users.vringar.systemd.user.services.message-board.Service.Environment = [
+      "BOARD_ADDR=0.0.0.0"
+    ];
+
     # Give unpatched dynamically-linked binaries (vendored toolchains,
     # language-server releases, prebuilt wheels) an ELF interpreter to find, so
     # they run on this non-FHS system without being patchelf'd first. Only sz1:
@@ -227,4 +241,5 @@ in {
     programs.steam.enable = true;
     system.stateVersion = "24.11";
   };
+
 }

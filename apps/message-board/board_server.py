@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """The message board's HTTP server and web view.
 
-    board-server        serve on 127.0.0.1:$BOARD_PORT (default 8777)
+    board-server        serve on $BOARD_ADDR:$BOARD_PORT (default 127.0.0.1:8777)
 
-Agents talk to it through the `board` client; humans use the web view. The
-server binds to 127.0.0.1 ONLY (no authentication yet) -- do not expose it
-off-host without adding auth first.
+Agents talk to it through the `board` client; humans use the web view. There
+is no authentication yet: binding anything but 127.0.0.1 makes the network the
+access boundary, so only do it behind a firewall rule scoped to a trusted
+interface.
 
-Config via env: BOARD_PORT (8777), BOARD_DB (SQLite path, default ./board.db),
-BOARD_STATIC_DIR (htmx.min.js; set by the packaged wrapper).
+Config via env: BOARD_ADDR (127.0.0.1), BOARD_PORT (8777), BOARD_DB (SQLite
+path, default ./board.db), BOARD_STATIC_DIR (htmx.min.js; set by the packaged
+wrapper).
 """
 import json
 import os
@@ -26,9 +28,9 @@ from board_core import (  # noqa: E402
     set_archived, set_pin,
 )
 
-# Localhost only. Binding wider requires authentication (not built yet), so the
-# address is deliberately not configurable.
-ADDR = "127.0.0.1"
+# No authentication, so localhost unless told otherwise. sz1 binds 0.0.0.0 and
+# opens the port on tailscale0 only, leaving reachability to the tailnet ACLs.
+ADDR = os.environ.get("BOARD_ADDR", "127.0.0.1")
 PORT = int(os.environ.get("BOARD_PORT", "8777"))
 # Static assets (htmx.min.js) -- set by the packaged wrapper; falls back to a
 # ./static dir next to this file for dev runs.
