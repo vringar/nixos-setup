@@ -257,17 +257,22 @@ def update_pin(
     max_rounds: int = DEFAULT_MAX_ROUNDS,
     capture_dir: Optional[Path] = None,
     strict: bool = False,
+    skipped: Optional[list[str]] = None,
 ) -> bool:
     """
     Update *pin* and converge the build by fixing hash mismatches.
-    Returns True on success.
+    Returns True on success. A pin whose fetch fails is left at its current
+    revision and counts as success (appended to *skipped*): it is unchanged, so
+    it cannot break the build.
     """
     print(f"==> Updating pin: {pin}")
     if not run_npins_update(pin):
         if strict:
             print(f"==> FATAL: npins update failed for pin: {pin}")
             return False
-        print(f"==> Skipping pin: {pin} (npins update failed)")
+        print(f"==> Skipping pin: {pin} (npins update failed; left at its current revision)")
+        if skipped is not None:
+            skipped.append(pin)
         return True
 
     nix_files = find_nix_files(root)
@@ -359,6 +364,7 @@ def main(argv: list[str] | None = None) -> int:
         capture_dir.mkdir(parents=True, exist_ok=True)
 
     pins = args.pins or list_pins(REPO_ROOT / "npins" / "sources.json")
+    skipped: list[str] = []
 
     for idx, pin in enumerate(pins):
         ok = update_pin(
@@ -368,6 +374,7 @@ def main(argv: list[str] | None = None) -> int:
             max_rounds=args.max_rounds,
             capture_dir=capture_dir,
             strict=args.strict,
+            skipped=skipped,
         )
         if not ok:
             # Fail fast: a broken upgrade is left bumped in npins/sources.json so
@@ -387,7 +394,14 @@ def main(argv: list[str] | None = None) -> int:
                 )
             return 1
 
-    print("==> All pins updated successfully")
+    if skipped:
+        print(f"==> All other pins updated; could not fetch: {' '.join(skipped)}")
+        print(
+            "    Those pins are unchanged, so the rest of this update stands. "
+            "Bump them later once the fetch works (see CLAUDE.md, npins)."
+        )
+    else:
+        print("==> All pins updated successfully")
     return 0
 
 

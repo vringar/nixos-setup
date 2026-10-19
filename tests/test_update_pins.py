@@ -354,6 +354,15 @@ def test_update_pin_skips_on_npins_failure(tmp_path, monkeypatch):
     assert result is True
 
 
+def test_update_pin_records_skipped_pin(tmp_path, monkeypatch):
+    """A skipped pin is reported, so the summary can name it."""
+    monkeypatch.setattr(_mod, "run_npins_update", lambda pin: False)
+    skipped = []
+
+    update_pin("broken-pin", hostname="sz1", root=tmp_path, skipped=skipped)
+    assert skipped == ["broken-pin"]
+
+
 def test_update_pin_strict_fails_on_npins_failure(tmp_path, monkeypatch):
     """Strict mode: npins update failure is treated as a real failure."""
     monkeypatch.setattr(_mod, "run_npins_update", lambda pin: False)

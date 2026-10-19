@@ -56,6 +56,19 @@ bash hm-switch.sh
 - `npins update` - Update pins
 - `npins show` - List current pins
 
+### Pins that fail to fetch
+
+`scripts/update-pins.py` skips a pin whose `npins update` fails, leaves it at
+its current revision and still exits 0. That is intended: the skipped pin is
+unchanged, so it cannot invalidate the rest of the update, and the deps change
+can land without it. Bump it later with `npins update <pin>` once the fetch
+works, then rebuild.
+
+The usual cause is a private repo that needs work credentials, e.g. `mcp`
+(`camunda/mcp`: the SSH key has to be authorized for the camunda org's SAML
+SSO). Private pins feed only work-only packages (`my.work.enable`), so the
+personal hosts' builds never fetch them.
+
 ### Rebasing commits that add npins sources
 
 When rebasing a commit that added a source via `npins add`, do not attempt to resolve conflicts in `npins/sources.json` manually. Instead:
