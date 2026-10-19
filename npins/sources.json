@@ -57,9 +57,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "ab3c607fd05e71825bc4d9fea30332e5e1118980",
-      "url": "https://github.com/bpmn-io/bpmnlint/archive/ab3c607fd05e71825bc4d9fea30332e5e1118980.tar.gz",
-      "hash": "sha256-yTgAWAdxWCQO8y7j3jKuRNhj5aSz/1hSArIeJQ+eAdc="
+      "revision": "40b45a9da3c682b7cdac633fa129610f03b955c5",
+      "url": "https://github.com/bpmn-io/bpmnlint/archive/40b45a9da3c682b7cdac633fa129610f03b955c5.tar.gz",
+      "hash": "sha256-DrqVPi5+NINGsklGvFioOXS25zej1j9jBl8bki3gxjQ="
     },
     "bpmnlint-aitools": {
       "type": "Git",
@@ -135,10 +135,10 @@
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "v1.0.0",
-      "revision": "7d1a2c478f5ba8f8ad7cec8e5201b54aca4775b9",
-      "url": "https://api.github.com/repos/bpmn-io/dmnlint/tarball/refs/tags/v1.0.0",
-      "hash": "sha256-cWkmOTo+V8g0Jq79XtVreDAwMHvzFIYbI71iaQ8xTs0="
+      "version": "v2.0.0",
+      "revision": "41090ef30acca2f460b83ed8e59c1efd493b4384",
+      "url": "https://api.github.com/repos/bpmn-io/dmnlint/tarball/refs/tags/v2.0.0",
+      "hash": "sha256-5hxX64j1eilNnVSa3qjZhjPglMdxMBNA3XJwiK+kLj0="
     },
     "home-manager": {
       "type": "Git",
@@ -149,9 +149,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "fae6e9e42c3b762ab47635cddcfaf6f52374a61b",
-      "url": "https://github.com/nix-community/home-manager/archive/fae6e9e42c3b762ab47635cddcfaf6f52374a61b.tar.gz",
-      "hash": "sha256-KuLePuhwJM9NLt/gTLHzXaOoSZKGoB3m7NfXjiQ98HY="
+      "revision": "ab97a5d09e0f2aa7339cfd35ec5824fd6653e27c",
+      "url": "https://github.com/nix-community/home-manager/archive/ab97a5d09e0f2aa7339cfd35ec5824fd6653e27c.tar.gz",
+      "hash": "sha256-J73EBU30r2hXvHCcBtaigQDAIu/GGPYk1nc6P9THcmg="
     },
     "htmx": {
       "type": "GitRelease",
@@ -193,9 +193,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "a3f7094877ebadc9bf6e1bad74bb04802548c763",
-      "url": "https://git.lix.systems/lix-project/lix/archive/a3f7094877ebadc9bf6e1bad74bb04802548c763.tar.gz",
-      "hash": "sha256-o5/yN2U0oGo6Cbh3FwSvkLYjm7XyY6ZU8pv+mlmOrMI="
+      "revision": "27c8a887d9ed348005d91787e10f9761f547e62b",
+      "url": "https://git.lix.systems/lix-project/lix/archive/27c8a887d9ed348005d91787e10f9761f547e62b.tar.gz",
+      "hash": "sha256-5M+lCq9w3THPCY7vXW9oHkO1yhVHCGzcYrRBMfQJkXk="
     },
     "mcp": {
       "type": "Git",
@@ -226,8 +226,8 @@
       "type": "Channel",
       "name": "nixos-unstable",
       "artifact": "nixexprs.tar.xz",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1086391.151fa4e8ddfd/nixexprs.tar.xz",
-      "hash": "sha256-MFBjw66d4h06MvpW6lIl7RwarLteD0sk859CncGwb1Q="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1097682.02c087f3fe67/nixexprs.tar.xz",
+      "hash": "sha256-ij8QUxzTOHovLrNOxVRx+RAhGQFOMsJbji0veiatH5k="
     },
     "nucleus": {
       "type": "Git",
@@ -266,10 +266,10 @@
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "v0.51.0",
-      "revision": "e001f773f80b22b7dc4c7a79521b30e35aaef026",
-      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v0.51.0",
-      "hash": "sha256-KMDj+M23ZI2Oyglfyt6V9s1P6MMs6LOFBo3oYFMh8sU="
+      "version": "v1.0.1",
+      "revision": "4ef8730cf3a0dea11c8d64a9b90bc0616fe52100",
+      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v1.0.1",
+      "hash": "sha256-8nf2q6SGupoOqaf97TdD37lSCj7cMNfYGwX+42mWz1k="
     },
     "skills": {
       "type": "Git",
@@ -280,9 +280,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "38462e3ab934add56ca2b4f3b7a6587c1d931065",
-      "url": "https://github.com/camunda/skills/archive/38462e3ab934add56ca2b4f3b7a6587c1d931065.tar.gz",
-      "hash": "sha256-DuHTd/occYuNL4/EEA09oIacuBudwkxx0la/Su3D+OQ="
+      "revision": "0949856f69bd4532c08f32fd55f52d14704f6524",
+      "url": "https://github.com/camunda/skills/archive/0949856f69bd4532c08f32fd55f52d14704f6524.tar.gz",
+      "hash": "sha256-/OJO+yTqbkDS3l/3uNqr7gY8sGSp75x1NpI5mmxYbOU="
     },
     "vetinari": {
       "type": "Git",
