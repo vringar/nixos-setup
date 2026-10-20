@@ -62,9 +62,13 @@ def init_db(path):
             PRIMARY KEY(area, topic));
         """
     )
-    # Boards created before archiving existed lack the column.
-    if "archived_ts" not in {r[1] for r in conn.execute("PRAGMA table_info(areas)")}:
-        conn.execute("ALTER TABLE areas ADD COLUMN archived_ts TEXT")
+    # Columns added after the first boards were created. SQLite cannot add a
+    # UNIQUE column, so client_key's uniqueness is an index (NULLs stay distinct).
+    for table, column in (("areas", "archived_ts"), ("messages", "client_key")):
+        if column not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_key"
+                 " ON messages(client_key)")
     conn.commit()
     _db = conn
     return conn
@@ -84,14 +88,18 @@ def head_id():
         return row[0] if row else 0
 
 
-def _insert(area, topic, sender, body):
+def _insert(area, topic, sender, body, key=None):
     """Low-level append. Caller must hold _cv. Does not notify."""
     cur = _db.execute(
-        "INSERT INTO messages(ts, area, topic, sender, body) VALUES(?,?,?,?,?)",
-        (_now(), area, topic, sender, body),
+        "INSERT INTO messages(ts, area, topic, sender, body, client_key) VALUES(?,?,?,?,?,?)",
+        (_now(), area, topic, sender, body, key),
     )
     _db.commit()
     return cur.lastrowid
+
+
+class Conflict(Exception):
+    """A client key that was already used for a different message."""
 
 
 def _ensure_area(name, description=None):
@@ -119,10 +127,22 @@ def _ensure_area(name, description=None):
         _db.commit()
 
 
-def post(area, topic, sender, body):
+def post(area, topic, sender, body, key=None):
+    """Append a message; returns its id.
+
+    `key` makes the post idempotent: re-sending a key with the same content
+    returns the original id, with different content raises Conflict.
+    """
     with _cv:
+        if key is not None:
+            row = _db.execute("SELECT id, area, topic, sender, body FROM messages"
+                              " WHERE client_key=?", (key,)).fetchone()
+            if row is not None:
+                if row[1:] == (area, topic, sender, body):
+                    return row[0]
+                raise Conflict(f"key {key} was already used for a different message")
         _ensure_area(area)
-        mid = _insert(area, topic, sender, body)
+        mid = _insert(area, topic, sender, body, key)
         _cv.notify_all()
     return mid
 

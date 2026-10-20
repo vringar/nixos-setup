@@ -533,3 +533,63 @@ def test_agent_cli_cannot_start_a_server(capsys):
     assert "serve" in capsys.readouterr().err
     assert not hasattr(board, "ThreadingHTTPServer")
     assert not hasattr(board, "init_db")
+
+
+# --- idempotent posts ---------------------------------------------------------
+
+def test_post_key_makes_resending_harmless(db):
+    first = db.post("x", "t", "agent", "once", key="k1")
+    assert db.post("x", "t", "agent", "once", key="k1") == first
+    assert [m["body"] for m in db.query_since(0, "x", "")] == ["once"]
+    with pytest.raises(core.Conflict):
+        db.post("x", "t", "agent", "something else", key="k1")
+    assert db.post("x", "t", "agent", "once", key="k2") != first  # a new key is a new post
+
+
+def test_http_post_key_dedupes_and_refuses_reuse(server, db):
+    msg = {"area": "x", "topic": "t", "from": "a", "body": "once", "key": "k1"}
+    status, out = _post(f"{server}/post", msg)
+    assert status == 200
+    assert _post(f"{server}/post", msg) == (200, out)
+    status, out = _post(f"{server}/post", {**msg, "body": "other"})
+    assert status == 409 and "already used" in json.loads(out)["error"]
+    assert _post(f"{server}/post", {**msg, "key": None, "body": "keyless"})[0] == 200
+    assert [m["body"] for m in db.query_since(0, "x", "")] == ["once", "keyless"]
+
+
+def test_cli_post_retry_reuses_the_key_and_does_not_double_post(server, db, monkeypatch,
+                                                                capsys):
+    real = board._client_post
+    calls = []
+
+    def lost_response(path, data, timeout=10):
+        calls.append((data["key"], timeout))
+        out = real(path, data, timeout)
+        if len(calls) == 1:
+            raise TimeoutError("timed out")  # landed, but the answer never arrived
+        return out
+
+    monkeypatch.setattr(board, "_client_post", lost_response)
+    monkeypatch.setattr(board.time, "sleep", lambda _s: None)
+    board.main(["post", "rev", "t", "agent", "exactly once"])
+    out, err = capsys.readouterr()
+    assert "retrying" in err
+    assert len(calls) == 2 and calls[0] == calls[1] and calls[0][1] == 30
+    [m] = db.query_since(0, "rev", "t")
+    assert json.loads(out) == {"id": m["id"]}
+
+
+def test_cli_post_gives_up_after_three_retries(monkeypatch):
+    import urllib.error
+    attempts = []
+
+    def down(path, data, timeout=10):
+        attempts.append(data["key"])
+        raise urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+
+    monkeypatch.setattr(board, "_client_post", down)
+    monkeypatch.setattr(board.time, "sleep", lambda _s: None)
+    with pytest.raises(SystemExit) as e:
+        board.main(["post", "rev", "t", "agent", "x"])
+    assert e.value.code.startswith("board: cannot reach ")
+    assert len(attempts) == 4 and len(set(attempts)) == 1

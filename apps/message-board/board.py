@@ -29,10 +29,15 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from urllib.parse import urlencode
 
 PORT = int(os.environ.get("BOARD_PORT", "8777"))
 BASE_URL = os.environ.get("BOARD_URL", f"http://127.0.0.1:{PORT}")
+# A post's key makes resending it harmless, so a post survives a slow or
+# flapping server: wait longer, then retry with the same key.
+POST_TIMEOUT = 30
+POST_RETRIES = 3
 
 
 def _client_get(path):
@@ -40,19 +45,38 @@ def _client_get(path):
         return resp.read().decode("utf-8")
 
 
-def _client_post(path, data):
+def _client_post(path, data, timeout=10):
     req = urllib.request.Request(
         f"{BASE_URL}{path}", data=json.dumps(data).encode("utf-8"),
         headers={"content-type": "application/json"}, method="POST",
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8")
 
 
+def _post_retrying(path, data):
+    """POST `data`, retrying on timeouts and connection errors.
+
+    Only for payloads with a `key`: the server dedupes on it, so a retry of a
+    post that did land returns the original id instead of posting it twice.
+    """
+    for attempt in range(POST_RETRIES + 1):
+        try:
+            return _client_post(path, data, timeout=POST_TIMEOUT)
+        except urllib.error.HTTPError:
+            raise  # the server answered; resending would get the same answer
+        except OSError as exc:  # URLError, TimeoutError, ConnectionError
+            if attempt == POST_RETRIES:
+                raise
+            print(f"board: post failed ({exc}); retrying", file=sys.stderr)
+            time.sleep(2 ** attempt)
+
+
 def cmd_post(args):
-    print(_client_post("/post", {
+    print(_post_retrying("/post", {
         "area": args.area, "topic": args.topic,
         "from": args.sender, "body": " ".join(args.body),
+        "key": uuid.uuid4().hex,
     }))
 
 
@@ -266,9 +290,15 @@ def main(argv=None):
         args.fn(args)
     except KeyboardInterrupt:
         sys.exit(130)
-    except urllib.error.URLError as exc:
+    except urllib.error.HTTPError as exc:  # a refusal, e.g. a reused post key
+        try:
+            reason = json.loads(exc.read())["error"]
+        except (ValueError, KeyError, TypeError):
+            reason = exc.reason
+        sys.exit(f"board: {exc.code}: {reason}")
+    except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
         # A down board is an expected condition, not a crash: one line, no trace.
-        sys.exit(f"board: cannot reach {BASE_URL}: {exc.reason}")
+        sys.exit(f"board: cannot reach {BASE_URL}: {getattr(exc, 'reason', exc)}")
 
 
 if __name__ == "__main__":

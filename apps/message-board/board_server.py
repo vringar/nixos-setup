@@ -23,9 +23,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import board_core as core  # noqa: E402
 from board_core import (  # noqa: E402
-    SYSTEM_AREA, StalePin, create_area, format_lines, get_pin, head_id,
-    list_areas, list_topics, pins_for, poll, post, query_since, recent,
-    set_archived, set_pin,
+    SYSTEM_AREA, Conflict, StalePin, create_area, format_lines, get_pin,
+    head_id, list_areas, list_topics, pins_for, poll, post, query_since,
+    recent, set_archived, set_pin,
 )
 
 # No authentication, so localhost unless told otherwise. sz1 binds 0.0.0.0 and
@@ -344,8 +344,12 @@ class Handler(BaseHTTPRequestHandler):
             if "body" not in data:
                 self._send(400, json.dumps({"error": "need a 'body'"}))
                 return
-            mid = post(data.get("area", "general"), data.get("topic", "general"),
-                       data.get("from", "anon"), data["body"])
+            try:
+                mid = post(data.get("area", "general"), data.get("topic", "general"),
+                           data.get("from", "anon"), data["body"], key=data.get("key"))
+            except Conflict as exc:
+                self._send(409, json.dumps({"error": str(exc)}))
+                return
             self._send(200, json.dumps({"id": mid}))
             return
         if path == "/archive":
