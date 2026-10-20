@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interactive TUI for permanently deleting board threads.
+"""Interactive TUI for permanently deleting board threads and releasing name claims.
 
 This is deliberately NOT part of `board` (no shared subcommand surface, no
 mention in its --help) and deliberately NOT an HTTP endpoint. It opens the
@@ -16,9 +16,15 @@ agent in this harness can drive. It is not a hard boundary either: anything
 with Bash access could still open the DB file and write raw SQL. What this
 buys is "not reachable through any normal path," not "impossible."
 
-Every deletion is appended to a local audit log (not the board -- the whole
-point is this never touches the board's own API) so there's a record of
-what was removed and when, since unlike archive this cannot be undone.
+The same goes for releasing a name claim (the identity a sender name was
+bound to by its first signed post): it is the one way to free a name whose
+key was lost or that the wrong key claimed, and it is as agent-proof as
+deletion. The next signed post as that name claims it again.
+
+Every deletion and release is appended to a local audit log (not the board --
+the whole point is this never touches the board's own API) so there's a
+record of what was removed and when, since unlike archive this cannot be
+undone.
 
 Stops the message-board systemd user service for the duration of the
 session (only if it was running, and only via systemctl -- never touches a
@@ -49,7 +55,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import board_core as core  # noqa: E402
 from board_core import (  # noqa: E402
-    area_counts, delete_message, delete_topic, messages_in, topic_counts,
+    area_counts, delete_identity, delete_message, delete_topic, list_identities,
+    messages_in, topic_counts,
 )
 
 AUDIT_LOG = Path(
@@ -165,14 +172,34 @@ def _confirm_typed(stdscr, prompt: str, required: str) -> bool:
     return typed == required
 
 
-def _confirm_yn(stdscr, prompt: str) -> bool:
+def _confirm_yn(stdscr, prompt: str, question: str = "Delete permanently? [y/N] ") -> bool:
     stdscr.erase()
     h, w = stdscr.getmaxyx()
     for i, line in enumerate(prompt.splitlines()):
         stdscr.addnstr(i, 0, line, w - 1)
-    stdscr.addnstr(len(prompt.splitlines()) + 1, 0, "Delete permanently? [y/N] ", w - 1, curses.A_BOLD)
+    stdscr.addnstr(len(prompt.splitlines()) + 1, 0, question, w - 1, curses.A_BOLD)
     stdscr.refresh()
     return stdscr.getch() in (ord("y"), ord("Y"))
+
+
+def _claims(stdscr):
+    """Pick a claimed name and release it."""
+    while True:
+        claims = list_identities()
+        lines = [f"{c['name']}  [{c['source']}]  {c['fingerprint']}  (since {c['registered_ts']})"
+                 for c in claims]
+        k = _pick(stdscr, "board-admin -- name claims (q back)", lines,
+                  "enter: release a claim    q: back")
+        if k is None:
+            return
+        c = claims[k]
+        again = ("board-server binds it to the owner key again at its next start"
+                 if c["source"] == "owner" else "the next signed post as it claims it again")
+        if _confirm_yn(stdscr, f"{c['name']}  [{c['source']}]  {c['fingerprint']}\n\n"
+                               f"Releasing frees the name; {again}.\n",
+                       "Release this claim? [y/N] "):
+            if delete_identity(c["name"]):
+                log_deletion("release_claim", f"{c['name']} {c['fingerprint']} ({c['source']})")
 
 
 def _run(stdscr):
@@ -180,10 +207,14 @@ def _run(stdscr):
     while True:
         areas = area_counts()
         lines = [f"{a}  [{'archived' if arch else 'live'}]  ({n} messages)" for a, arch, n in areas]
+        lines.append(f"-- name claims ({len(list_identities())})")
         i = _pick(stdscr, "board-admin -- select an area (q to quit)", lines,
                   "up/down j/k move, enter select, q quit")
         if i is None:
             return
+        if i == len(areas):
+            _claims(stdscr)
+            continue
         area = areas[i][0]
 
         while True:

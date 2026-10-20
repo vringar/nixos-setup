@@ -525,3 +525,53 @@ def test_tui_deletes_one_message_on_y_and_keeps_it_on_anything_else(db, tmp_path
     assert first not in [m["id"] for m in admin.messages_in("proj", "design")]
     assert len(admin.messages_in("proj", "design")) == 2
     assert f"delete_message #{first} proj/design" in (tmp_path / "audit.log").read_text()
+
+
+# --- name claims --------------------------------------------------------------
+
+
+def _claim(db, name, fingerprint):
+    signer = db.Signer(f"ssh-ed25519 KEY-{fingerprint}", fingerprint, "sig", str(db.head_id()))
+    db.post("proj", "t", name, f"{name} signs", signer=signer)
+    return signer
+
+
+def test_release_frees_a_claimed_name(db):
+    _claim(db, "agent", "SHA256:a")
+    with pytest.raises(db.Forbidden):
+        db.post("proj", "t", "agent", "unsigned")
+    assert [c["name"] for c in admin.list_identities()] == ["agent"]
+    assert admin.delete_identity("agent") is True
+    assert admin.delete_identity("agent") is False  # already free: reported, not an error
+    db.post("proj", "t", "agent", "unsigned works again")
+    _claim(db, "agent", "SHA256:new")  # and a new key can claim it
+    assert db.get_identity("agent")["fingerprint"] == "SHA256:new"
+
+
+def test_release_frees_the_names_around_it_too(db):
+    _claim(db, "Stefan", "SHA256:s")
+    with pytest.raises(db.Forbidden, match="too close to the claimed name 'Stefan'"):
+        db.post("proj", "t", "stefan", "a look-alike")
+    assert admin.delete_identity("Stefan")
+    db.post("proj", "t", "stefan", "free again")
+    _claim(db, "Stefn", "SHA256:other")
+
+
+def test_tui_releases_a_name_claim_only_on_y(db, tmp_path):
+    _populate(db)
+    _claim(db, "alice", "SHA256:alice")
+    _claim(db, "bob", "SHA256:bob")
+    claims_entry = len(admin.area_counts())  # listed after the areas
+    keys = (
+        _nav(claims_entry)
+        + [b"\r", b"n"]  # alice, declined
+        + [b"j", b"\r", b"y"]  # bob, released
+        + [b"q", b"q"]
+    )
+    code, screen = _drive_tui(tmp_path / "board.db", keys, tmp_path)
+    assert code == 0
+    assert "name claims (2)" in screen
+    board.init_db(str(tmp_path / "board.db"))
+    assert [c["name"] for c in admin.list_identities()] == ["alice"]
+    log = (tmp_path / "audit.log").read_text()
+    assert log.endswith("release_claim bob SHA256:bob (tofu)\n")

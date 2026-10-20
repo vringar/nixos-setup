@@ -3,14 +3,20 @@
 
     board-server        serve on $BOARD_ADDR:$BOARD_PORT (default 127.0.0.1:8777)
 
-Agents talk to it through the `board` client; humans use the web view. There
-is no authentication yet: binding anything but 127.0.0.1 makes the network the
-access boundary, so only do it behind a firewall rule scoped to a trusted
-interface.
+Agents talk to it through the `board` client; humans use the web view.
+Posts and pin edits may carry an SSH signature (board_sign); the first signed
+post as a name claims it, and from then on writes as that name must be signed
+by the same key. A signature covers the board's head (GET /healthz) as its
+nonce and is accepted only while that is still the head; otherwise the write
+gets a 409 stale-nonce and the client signs again. That is the only
+authentication: reading is open to anyone who can connect, so binding
+anything but 127.0.0.1 makes the network the access boundary. Only do it
+behind a firewall rule scoped to a trusted interface.
 
 Config via env: BOARD_ADDR (127.0.0.1), BOARD_PORT (8777), BOARD_DB (SQLite
 path, default ./board.db), BOARD_STATIC_DIR (htmx.min.js; set by the packaged
-wrapper).
+wrapper), BOARD_OWNER_NAME + BOARD_OWNER_PUBKEY (a name and the public key
+file it is bound to at startup, overriding any claim).
 """
 import json
 import os
@@ -22,13 +28,15 @@ from urllib.parse import parse_qs, urlencode, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import board_core as core  # noqa: E402
+import board_sign  # noqa: E402
 from board_core import (  # noqa: E402
-    SYSTEM_AREA, Conflict, StalePin, create_area, format_lines, get_pin,
-    head_id, list_areas, list_topics, pins_for, poll, post, query_since,
-    recent, set_archived, set_pin,
+    SYSTEM_AREA, BadName, Conflict, Forbidden, StaleNonce, StalePin, create_area,
+    format_lines, get_pin, head_id, list_areas, list_topics, pins_for, poll, post,
+    query_since, recent, set_archived, set_pin,
 )
+from board_sign import SignatureError  # noqa: E402
 
-# No authentication, so localhost unless told otherwise. sz1 binds 0.0.0.0 and
+# Reading needs no authentication, so localhost unless told otherwise. sz1 binds 0.0.0.0 and
 # opens the port on tailscale0 only, leaving reachability to the tailnet ACLs.
 ADDR = os.environ.get("BOARD_ADDR", "127.0.0.1")
 PORT = int(os.environ.get("BOARD_PORT", "8777"))
@@ -73,6 +81,7 @@ _PAGE = """<!doctype html>
   form input, form textarea { width: 100%; box-sizing: border-box; margin: .2rem 0; }
   form textarea { min-height: 5rem; }
   .row { display: flex; gap: .5rem; }
+  .verified { color: #1a7f37; }
 </style></head><body>
 <h1>message board</h1>
 <nav>areas: <a href="/">all</a>
@@ -113,7 +122,7 @@ _PAGE = """<!doctype html>
 _ROWS = """{% for m in messages %}<div class="msg">
 <span class="meta">#{{ m.id }}
 <a href="/?area={{ m.area|urlencode }}&topic={{ m.topic|urlencode }}">[{{ m.area }}/{{ m.topic }}]</a>
-{{ m['from'] }} · {{ m.ts }}</span>
+{{ m['from'] }}{% if m.verified %} <span class="verified" title="signed by {{ m.signed_by }}">✓</span>{% endif %} · {{ m.ts }}</span>
 <div class="body">{{ m.body }}</div></div>
 {% else %}<p class="empty">no messages yet</p>{% endfor %}"""
 
@@ -122,7 +131,7 @@ _ROWS = """{% for m in messages %}<div class="msg">
 _PIN = """{% set q = "area=" ~ (area|urlencode) ~ "&topic=" ~ (topic|urlencode) %}
 {% set where = area ~ ("/" ~ topic if topic else "") %}
 {% if pin %}<div class="pin">
-<div class="meta">pinned to {{ where }} · v{{ pin.version }} · {{ pin.editor }} · {{ pin.ts }}
+<div class="meta">pinned to {{ where }} · v{{ pin.version }} · {{ pin.editor }}{% if pin.verified %} <span class="verified" title="signed by {{ pin.signed_by }}">✓</span>{% endif %} · {{ pin.ts }}
 <button hx-get="/ui/pin/edit?{{ q }}" hx-target="closest .pin" hx-swap="outerHTML">edit</button></div>
 <div class="body">{{ pin.body }}</div></div>
 {% else %}<div class="pin missing">
@@ -190,6 +199,78 @@ def render_page(area, topic, sender="me", show_archived=False):
                           pins=pins, sender=sender, rows=render_rows(area, topic))
 
 
+# A write the board refuses, and the status it is refused with.
+_REFUSED = (SignatureError, BadName, Forbidden, Conflict, StaleNonce)
+
+
+def _status(exc):
+    return (403 if isinstance(exc, Forbidden)
+            else 409 if isinstance(exc, (Conflict, StaleNonce)) else 400)
+
+
+def _reason(exc):
+    """A refusal as JSON. stale-nonce is a code: the client signs again on it."""
+    if isinstance(exc, StaleNonce):
+        return json.dumps({"error": "stale-nonce", "head": exc.head})
+    return json.dumps({"error": str(exc)})
+
+
+def _signer(kind, values, signature):
+    """The verified signer of `values`, or None for an unsigned write."""
+    if not signature:
+        return None
+    pubkey, fingerprint = board_sign.verify(kind, values, signature)
+    return core.Signer(pubkey, fingerprint, signature, values["nonce"])
+
+
+def submit_post(area, topic, sender, body, key=None, signature=None, nonce=None):
+    """Store a client's message; raises one of _REFUSED."""
+    signer = _signer(board_sign.MESSAGE, {
+        "area": area, "topic": topic, "from": sender, "body": body, "key": key or "",
+        "nonce": "" if nonce is None else str(nonce)}, signature)
+    return post(area, topic, sender, body, key=key, signer=signer)
+
+
+def submit_pin(area, topic, sender, body, base_version=None, signature=None, nonce=None):
+    """Save a client's pin edit; raises StalePin or one of _REFUSED."""
+    signer = _signer(board_sign.PIN, {
+        "area": area, "topic": topic, "from": sender, "body": body,
+        "base_version": "" if base_version is None else str(base_version),
+        "nonce": "" if nonce is None else str(nonce)}, signature)
+    return set_pin(area, topic, sender, body, base_version=base_version, signer=signer)
+
+
+def preseed_owner(environ=os.environ):
+    """Bind BOARD_OWNER_NAME to the key in BOARD_OWNER_PUBKEY, if both are set.
+
+    A missing or unusable key file, or a name outside the name rule or
+    reserved for the board itself, is logged and skipped: the board runs fine without an owner, and the key
+    may simply not exist yet. Other claims that look like the owner name
+    stay, with a warning: releasing one is a human's call (board-admin).
+    """
+    name, path = environ.get("BOARD_OWNER_NAME"), environ.get("BOARD_OWNER_PUBKEY")
+    if not (name and path):
+        return
+    try:
+        pubkey, fingerprint = board_sign.load_public_key(Path(path).read_text())
+    except FileNotFoundError:
+        print(f"board: no owner key at {path}; {name} is not preseeded", flush=True)
+        return
+    except (OSError, UnicodeDecodeError, SignatureError) as exc:
+        print(f"board: owner key {path} unusable ({exc}); {name} is not preseeded", flush=True)
+        return
+    try:
+        core.set_owner(name, pubkey, fingerprint)
+    except (BadName, Forbidden) as exc:
+        print(f"board: BOARD_OWNER_NAME: {exc}; no owner is preseeded", flush=True)
+        return
+    print(f"board: owner {name} is {fingerprint}", flush=True)
+    for near in core.near_claims(name):
+        print(f"board: warning: the claimed name {near!r} is fewer than {core.MIN_DISTANCE}"
+              f" edits from the owner's {name!r}; if it is a look-alike, release it"
+              " with board-admin", flush=True)
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -206,11 +287,13 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
 
-    def _send(self, code, body, ctype="application/json"):
+    def _send(self, code, body, ctype="application/json", refused=None):
         payload = body.encode("utf-8") if isinstance(body, str) else body
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(payload)))
+        if isinstance(refused, StaleNonce):  # whatever the body is, a client can tell
+            self.send_header("Board-Error", "stale-nonce")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -314,24 +397,36 @@ class Handler(BaseHTTPRequestHandler):
             if not area:
                 self._send(400, json.dumps({"error": "need an 'area'"}))
                 return
+            sender, body = form.get("from") or "anon", form.get("body", "")
+            base_version = int(form.get("base_version") or 0)
+            status, refused = 200, None
             try:
-                set_pin(area, topic, form.get("from") or "anon", form.get("body", ""),
-                        base_version=int(form.get("base_version") or 0))
+                submit_pin(area, topic, sender, body, base_version=base_version,
+                           signature=form.get("signature"), nonce=form.get("nonce"))
                 html = render_pin(area, topic)
             except StalePin as stale:
                 # Keep their text; the next save is a deliberate overwrite.
                 html = render_pin_form(
-                    area, topic, form.get("from") or "anon", form.get("body", ""),
-                    base_version=stale.args[0],
+                    area, topic, sender, body, base_version=stale.args[0],
                     error=f"Someone saved v{stale.args[0]} while you were editing."
                           " Your text is below; save again to overwrite theirs.")
-            self._send(200, html, "text/html; charset=utf-8")
+            except _REFUSED as exc:
+                refused, status = exc, _status(exc)
+                html = render_pin_form(area, topic, sender, body,
+                                       base_version=base_version, error=str(exc))
+            self._send(status, html, "text/html; charset=utf-8", refused=refused)
             return
         if path == "/ui/post":  # HTMX form submit -> return the refreshed list
             form = self._read_form()
             if form.get("body"):
-                post(form.get("area") or "general", form.get("topic") or "general",
-                     form.get("from") or "anon", form["body"])
+                try:
+                    submit_post(form.get("area") or "general", form.get("topic") or "general",
+                                form.get("from") or "anon", form["body"],
+                                key=form.get("key") or None, signature=form.get("signature"),
+                                nonce=form.get("nonce"))
+                except _REFUSED as exc:
+                    self._send(_status(exc), str(exc), "text/plain; charset=utf-8", refused=exc)
+                    return
             self._send(200, render_rows(form.get("area", ""), form.get("topic", "")),
                        "text/html; charset=utf-8")
             return
@@ -345,10 +440,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, json.dumps({"error": "need a 'body'"}))
                 return
             try:
-                mid = post(data.get("area", "general"), data.get("topic", "general"),
-                           data.get("from", "anon"), data["body"], key=data.get("key"))
-            except Conflict as exc:
-                self._send(409, json.dumps({"error": str(exc)}))
+                mid = submit_post(data.get("area", "general"), data.get("topic", "general"),
+                                  data.get("from", "anon"), data["body"],
+                                  key=data.get("key") or None, signature=data.get("signature"),
+                                  nonce=data.get("nonce"))
+            except _REFUSED as exc:
+                self._send(_status(exc), _reason(exc), refused=exc)
                 return
             self._send(200, json.dumps({"id": mid}))
             return
@@ -368,12 +465,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, json.dumps({"error": "need 'area' and 'body'"}))
                 return
             try:
-                version = set_pin(data["area"], data.get("topic", ""),
-                                  data.get("from", "anon"), data["body"],
-                                  base_version=data.get("base_version"))
+                version = submit_pin(data["area"], data.get("topic", ""),
+                                     data.get("from", "anon"), data["body"],
+                                     base_version=data.get("base_version"),
+                                     signature=data.get("signature"),
+                                     nonce=data.get("nonce"))
             except StalePin as stale:
                 self._send(409, json.dumps({"error": "pin changed since base_version",
                                             "version": stale.args[0]}))
+                return
+            except _REFUSED as exc:
+                self._send(_status(exc), _reason(exc), refused=exc)
                 return
             self._send(200, json.dumps({"version": version}))
             return
@@ -389,6 +491,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     core.init_db(core.DB)
+    preseed_owner()
     _web_init()
     srv = ThreadingHTTPServer((ADDR, PORT), Handler)
     srv.daemon_threads = True

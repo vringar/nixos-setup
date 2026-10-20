@@ -339,7 +339,14 @@ in {
         Restart = "on-failure";
         RestartSec = "5s";
         StateDirectory = "message-board";
-        Environment = ["BOARD_DB=%S/message-board/board.db"];
+        Environment = [
+          "BOARD_DB=%S/message-board/board.db"
+          # The owner's name is bound to this key at every start, overriding
+          # any claim on it. The key may not exist yet: the board then runs
+          # without an owner and logs one line saying so.
+          "BOARD_OWNER_NAME=Stefan"
+          "BOARD_OWNER_PUBKEY=%h/.ssh/board_ed25519.pub"
+        ];
       };
     };
 

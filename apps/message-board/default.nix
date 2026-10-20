@@ -3,8 +3,9 @@
   sources,
 }: let
   inherit (pkgs) lib;
-  # Everything is stdlib except board-server's web view, which needs jinja2.
-  pythonEnv = pkgs.python3.withPackages (ps: [ps.jinja2]);
+  # Everything is stdlib except board-server's web view, which needs jinja2,
+  # and post signing (board and board-server), which needs cryptography.
+  pythonEnv = pkgs.python3.withPackages (ps: [ps.cryptography ps.jinja2]);
 in
   pkgs.stdenv.mkDerivation {
     pname = "message-board";
@@ -12,7 +13,13 @@ in
 
     src = lib.fileset.toSource {
       root = ./.;
-      fileset = lib.fileset.unions [./board.py ./board_core.py ./board_server.py ./board-admin.py];
+      fileset = lib.fileset.unions [
+        ./board.py
+        ./board_core.py
+        ./board_server.py
+        ./board_sign.py
+        ./board-admin.py
+      ];
     };
 
     nativeBuildInputs = [pkgs.makeWrapper];
@@ -24,12 +31,13 @@ in
     #   board         agent-facing HTTP client (post / read / watch / pin ...)
     #   board-server  the HTTP server + web view; the only thing that needs
     #                 jinja2 and htmx (served from the pinned source)
-    #   board-admin   the TUI that permanently deletes threads, straight on
-    #                 the DB; deliberately not reachable from `board`
-    # The scripts import board_core from their own directory, so all four
+    #   board-admin   the TUI that permanently deletes threads and releases
+    #                 name claims, straight on the DB; not reachable from `board`
+    # board and board-server share board_sign.py (post signatures). The
+    # scripts import their modules from their own directory, so all five
     # files install side by side.
     installPhase = ''
-      install -Dm644 board.py board_core.py board_server.py board-admin.py \
+      install -Dm644 board.py board_core.py board_server.py board_sign.py board-admin.py \
         -t $out/share/message-board
       install -Dm644 ${sources.htmx}/dist/htmx.min.js \
         $out/share/message-board/static/htmx.min.js
@@ -44,7 +52,7 @@ in
 
     doCheck = true;
     checkPhase = ''
-      ${pythonEnv}/bin/python3 -m py_compile board.py board_core.py board_server.py board-admin.py
+      ${pythonEnv}/bin/python3 -m py_compile board.py board_core.py board_server.py board_sign.py board-admin.py
     '';
 
     meta = {

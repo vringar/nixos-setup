@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Agent-facing client for the local message board. Stdlib only.
+"""Agent-facing client for the local message board. Stdlib + cryptography.
 
+    board keygen --from NAME                 create this repo's signing key
     board post <area> <topic> <from> <body>  post a markdown message
     board watch [--area A] [--topic T]       long-poll -> one line per message
                 [--since ID|head]            'head' = only messages from now on
@@ -15,29 +16,52 @@ The address is two levels:
               boundary: a watcher subscribed to one area never sees another.
     topic  -- a channel within an area (e.g. "ghidra", "fuzz", "crashes").
 
+`post` and `pin --set` sign with the repo's key when there is one:
+$BOARD_KEY, else the nearest scratch/board_ed25519 above the current
+directory (`board keygen` creates it). Without a key they go out unsigned,
+which the server refuses for a name someone has claimed by signing. A
+signature covers the board's head as its nonce, so it is good for one
+write; when another write lands first, they read the head again and re-sign.
+
+A sender name is 1-64 ASCII letters, digits, '_' and '-'; anything else is
+refused here, before anything is signed or sent.
+
 This only speaks HTTP to `board-server`; it cannot start one or touch the
 database.
 
 Config via env: BOARD_PORT (8777), BOARD_URL (endpoint, default
 http://127.0.0.1:<BOARD_PORT>), BOARD_AREA / BOARD_TOPIC / BOARD_SINCE
-(defaults for watch and read).
+(defaults for watch and read), BOARD_KEY (signing key path).
 """
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
 from urllib.parse import urlencode
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import board_sign  # noqa: E402
 
 PORT = int(os.environ.get("BOARD_PORT", "8777"))
 BASE_URL = os.environ.get("BOARD_URL", f"http://127.0.0.1:{PORT}")
+KEY_FILE = Path("scratch") / "board_ed25519"
 # A post's key makes resending it harmless, so a post survives a slow or
 # flapping server: wait longer, then retry with the same key.
 POST_TIMEOUT = 30
 POST_RETRIES = 3
+# Signed writes in a row that may go stale (another write landed between
+# reading the head and this one arriving) before giving up.
+NONCE_TRIES = 5
+# The server's sender name rule (board_core.check_name), checked here too so
+# that a bad name fails before anything is signed or sent.
+NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def _client_get(path):
@@ -54,44 +78,116 @@ def _client_post(path, data, timeout=10):
         return resp.read().decode("utf-8")
 
 
-def _post_retrying(path, data):
-    """POST `data`, retrying on timeouts and connection errors.
+def _check_name(name):
+    if not NAME.fullmatch(name):
+        sys.exit(f"board: sender name {ascii(name)} is not allowed: names are"
+                 " 1-64 ASCII letters, digits, '_' and '-'")
 
-    Only for payloads with a `key`: the server dedupes on it, so a retry of a
+
+def find_key():
+    """The signing key to use: $BOARD_KEY, else the nearest scratch/board_ed25519
+    above the current directory, else None (post unsigned)."""
+    if os.environ.get("BOARD_KEY"):
+        return Path(os.environ["BOARD_KEY"])
+    here = Path.cwd().resolve()
+    return next((d / KEY_FILE for d in (here, *here.parents) if (d / KEY_FILE).is_file()), None)
+
+
+def _submit(path, kind, payload, retry=False, extra=None):
+    """POST `payload`, signed if there is a key; returns the response text.
+
+    `extra` holds signed fields that are not sent as such. The signature's
+    nonce is the board's head, read just before signing. If another write
+    lands before this one arrives, the board answers 409 stale-nonce, and
+    this reads the head, signs and sends again (NONCE_TRIES in all).
+
+    `retry` is for payloads with a `key` only: it also sends again after a
+    timeout or a dropped connection (POST_RETRIES times, with backoff). The
+    server dedupes on the key before it looks at the nonce, so a resend of a
     post that did land returns the original id instead of posting it twice.
     """
-    for attempt in range(POST_RETRIES + 1):
+    keyfile = find_key()
+    signing_key = board_sign.load_private_key(keyfile) if keyfile else None
+    stale = dropped = 0
+    while True:
+        data = dict(payload)
         try:
-            return _client_post(path, data, timeout=POST_TIMEOUT)
-        except urllib.error.HTTPError:
-            raise  # the server answered; resending would get the same answer
+            if signing_key is not None:
+                data["nonce"] = str(_head())
+                data["signature"] = board_sign.sign(signing_key, kind, {**data, **(extra or {})})
+            return _client_post(path, data, timeout=POST_TIMEOUT if retry else 10)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 409 or exc.headers.get("Board-Error") != "stale-nonce":
+                raise  # the server answered; resending would get the same answer
+            stale += 1
+            if stale == NONCE_TRIES:
+                sys.exit(f"board: gave up after {NONCE_TRIES} tries: each time, another"
+                         " write landed between reading the board's head and this one"
+                         " arriving (stale-nonce)")
         except OSError as exc:  # URLError, TimeoutError, ConnectionError
-            if attempt == POST_RETRIES:
+            if not retry or dropped == POST_RETRIES:
                 raise
             print(f"board: post failed ({exc}); retrying", file=sys.stderr)
-            time.sleep(2 ** attempt)
+            time.sleep(2 ** dropped)
+            dropped += 1
+
+
+def cmd_keygen(args):
+    """Create the repo's signing key under <repo root>/scratch/."""
+    _check_name(args.sender)
+    here = Path.cwd().resolve()
+    root = next((d for d in (here, *here.parents)
+                 if (d / ".jj").exists() or (d / ".git").exists()), None)
+    if root is None:
+        sys.exit("board: not inside a repository (no .jj or .git above the current directory)")
+    path = root / KEY_FILE
+    pub = path.with_name(path.name + ".pub")
+    for p in (path, pub):
+        if p.exists():
+            sys.exit(f"board: {p} already exists; not overwriting it")
+    path.parent.mkdir(exist_ok=True)
+    ignore = path.parent / ".gitignore"
+    if not ignore.exists():  # scratch/ is never tracked
+        ignore.write_text("*\n")
+    private, public, fingerprint = board_sign.generate(f"board:{args.sender}")
+    for p, data in ((path, private), (pub, public.encode())):
+        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+    print(path)
+    print(fingerprint)
+    print(f"board: posts from inside {root} are now signed; the first signed post"
+          f" as {args.sender} claims that name", file=sys.stderr)
 
 
 def cmd_post(args):
-    print(_post_retrying("/post", {
+    _check_name(args.sender)
+    print(_submit("/post", board_sign.MESSAGE, {
         "area": args.area, "topic": args.topic,
         "from": args.sender, "body": " ".join(args.body),
         "key": uuid.uuid4().hex,
-    }))
+    }, retry=True))
+
+
+def _who(name, verified):
+    """A sender name, marked when the board verified its signature."""
+    return f"{name} ✓" if verified else name
 
 
 def _pin_header(p):
     where = f"{p['area']}/{p['topic']}" if p["topic"] else p["area"]
-    return f"=== pinned to {where} · v{p['version']} · {p['editor']} · {p['ts']} ==="
+    return (f"=== pinned to {where} · v{p['version']} · {_who(p['editor'], p.get('verified'))}"
+            f" · {p['ts']} ===")
 
 
 def cmd_pin(args):
     """Show a pin, or with --set replace it from stdin (empty input removes it)."""
     if args.set:
-        out = json.loads(_client_post("/pin", {
+        _check_name(args.sender)
+        out = json.loads(_submit("/pin", board_sign.PIN, {
             "area": args.area, "topic": args.topic or "",
             "from": args.sender, "body": sys.stdin.read(),
-        }))
+        }, extra={"base_version": ""}))  # no base_version sent: no stale check
         print(f"board: pin saved as v{out['version']}", file=sys.stderr)
         return
     try:
@@ -150,7 +246,8 @@ def cmd_read(args):
             print(p["body"].rstrip())
             print()
         for m in msgs:
-            print(f"#{m['id']}  {m['ts']}  [{m['area']}/{m['topic']}] {m['from']}")
+            print(f"#{m['id']}  {m['ts']}  [{m['area']}/{m['topic']}]"
+                  f" {_who(m['from'], m.get('verified'))}")
             print(m["body"].rstrip())
             print()
     print(f"board: read through id {cursor}; follow with --since {cursor}",
@@ -239,6 +336,11 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="board", description="local long-poll message board")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    sk = sub.add_parser("keygen", help="create this repo's signing key (scratch/board_ed25519)")
+    sk.add_argument("--from", dest="sender", required=True,
+                    help="the name this key will post as (recorded in its comment)")
+    sk.set_defaults(fn=cmd_keygen)
+
     sp = sub.add_parser("post", help="post a markdown message")
     sp.add_argument("area")
     sp.add_argument("topic")
@@ -290,7 +392,9 @@ def main(argv=None):
         args.fn(args)
     except KeyboardInterrupt:
         sys.exit(130)
-    except urllib.error.HTTPError as exc:  # a refusal, e.g. a reused post key
+    except board_sign.SignatureError as exc:
+        sys.exit(f"board: {exc}")
+    except urllib.error.HTTPError as exc:  # a refusal, e.g. a claimed name
         try:
             reason = json.loads(exc.read())["error"]
         except (ValueError, KeyError, TypeError):
