@@ -19,6 +19,7 @@ in
         ./board_server.py
         ./board_sign.py
         ./board-admin.py
+        ./static/board-sign.js
       ];
     };
 
@@ -30,7 +31,8 @@ in
     # Three commands over one storage module (board_core.py):
     #   board         agent-facing HTTP client (post / read / watch / pin ...)
     #   board-server  the HTTP server + web view; the only thing that needs
-    #                 jinja2 and htmx (served from the pinned source)
+    #                 jinja2, htmx (served from the pinned source) and
+    #                 board-sign.js (the web view's signing)
     #   board-admin   the TUI that permanently deletes threads and releases
     #                 name claims, straight on the DB; not reachable from `board`
     # board and board-server share board_sign.py (post signatures). The
@@ -39,8 +41,8 @@ in
     installPhase = ''
       install -Dm644 board.py board_core.py board_server.py board_sign.py board-admin.py \
         -t $out/share/message-board
-      install -Dm644 ${sources.htmx}/dist/htmx.min.js \
-        $out/share/message-board/static/htmx.min.js
+      install -Dm644 ${sources.htmx}/dist/htmx.min.js static/board-sign.js \
+        -t $out/share/message-board/static
       makeWrapper ${pythonEnv}/bin/python3 $out/bin/board \
         --add-flags $out/share/message-board/board.py
       makeWrapper ${pythonEnv}/bin/python3 $out/bin/board-server \

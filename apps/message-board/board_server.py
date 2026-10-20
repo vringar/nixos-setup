@@ -14,9 +14,9 @@ anything but 127.0.0.1 makes the network the access boundary. Only do it
 behind a firewall rule scoped to a trusted interface.
 
 Config via env: BOARD_ADDR (127.0.0.1), BOARD_PORT (8777), BOARD_DB (SQLite
-path, default ./board.db), BOARD_STATIC_DIR (htmx.min.js; set by the packaged
-wrapper), BOARD_OWNER_NAME + BOARD_OWNER_PUBKEY (a name and the public key
-file it is bound to at startup, overriding any claim).
+path, default ./board.db), BOARD_STATIC_DIR (htmx.min.js and board-sign.js;
+set by the packaged wrapper), BOARD_OWNER_NAME + BOARD_OWNER_PUBKEY (a name
+and the public key file it is bound to at startup, overriding any claim).
 """
 import json
 import os
@@ -40,10 +40,16 @@ from board_sign import SignatureError  # noqa: E402
 # opens the port on tailscale0 only, leaving reachability to the tailnet ACLs.
 ADDR = os.environ.get("BOARD_ADDR", "127.0.0.1")
 PORT = int(os.environ.get("BOARD_PORT", "8777"))
-# Static assets (htmx.min.js) -- set by the packaged wrapper; falls back to a
-# ./static dir next to this file for dev runs.
+# Static assets (htmx.min.js, board-sign.js) -- set by the packaged wrapper;
+# falls back to the ./static dir next to this file for dev runs.
 STATIC_DIR = os.environ.get(
     "BOARD_STATIC_DIR", str(Path(__file__).resolve().parent / "static"))
+
+# Every HTML response. No inline script: board-sign.js holds a private key in
+# memory, so nothing a message body could smuggle into the page may run.
+# Inline styles stay allowed for the page's own <style> block.
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+       " object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
 # ---------------------------------------------------------------------------
 # Web view (Jinja + HTMX). Jinja is imported lazily in _web_init so the core
@@ -55,6 +61,7 @@ _PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>board{% if area %} · {{ area }}{% endif %}</title>
 <script src="/static/htmx.min.js"></script>
+<script src="/static/board-sign.js" defer></script>
 <style>
   body { font: 14px system-ui, sans-serif; max-width: 820px; margin: 1.5rem auto;
          padding: 0 1rem; color: #1a1a1a; }
@@ -82,16 +89,34 @@ _PAGE = """<!doctype html>
   form textarea { min-height: 5rem; }
   .row { display: flex; gap: .5rem; }
   .verified { color: #1a7f37; }
+  .auth { float: right; font-size: 12px; color: #666; }
+  dialog { width: min(36rem, 90vw); }
+  dialog textarea { min-height: 10rem; font: 11px monospace; }
 </style></head><body>
+<div class="auth"><span id="auth-status" hidden></span>
+  <button type="button" id="auth-forget" hidden>forget key</button>
+  <button type="button" id="auth-open">Authorize</button>
+  <span id="auth-note"></span></div>
+<dialog id="auth-dialog"><form method="dialog" id="auth-form">
+  <p>Sign your posts and pin edits: paste an <b>unencrypted</b> OpenSSH ed25519
+  private key, ideally a dedicated one (<code>board keygen</code>). It stays in
+  this tab's memory only: never stored, never sent, and a reload forgets it.</p>
+  <p class="error" id="auth-error" hidden></p>
+  <input name="name" placeholder="name to post as" required autocomplete="off">
+  <textarea name="privkey" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" required
+            autocomplete="off" spellcheck="false"></textarea>
+  <button type="submit">authorize</button>
+  <button type="button" id="auth-cancel">cancel</button>
+</form></dialog>
 <h1>message board</h1>
-<nav>areas: <a href="/">all</a>
+<nav hx-boost:inherited="true">areas: <a href="/">all</a>
   {% for a in areas %}<a href="/?area={{ a.name|urlencode }}"
     {% if a.name == area %}class="current"{% endif %}>{{ a.name }}</a>{% endfor %}
   {% if archived_areas %}<span class="muted">·
     <a href="/?show=archived">archived ({{ archived_areas|length }})</a></span>{% endif %}</nav>
-{% if show_archived and archived_areas %}<nav class="muted">archived:
+{% if show_archived and archived_areas %}<nav class="muted" hx-boost:inherited="true">archived:
   {% for a in archived_areas %}<a href="/?area={{ a.name|urlencode }}">{{ a.name }}</a>{% endfor %}</nav>{% endif %}
-{% if area %}<nav>topics: <a href="/?area={{ area|urlencode }}"
+{% if area %}<nav hx-boost:inherited="true">topics: <a href="/?area={{ area|urlencode }}"
     {% if not topic %}class="current"{% endif %}>all</a>
   {% for t in topics %}<a href="/?area={{ area|urlencode }}&topic={{ t|urlencode }}"
     {% if t == topic %}class="current"{% endif %}>{{ t }}</a>{% endfor %}</nav>{% endif %}
@@ -108,8 +133,8 @@ _PAGE = """<!doctype html>
 <div id="messages" hx-get="/ui/messages?area={{ area|urlencode }}&topic={{ topic|urlencode }}"
      hx-trigger="every 3s" hx-swap="innerHTML">{{ rows|safe }}</div>
 <h3>post a message</h3>
-<form hx-post="/ui/post" hx-target="#messages" hx-swap="innerHTML"
-      hx-on::after-request="if(event.detail.successful) this.querySelector('[name=body]').value=''">
+<form hx-post="/ui/post" hx-target="#messages" hx-swap="innerHTML">
+  <p class="error" hidden></p>
   <div class="row">
     <input name="area" placeholder="area" value="{{ area }}" required>
     <input name="topic" placeholder="topic" value="{{ topic or 'general' }}" required>
@@ -140,7 +165,7 @@ _PIN = """{% set q = "area=" ~ (area|urlencode) ~ "&topic=" ~ (topic|urlencode) 
 
 _PIN_FORM = """{% set q = "area=" ~ (area|urlencode) ~ "&topic=" ~ (topic|urlencode) %}
 <form class="pin" hx-post="/ui/pin" hx-target="this" hx-swap="outerHTML">
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<p class="error"{% if not error %} hidden{% endif %}>{{ error }}</p>
 <input type="hidden" name="area" value="{{ area }}">
 <input type="hidden" name="topic" value="{{ topic }}">
 <input type="hidden" name="base_version" value="{{ base_version }}">
@@ -291,6 +316,8 @@ class Handler(BaseHTTPRequestHandler):
         payload = body.encode("utf-8") if isinstance(body, str) else body
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        if ctype.startswith("text/html"):
+            self.send_header("Content-Security-Policy", CSP)
         self.send_header("Content-Length", str(len(payload)))
         if isinstance(refused, StaleNonce):  # whatever the body is, a client can tell
             self.send_header("Board-Error", "stale-nonce")
@@ -359,12 +386,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, render_rows(q.get("area", [""])[0], q.get("topic", [""])[0]),
                        "text/html; charset=utf-8")
             return
-        if u.path == "/static/htmx.min.js":
+        if u.path in ("/static/htmx.min.js", "/static/board-sign.js"):
+            name = u.path.rsplit("/", 1)[1]
             try:
-                self._send(200, (Path(STATIC_DIR) / "htmx.min.js").read_bytes(),
-                           "application/javascript")
+                self._send(200, (Path(STATIC_DIR) / name).read_bytes(),
+                           "text/javascript; charset=utf-8")
             except OSError:
-                self._send(404, json.dumps({"error": "htmx.min.js not found"}))
+                self._send(404, json.dumps({"error": f"{name} not found"}))
             return
         if u.path == "/healthz":
             self._send(200, json.dumps({"head": head_id()}))
@@ -424,7 +452,7 @@ class Handler(BaseHTTPRequestHandler):
                                 form.get("from") or "anon", form["body"],
                                 key=form.get("key") or None, signature=form.get("signature"),
                                 nonce=form.get("nonce"))
-                except _REFUSED as exc:
+                except _REFUSED as exc:  # board-sign.js shows it by the form, unswapped
                     self._send(_status(exc), str(exc), "text/plain; charset=utf-8", refused=exc)
                     return
             self._send(200, render_rows(form.get("area", ""), form.get("topic", "")),

@@ -727,6 +727,123 @@ def test_other_key_types_and_encrypted_keys_are_refused(tmp_path):
         board_sign.load_private_key(locked)
 
 
+def test_browser_signing_matches_python_and_ssh_keygen(tmp_path):
+    """static/board-sign.js, run under node: the same canonical bytes, the
+    same signature (ed25519 is deterministic) and one ssh-keygen accepts."""
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed (it is in the repo's shell.nix)")
+    path = _openssh_key(tmp_path, "id")  # what a user would paste
+    locked = _openssh_key(tmp_path, "locked", "-N", "secret")
+    ecdsa = tmp_path / "ec"
+    _ssh_keygen("-q", "-t", "ecdsa", "-N", "", "-f", ecdsa)
+    message = {"area": "rev", "topic": "t", "from": "Stefan",
+               "body": "line one\nfrom=evil ü🙂", "key": "0f3c", "nonce": "41"}
+    pin = {"area": "rev", "topic": "", "from": "Stefan", "body": "# rules", "base_version": "3",
+           "nonce": "41"}
+    script = tmp_path / "drive.js"
+    script.write_text("""
+const fs = require("fs");
+const [js, key, locked, ecdsa, message, pin] = process.argv.slice(2);
+require(js);
+const B = globalThis.BoardSign;
+const hex = (b) => Buffer.from(b).toString("hex");
+const refused = (path) => { try { B.parsePrivateKey(fs.readFileSync(path, "utf8")); return null; }
+                             catch (e) { return e.message; } };
+(async () => {
+  const signer = await B.importKey(fs.readFileSync(key, "utf8"));
+  const m = JSON.parse(message), p = JSON.parse(pin);
+  console.log(JSON.stringify({
+    fingerprint: signer.fingerprint,
+    extractable: signer.key.extractable,
+    messageBytes: hex(B.canonical(B.MESSAGE, m)),
+    message: await B.sign(signer, B.MESSAGE, m),
+    pin: await B.sign(signer, B.PIN, p),
+    locked: refused(locked), ecdsa: refused(ecdsa),
+  }));
+})();
+""")
+    out = subprocess.run(
+        ["node", script, _APP / "static" / "board-sign.js", path, locked, ecdsa,
+         json.dumps(message), json.dumps(pin)], capture_output=True, text=True, check=True)
+    got = json.loads(out.stdout)
+    key = board_sign.load_private_key(path)
+    public_line = (tmp_path / "id.pub").read_text()
+    assert bytes.fromhex(got["messageBytes"]) == board_sign.canonical(MESSAGE_FIELDS, message)
+    assert got["message"] == board_sign.sign(key, board_sign.MESSAGE, message)
+    assert got["pin"] == board_sign.sign(key, board_sign.PIN, pin)
+    assert got["fingerprint"] == _fingerprint_of(tmp_path / "id.pub")
+    assert got["extractable"] is False
+    assert _ssh_verify(tmp_path, public_line, "board-message",
+                       board_sign.canonical(MESSAGE_FIELDS, message), got["message"])
+    assert _ssh_verify(tmp_path, public_line, "board-pin",
+                       board_sign.canonical(board_sign.PIN[1], pin), got["pin"])
+    assert "passphrase-protected" in got["locked"]
+    assert "only ed25519" in got["ecdsa"]
+
+
+def test_browser_submits_sign_the_head_of_the_moment_and_retry_a_stale_one(server, db,
+                                                                           tmp_path):
+    """What the page's signed submits do, run under node against a real
+    server: read the head, sign, POST; once more when another write landed
+    in between; never for a stale pin edit; and give up after five."""
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed (it is in the repo's shell.nix)")
+    path = _openssh_key(tmp_path, "id")
+    script = tmp_path / "drive.js"
+    script.write_text("""
+const fs = require("fs");
+const [js, key, base] = process.argv.slice(2);
+require(js);
+const B = globalThis.BoardSign;
+const realFetch = globalThis.fetch;
+let log = [], races = 0;
+globalThis.fetch = async (url, init) => {
+  const response = await realFetch(url, init);
+  const path = new URL(url).pathname;
+  log.push(path);
+  if (path === "/healthz" && races > 0) {  // someone else writes right after the read
+    races--;
+    await realFetch(base + "/post", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ area: "web", topic: "t", from: "other", body: "concurrent" }) });
+  }
+  return response;
+};
+(async () => {
+  const signer = await B.importKey(fs.readFileSync(key, "utf8"));
+  const steps = [
+    [1, B.MESSAGE, "/ui/post", { area: "web", topic: "t", from: "agent", body: "from the page", key: "k1" }],
+    [1, B.PIN, "/ui/pin", { area: "web", topic: "", from: "agent", body: "web rules", base_version: "0" }],
+    [0, B.PIN, "/ui/pin", { area: "web", topic: "", from: "agent", body: "stale edit", base_version: "0" }],
+    [99, B.MESSAGE, "/ui/post", { area: "web", topic: "t", from: "agent", body: "never lands", key: "k2" }],
+  ];
+  const out = [];
+  for (const [n, kind, path, values] of steps) {
+    log = []; races = n;
+    const r = await B.postSigned(signer, kind, base + path, values);
+    out.push({ log, status: r.status, refusal: r.headers.get("Board-Error"), text: await r.text() });
+  }
+  console.log(JSON.stringify(out));
+})();
+""")
+    run = subprocess.run(["node", script, _APP / "static" / "board-sign.js", path, server],
+                         capture_output=True, text=True, check=True)
+    post, pin, stale, busy = json.loads(run.stdout)
+    once_more = lambda p: ["/healthz", p, "/healthz", p]  # noqa: E731
+    assert (post["log"], post["status"]) == (once_more("/ui/post"), 200)
+    assert "from the page" in post["text"] and "✓" in post["text"]
+    assert (pin["log"], pin["status"]) == (once_more("/ui/pin"), 200)
+    assert "web rules" in pin["text"] and "✓" in pin["text"]
+    # an edit conflict is the human's to resolve: one try, the form back
+    assert (stale["log"], stale["status"]) == (["/healthz", "/ui/pin"], 200)
+    assert "Someone saved v1" in stale["text"] and "stale edit" in stale["text"]
+    assert busy["log"] == ["/healthz", "/ui/post"] * 5
+    assert (busy["status"], busy["refusal"]) == (409, "stale-nonce")
+    assert busy["text"].startswith("stale-nonce:")
+    assert [(m["body"], m["verified"]) for m in db.query_since(0, "web", "t")
+            if (m["from"], m["topic"]) == ("agent", "t")] == [("from the page", True)]
+    assert db.get_pin("web")["body"] == "web rules"
+
+
 # --- identities: first signed use claims a name -------------------------------
 
 def _signer(fingerprint):
@@ -1129,6 +1246,22 @@ def test_web_post_form_signed_like_the_browser_and_refused_unsigned(server, db, 
     assert e.value.code == 403
     assert e.value.headers["content-type"].startswith("text/plain")
     assert e.value.read().decode() == "name 'agent' is claimed; sign the post"
+
+
+def test_web_page_has_a_csp_and_no_inline_script(server, db):
+    import re
+    import urllib.request
+    db.post("rev", "t", "a", "x")
+    with urllib.request.urlopen(f"{server}/?area=rev", timeout=5) as r:
+        csp, page = r.headers["content-security-policy"], r.read().decode()
+    assert "script-src 'self'" in csp and "'unsafe-eval'" not in csp
+    assert all("src=" in tag for tag in re.findall(r"<script[^>]*>", page))
+    assert "hx-on" not in page  # htmx runs those through eval
+    assert not re.search(r"<[^>]+\son[a-z]+=", page)  # nor inline event handlers
+    assert page.count('hx-boost:inherited="true"') == 2  # areas + topics nav
+    assert 'id="auth-open"' in page and '<form method="dialog" id="auth-form">' in page
+    status, js = _get(f"{server}/static/board-sign.js")
+    assert status == 200 and "globalThis.BoardSign" in js
 
 
 def test_owner_is_preseeded_from_its_key_file(db, tmp_path, capsys):

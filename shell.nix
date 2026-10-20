@@ -7,6 +7,8 @@ in
       pkgs.colmena
       pkgs.npins
       pkgs.pre-commit
+      # Runs the board's browser-side signing code against ssh-keygen in the tests.
+      pkgs.nodejs
       # tests/ imports the scripts under test directly, so the shell has to
       # carry their third-party dependencies: pytest to run them at all,
       # requests for apps/witcher-corpus/reconcile.py, without which
