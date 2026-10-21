@@ -56,6 +56,12 @@ bash hm-switch.sh
 - `npins update` - Update pins
 - `npins show` - List current pins
 
+### When update-pins builds
+
+`scripts/update-pins.py` builds once before touching any pin; if that baseline
+build fails it stops, since the tree was already red. After that it builds only
+for pins whose entry in `npins/sources.json` changed.
+
 ### Pins that fail to fetch
 
 `scripts/update-pins.py` skips a pin whose `npins update` fails, leaves it at

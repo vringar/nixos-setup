@@ -1,5 +1,6 @@
 """Unit tests for update-pins.py logic functions."""
 
+import json
 import sys
 import textwrap
 from pathlib import Path
@@ -348,6 +349,7 @@ update_pin = _mod.update_pin
 
 def test_update_pin_skips_on_npins_failure(tmp_path, monkeypatch):
     """Default (non-strict): npins update failure skips the pin gracefully."""
+    _write_sources(tmp_path, {"revision": "a"})
     monkeypatch.setattr(_mod, "run_npins_update", lambda pin: False)
 
     result = update_pin("broken-pin", hostname="sz1", root=tmp_path)
@@ -356,6 +358,7 @@ def test_update_pin_skips_on_npins_failure(tmp_path, monkeypatch):
 
 def test_update_pin_records_skipped_pin(tmp_path, monkeypatch):
     """A skipped pin is reported, so the summary can name it."""
+    _write_sources(tmp_path, {"revision": "a"})
     monkeypatch.setattr(_mod, "run_npins_update", lambda pin: False)
     skipped = []
 
@@ -365,6 +368,7 @@ def test_update_pin_records_skipped_pin(tmp_path, monkeypatch):
 
 def test_update_pin_strict_fails_on_npins_failure(tmp_path, monkeypatch):
     """Strict mode: npins update failure is treated as a real failure."""
+    _write_sources(tmp_path, {"revision": "a"})
     monkeypatch.setattr(_mod, "run_npins_update", lambda pin: False)
 
     result = update_pin("broken-pin", hostname="sz1", root=tmp_path, strict=True)
@@ -373,11 +377,108 @@ def test_update_pin_strict_fails_on_npins_failure(tmp_path, monkeypatch):
 
 def test_update_pin_proceeds_to_build_on_npins_success(tmp_path, monkeypatch):
     """When npins update succeeds, build is attempted regardless of strict flag."""
+    _write_sources(tmp_path, {"revision": "a"})
     monkeypatch.setattr(_mod, "run_npins_update", lambda pin: True)
     monkeypatch.setattr(_mod, "run_colmena_build", lambda hostname: (True, ""))
 
     result = update_pin("good-pin", hostname="sz1", root=tmp_path)
     assert result is True
+
+
+def test_update_pin_raises_on_unreadable_sources(tmp_path, monkeypatch):
+    """A broken sources.json is an error, not a reason to guess and build."""
+    (tmp_path / "npins").mkdir()
+    (tmp_path / "npins" / "sources.json").write_text("{not json")
+    monkeypatch.setattr(_mod, "run_npins_update", lambda pin: True)
+
+    with pytest.raises(ValueError):
+        update_pin("p", hostname="sz1", root=tmp_path)
+
+
+# ── Skipping unchanged pins and the baseline build ───────────────────────────
+
+
+def _write_sources(root, entry):
+    (root / "npins").mkdir(exist_ok=True)
+    (root / "npins" / "sources.json").write_text(
+        json.dumps({"pins": {"p": entry}, "version": 5})
+    )
+
+
+def _count_builds(monkeypatch):
+    builds = []
+
+    def fake_build(hostname):
+        builds.append(hostname)
+        return True, ""
+
+    monkeypatch.setattr(_mod, "run_colmena_build", fake_build)
+    return builds
+
+
+def test_update_pin_unchanged_does_not_build(tmp_path, monkeypatch, capsys):
+    _write_sources(tmp_path, {"revision": "a"})
+    monkeypatch.setattr(_mod, "run_npins_update", lambda pin: True)
+    builds = _count_builds(monkeypatch)
+    current = []
+
+    result = update_pin("p", hostname="sz1", root=tmp_path, current=current)
+
+    assert result is True
+    assert builds == []
+    assert current == ["p"]
+    assert "==> Pin p already current; skipping build" in capsys.readouterr().out
+
+
+def test_update_pin_changed_builds(tmp_path, monkeypatch):
+    _write_sources(tmp_path, {"revision": "a"})
+
+    def bump(pin):
+        _write_sources(tmp_path, {"revision": "b"})
+        return True
+
+    monkeypatch.setattr(_mod, "run_npins_update", bump)
+    builds = _count_builds(monkeypatch)
+    current = []
+
+    assert update_pin("p", hostname="sz1", root=tmp_path, current=current) is True
+    assert builds == ["sz1"]
+    assert current == []
+
+
+def test_update_pin_fetch_failure_does_not_build(tmp_path, monkeypatch):
+    _write_sources(tmp_path, {"revision": "a"})
+    monkeypatch.setattr(_mod, "run_npins_update", lambda pin: False)
+    builds = _count_builds(monkeypatch)
+    skipped, current = [], []
+
+    result = update_pin(
+        "p", hostname="sz1", root=tmp_path, skipped=skipped, current=current
+    )
+
+    assert result is True
+    assert builds == []
+    assert skipped == ["p"]
+    assert current == []
+
+
+def test_main_failing_baseline_stops_before_any_pin(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(_mod, "REPO_ROOT", tmp_path)
+    _write_sources(tmp_path, {"revision": "a"})
+    monkeypatch.setattr(_mod, "run_colmena_build", lambda hostname: (False, "boom"))
+
+    def must_not_run(*a, **kw):
+        raise AssertionError("pin touched despite red baseline")
+
+    monkeypatch.setattr(_mod, "run_npins_update", must_not_run)
+    monkeypatch.setattr(_mod, "update_pin", must_not_run)
+    logs = tmp_path / "logs"
+
+    rc = _mod.main(["--capture-logs", str(logs), "--hostname", "sz1"])
+
+    assert rc == 1
+    assert (logs / "baseline.log").read_text() == "boom"
+    assert "already red before any pin" in capsys.readouterr().out
 
 
 # ── Real log fixtures from actual builds (add as you capture them) ────────────

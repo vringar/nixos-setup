@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Update npins pins and fix any resulting FOD hash mismatches.
-Updates one pin at a time so at most one cargoHash needs fixing per build cycle.
+Builds once up front so a build that was already red is not blamed on a pin.
+Updates one pin at a time so at most one cargoHash needs fixing per build cycle,
+and skips the build for a pin that npins left unchanged.
 Stops at the first pin whose build can't be auto-fixed, leaving that bump in
 place so the breakage can be resolved by rolling forward (re-run to resume the
 remaining pins).
@@ -250,6 +252,27 @@ def handle_build_failure(
     return all_fixed
 
 
+def pin_entry(root: Path, pin: str) -> Optional[dict]:
+    """The pin's entry in npins/sources.json, or None if it has none.
+
+    An unreadable or malformed sources.json raises: it means npins itself is
+    broken, which no build can fix.
+    """
+    data = json.loads((root / "npins" / "sources.json").read_text())
+    return data.get("pins", {}).get(pin)
+
+
+def baseline_build(hostname: str, capture_dir: Optional[Path] = None) -> bool:
+    """Build once before any bump. Returns True if the tree is green."""
+    print("==> Baseline build (before any pin is touched)")
+    success, output = run_colmena_build(hostname)
+    if capture_dir is not None:
+        log_path = capture_dir / "baseline.log"
+        log_path.write_text(output)
+        print(f"==> Captured build log: {log_path}")
+    return success
+
+
 def update_pin(
     pin: str,
     hostname: str,
@@ -258,14 +281,18 @@ def update_pin(
     capture_dir: Optional[Path] = None,
     strict: bool = False,
     skipped: Optional[list[str]] = None,
+    current: Optional[list[str]] = None,
 ) -> bool:
     """
     Update *pin* and converge the build by fixing hash mismatches.
+    A pin whose entry in npins/sources.json is unchanged is not built
+    (appended to *current*) and counts as success.
     Returns True on success. A pin whose fetch fails is left at its current
     revision and counts as success (appended to *skipped*): it is unchanged, so
     it cannot break the build.
     """
     print(f"==> Updating pin: {pin}")
+    before = pin_entry(root, pin)
     if not run_npins_update(pin):
         if strict:
             print(f"==> FATAL: npins update failed for pin: {pin}")
@@ -273,6 +300,12 @@ def update_pin(
         print(f"==> Skipping pin: {pin} (npins update failed; left at its current revision)")
         if skipped is not None:
             skipped.append(pin)
+        return True
+
+    if before is not None and pin_entry(root, pin) == before:
+        print(f"==> Pin {pin} already current; skipping build")
+        if current is not None:
+            current.append(pin)
         return True
 
     nix_files = find_nix_files(root)
@@ -365,6 +398,15 @@ def main(argv: list[str] | None = None) -> int:
 
     pins = args.pins or list_pins(REPO_ROOT / "npins" / "sources.json")
     skipped: list[str] = []
+    current: list[str] = []
+
+    if not baseline_build(args.hostname, capture_dir):
+        print("==> STOPPING: the build was already red before any pin was bumped.")
+        print(
+            "    No pin is to blame and none was touched; fix the build, "
+            "then re-run."
+        )
+        return 1
 
     for idx, pin in enumerate(pins):
         ok = update_pin(
@@ -375,6 +417,7 @@ def main(argv: list[str] | None = None) -> int:
             capture_dir=capture_dir,
             strict=args.strict,
             skipped=skipped,
+            current=current,
         )
         if not ok:
             # Fail fast: a broken upgrade is left bumped in npins/sources.json so
@@ -394,6 +437,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             return 1
 
+    if current:
+        print(f"==> {len(current)} pin(s) already current; not rebuilt")
     if skipped:
         print(f"==> All other pins updated; could not fetch: {' '.join(skipped)}")
         print(
