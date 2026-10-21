@@ -127,6 +127,13 @@ def init_db(path):
     return conn
 
 
+def rollback():
+    """End the transaction a failed statement left open, so the next request
+    starts clean (the caller saw a sqlite3.Error)."""
+    with _cv:
+        _db.rollback()
+
+
 def head_id():
     """The highest message id ever issued -- not the highest still present.
 

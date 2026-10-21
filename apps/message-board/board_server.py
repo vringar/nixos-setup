@@ -21,6 +21,7 @@ and the public key file it is bound to at startup, overriding any claim).
 import json
 import os
 import signal
+import sqlite3
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -241,6 +242,15 @@ def _reason(exc):
     return json.dumps({"error": str(exc)})
 
 
+def _db_failure(exc):
+    """A database error as (status, message). Busy -- another program holds
+    the file longer than busy_timeout -- is temporary and the client's to
+    retry; anything else is the board's own fault."""
+    if (getattr(exc, "sqlite_errorcode", None) or 0) & 0xFF in (5, 6):  # BUSY, LOCKED
+        return 503, f"database busy: {exc}; nothing was written, try again"
+    return 500, f"database error: {exc}"
+
+
 def _signer(kind, values, signature):
     """The verified signer of `values`, or None for an unsigned write."""
     if not signature:
@@ -325,6 +335,33 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _db_failed(self, exc):
+        """Log a database error with its request; returns (status, message)."""
+        try:
+            core.rollback()
+        except sqlite3.Error as again:
+            print(f"board: rollback after a database error failed: {again}",
+                  file=sys.stderr, flush=True)
+        status, message = _db_failure(exc)
+        host, port = self.client_address[:2]
+        print(f"board: {self.command} {urlparse(self.path).path} from {host}:{port}: {message}",
+              file=sys.stderr, flush=True)
+        return status, message
+
+    def do_GET(self):
+        try:
+            self._get()
+        except sqlite3.Error as exc:
+            status, message = self._db_failed(exc)
+            self._send(status, json.dumps({"error": message}))
+
+    def do_POST(self):
+        try:
+            self._post()
+        except sqlite3.Error as exc:
+            status, message = self._db_failed(exc)
+            self._send(status, json.dumps({"error": message}))
+
     def _read_form(self):
         length = int(self.headers.get("Content-Length", "0"))
         return {k: v[0] for k, v in
@@ -335,7 +372,7 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         return json.loads(self.rfile.read(length) or b"{}")
 
-    def do_GET(self):
+    def _get(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
         if u.path == "/poll":
@@ -405,7 +442,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send(404, json.dumps({"error": "not found"}))
 
-    def do_POST(self):
+    def _post(self):
         path = urlparse(self.path).path
         if path == "/ui/archive":  # plain form post -> back to a sensible page
             form = self._read_form()
@@ -443,6 +480,10 @@ class Handler(BaseHTTPRequestHandler):
                 refused, status = exc, _status(exc)
                 html = render_pin_form(area, topic, sender, body,
                                        base_version=base_version, error=str(exc))
+            except sqlite3.Error as exc:  # their text stays, with the reason
+                status, error = self._db_failed(exc)
+                html = render_pin_form(area, topic, sender, body,
+                                       base_version=base_version, error=error)
             self._send(status, html, "text/html; charset=utf-8", refused=refused)
             return
         if path == "/ui/post":  # HTMX form submit -> return the refreshed list
@@ -455,6 +496,10 @@ class Handler(BaseHTTPRequestHandler):
                                 nonce=form.get("nonce"))
                 except _REFUSED as exc:  # board-sign.js shows it by the form, unswapped
                     self._send(_status(exc), str(exc), "text/plain; charset=utf-8", refused=exc)
+                    return
+                except sqlite3.Error as exc:
+                    status, message = self._db_failed(exc)
+                    self._send(status, message, "text/plain; charset=utf-8")
                     return
             self._send(200, render_rows(form.get("area", ""), form.get("topic", "")),
                        "text/html; charset=utf-8")
