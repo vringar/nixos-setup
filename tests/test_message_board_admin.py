@@ -39,6 +39,11 @@ board = admin.core  # the very module instance admin operates on
 BOARD_CMD = shlex.split(os.environ.get("BOARD_SERVER_BIN", "")) or [sys.executable, str(_APP / "board_server.py")]
 ADMIN_CMD = shlex.split(os.environ.get("BOARD_ADMIN_BIN", "")) or [sys.executable, str(_APP / "board-admin.py")]
 
+# How long a server start, a request or the TUI's exit may take: a bound on a
+# hang, not a speed check. On a loaded box a single SQLite commit (an fsync)
+# has stalled for half a minute.
+HANG_TIMEOUT = 120
+
 
 @pytest.fixture
 def db(tmp_path):
@@ -273,7 +278,8 @@ class Server:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
-        for _ in range(100):
+        deadline = time.time() + HANG_TIMEOUT
+        while time.time() < deadline:
             try:
                 self.get("/healthz")
                 return self
@@ -284,11 +290,15 @@ class Server:
     def stop(self):
         if self.proc and self.proc.poll() is None:
             self.proc.send_signal(signal.SIGTERM)
-            self.proc.wait(timeout=10)
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
         self.proc = None
 
     def get(self, path):
-        with urllib.request.urlopen(self.url + path, timeout=3) as r:
+        with urllib.request.urlopen(self.url + path, timeout=HANG_TIMEOUT) as r:
             return json.loads(r.read())
 
     def post(self, area, topic, sender, body):
@@ -298,7 +308,7 @@ class Server:
             headers={"content-type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=3) as r:
+        with urllib.request.urlopen(req, timeout=HANG_TIMEOUT) as r:
             return json.loads(r.read())["id"]
 
     def poll(self, since=0, area="", topic="", archived=True):
@@ -309,9 +319,10 @@ class Server:
 @pytest.fixture
 def server(tmp_path):
     srv = Server(tmp_path / "board.db")
-    srv.start()
-    yield srv
-    srv.stop()
+    try:  # a start that times out has a process too, and nothing else stops it
+        yield srv.start()
+    finally:
+        srv.stop()
 
 
 def _admin_session(dbpath):
@@ -371,7 +382,7 @@ def test_archive_state_and_pins_survive_a_purge_of_another_topic(server, tmp_pat
                        ("/archive", {"area": "old", "archived": True})):
         req = urllib.request.Request(server.url + path, data=json.dumps(body).encode(),
                                      headers={"content-type": "application/json"}, method="POST")
-        urllib.request.urlopen(req, timeout=3).read()
+        urllib.request.urlopen(req, timeout=HANG_TIMEOUT).read()
     server.stop()
 
     _admin_session(tmp_path / "board.db")
@@ -437,9 +448,7 @@ def _drive_tui(dbpath, keys, tmp_path):
         for k in keys:
             os.write(master, k)
             drain(0.25)
-        # A bound on a hang, not a speed check: on a loaded box the delete's
-        # commit (an fsync) alone can take seconds.
-        deadline = time.time() + 30
+        deadline = time.time() + HANG_TIMEOUT
         while proc.poll() is None and time.time() < deadline:
             drain(0.1)
         if proc.poll() is None:
