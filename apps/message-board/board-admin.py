@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import curses
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -273,6 +274,10 @@ def _run(stdscr):
 
 
 def main() -> int:
+    # A closed terminal (SIGHUP) or a plain kill (SIGTERM) ends the session
+    # too: make each an ordinary exit, so the finally below restarts the board.
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, lambda num, _frame: sys.exit(128 + num))
     url = os.environ.get("BOARD_URL", f"http://127.0.0.1:{os.environ.get('BOARD_PORT', '8777')}")
 
     db_path = resolve_db_path()
