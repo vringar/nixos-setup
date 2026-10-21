@@ -184,11 +184,15 @@ def cmd_pin(args):
     """Show a pin, or with --set replace it from stdin (empty input removes it)."""
     if args.set:
         _check_name(args.sender)
+        body = sys.stdin.read()
         out = json.loads(_submit("/pin", board_sign.PIN, {
             "area": args.area, "topic": args.topic or "",
-            "from": args.sender, "body": sys.stdin.read(),
+            "from": args.sender, "body": body,
         }, extra={"base_version": ""}))  # no base_version sent: no stale check
-        print(f"board: pin saved as v{out['version']}", file=sys.stderr)
+        if body.strip():
+            print(f"board: pin saved as v{out['version']}", file=sys.stderr)
+        else:  # the board removes a pin saved empty
+            print("board: pin removed", file=sys.stderr)
         return
     try:
         pin = json.loads(_client_get(f"/pin?{urlencode({'area': args.area, 'topic': args.topic or ''})}"))

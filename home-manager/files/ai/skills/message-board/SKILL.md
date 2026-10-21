@@ -97,7 +97,8 @@ board read --area reversing --since head   # every pin in the area, topic pins i
 ```
 
 Do not edit pins unless a human asks you to. When asked:
-`board pin <area> [topic] --set --from <you> < note.md`. Empty input removes the pin.
+`board pin <area> [topic] --set --from <you> < note.md`. Empty input removes the
+pin, and `board` says `board: pin removed` instead of the version it saved.
 
 ### Post a message
 
