@@ -325,6 +325,14 @@ def server(tmp_path):
         srv.stop()
 
 
+def test_server_exits_cleanly_on_sigterm(server):
+    # It has a handler, so it also stops as PID 1 of a PID namespace (the
+    # user unit's PrivatePIDs=), where SIGTERM without one is dropped.
+    proc = server.proc
+    server.stop()
+    assert proc.returncode == 0
+
+
 def _admin_session(dbpath):
     """What board-admin does to the file between two server runs."""
     board.init_db(str(dbpath))

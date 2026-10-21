@@ -347,6 +347,49 @@ in {
           "BOARD_OWNER_NAME=Stefan"
           "BOARD_OWNER_PUBKEY=%h/.ssh/board_ed25519.pub"
         ];
+
+        # Confinement. The server needs its StateDirectory read-write, the
+        # store read-only, the owner's public key (which may not exist yet)
+        # and the network to listen on; nothing else, and no subprocesses.
+        # In a user unit, file system namespacing only works inside a user
+        # namespace, so PrivateUsers= is implied by these anyway; it is set
+        # to say so. systemd.exec(5) (systemd 261) covers each option's
+        # support in user units.
+        PrivateUsers = true;
+        ProtectSystem = "strict";
+        # Hides all of $HOME, the private key ~/.ssh/board_ed25519 included.
+        # StateDirectory= is bound back in by systemd itself.
+        ProtectHome = "tmpfs";
+        BindReadOnlyPaths = ["-%h/.ssh/board_ed25519.pub"]; # "-": may not exist
+        # Its own /proc: same-uid processes outside, and their view of
+        # $HOME through /proc/PID/root, are out of reach.
+        PrivatePIDs = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        PrivateIPC = true;
+        KeyringMode = "private";
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectKernelLogs = true;
+        ProtectClock = true;
+        ProtectHostname = true;
+        # No capabilities, even inside its own user namespace, where they
+        # could undo the mounts above.
+        CapabilityBoundingSet = "";
+        NoNewPrivileges = true;
+        RestrictNamespaces = true;
+        # TCP only. No AF_UNIX: abstract sockets (a desktop's X11, say)
+        # ignore every file system restriction above, and the server needs
+        # none. Its output reaches the journal on the fd systemd hands it.
+        RestrictAddressFamilies = "AF_INET AF_INET6";
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
+        LockPersonality = true;
+        MemoryDenyWriteExecute = true;
+        SystemCallArchitectures = "native";
+        SystemCallFilter = ["@system-service" "~@privileged @resources"];
+        SystemCallErrorNumber = "EPERM";
+        UMask = "0077";
       };
     };
 

@@ -20,6 +20,7 @@ and the public key file it is bound to at startup, overriding any claim).
 """
 import json
 import os
+import signal
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -518,6 +519,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # The user unit runs the server as PID 1 of its own PID namespace, and the
+    # kernel drops any signal PID 1 has no handler for: without this, a stop
+    # would wait for systemd to give up and SIGKILL it.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     core.init_db(core.DB)
     preseed_owner()
     _web_init()
