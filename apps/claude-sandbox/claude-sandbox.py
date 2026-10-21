@@ -2,10 +2,13 @@
 """Run commands in a bubblewrap sandbox with filesystem isolation."""
 
 import argparse
+import ctypes
 import glob
 import os
+import select
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -16,6 +19,8 @@ NIX_SHELL = "@nix_shell@"
 NIX = "@nix@"
 BASH = "@bash@"
 PYTHON3_BIN_DIR = "@python3_bin_dir@"
+SSH_AGENT = "@ssh_agent@"
+SSH_ADD = "@ssh_add@"
 
 # Default launch commands per script name (when no command is given after --)
 DEFAULT_COMMANDS = {
@@ -38,19 +43,27 @@ examples:
   {prog} --project-dir ~/p/foo -- cmd arg  # run a custom command
 
 ssh agent:
-  No SSH agent is exposed to the sandbox by default. The login agent usually
+  The sandbox never gets the login SSH agent by default. That agent usually
   holds a key that authorized_keys accepts on every host, so passing it through
   would grant anything inside silent SSH to the whole fleet.
 
-  To give the sandbox its own key, run a second agent holding only that key and
-  point {SANDBOX_SSH_SOCK_ENV} at its socket:
+  Instead, each sandbox gets an agent of its own, started with it and stopped
+  with it, holding only the forge key ~/.ssh/forge_ed25519 (override the path
+  with {FORGE_KEY_ENV}). The key file stays outside; the sandbox
+  sees only the agent's socket, and git inside signs commits with that key.
+  Without the key the sandbox has no agent.
 
-    ssh-agent -a "$XDG_RUNTIME_DIR/ssh-agent-sandbox" >/dev/null
-    SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent-sandbox" ssh-add ~/.ssh/forge_key
-    export {SANDBOX_SSH_SOCK_ENV}="$XDG_RUNTIME_DIR/ssh-agent-sandbox"
+  One-time setup per machine:
 
-  {FULL_AGENT_ENV}=1 exposes the login agent instead. That hands over every key
-  it holds; prefer a dedicated agent.
+    ssh-keygen -t ed25519 -N "" -C forge:$(hostname) -f ~/.ssh/forge_ed25519
+
+  then add ~/.ssh/forge_ed25519.pub on GitHub as both an authentication and a
+  signing key, and authorize it for SSO in work orgs. Authorize it on no host.
+
+  {SANDBOX_SSH_SOCK_ENV}=<socket> exposes that agent instead, and
+  {FULL_AGENT_ENV}=1 the login agent, handing over every key it
+  holds. If the agent asked for is missing, the sandbox gets none rather than
+  the next choice down.
 """
     parser = argparse.ArgumentParser(
         prog=prog,
@@ -223,8 +236,7 @@ def crossbridge_own_slug(project_dir):
 
 
 # Environment variable naming a dedicated ssh-agent socket for the sandbox —
-# one holding only keys the sandbox is meant to have, typically a single key
-# authorised on the forge and nowhere else.
+# one holding only keys the sandbox is meant to have.
 SANDBOX_SSH_SOCK_ENV = "CLAUDE_SANDBOX_SSH_AUTH_SOCK"
 
 # Escape hatch restoring the old behaviour of passing the login agent straight
@@ -232,45 +244,211 @@ SANDBOX_SSH_SOCK_ENV = "CLAUDE_SANDBOX_SSH_AUTH_SOCK"
 # as "off" must not hand over every key.
 FULL_AGENT_ENV = "CLAUDE_SANDBOX_SSH_FULL_AGENT"
 
+# The key each sandbox's own agent holds: one per machine, authorised on the
+# forge and on no host, and without a passphrase so the agent can be loaded
+# unattended at every start.
+FORGE_KEY_ENV = "CLAUDE_SANDBOX_FORGE_KEY"
 
-def ssh_agent_bind_args(env=None, exists=os.path.exists):
-    """bwrap arguments for the SSH agent socket, and a warning to print.
+# The forge agent's socket, by its name inside the sandbox's temp dir. The
+# sandbox sees that dir as /tmp, so it reaches the agent at /tmp/<name>.
+FORGE_AGENT_SOCK = "ssh-agent.sock"
+
+PR_SET_PDEATHSIG = 1  # <linux/prctl.h>
+
+
+def forge_key_path(env, home_dir):
+    path = env.get(FORGE_KEY_ENV)
+    if path:
+        # Absolute, since ssh-add runs from the sandbox's temp dir.
+        return os.path.abspath(os.path.expanduser(path))
+    return os.path.join(home_dir, ".ssh", "forge_ed25519")
+
+
+def tilde_path(path, home_dir):
+    """path as one would type it: ~ for the home dir, quoted if need be."""
+    if path.startswith(home_dir + os.sep):
+        return "~/" + shlex.quote(path[len(home_dir) + 1:])
+    return shlex.quote(path)
+
+
+def missing_forge_key_message(key_path, home_dir):
+    key = tilde_path(key_path, home_dir)
+    return (
+        f"no forge key at {key}, so the sandbox gets no SSH agent. Add its .pub "
+        "on GitHub as both an authentication and a signing key, and authorize "
+        "it for SSO in work orgs, after creating it with: "
+        f'ssh-keygen -t ed25519 -N "" -C forge:$(hostname) -f {key}'
+    )
+
+
+def choose_ssh_agent(env, home_dir, exists=os.path.exists):
+    """Which SSH agent the sandbox gets, as (kind, path, warning).
+
+    kind is "socket" to bind the existing agent socket at path, "forge" to
+    start an agent for this sandbox holding only the key at path, or None for
+    no agent at all.
 
     The login agent typically holds a key listed in authorized_keys on every
     host, so passing it through grants anything inside the sandbox silent SSH
     to the whole fleet — including hosts with passwordless sudo. A socket is a
     capability, not a secret: --ro-bind buys nothing, because *using* an agent
-    is a write to the socket.
+    is a write to the socket. So the login agent is never the default.
 
-    So nothing is passed through by default. SSH_AUTH_SOCK is actively unset
-    rather than left inherited, because bwrap keeps the environment otherwise
-    and a variable pointing at an unbound path fails as a baffling
-    "Permission denied (publickey)" instead of an honest "no agent".
+    Precedence: an explicit socket, then the escape hatch, then the forge key.
+    An explicit choice that cannot be honoured gets no agent rather than the
+    next one down, so a typo cannot quietly hand over a different agent, least
+    of all the login one.
     """
-    env = os.environ if env is None else env
-
     dedicated = env.get(SANDBOX_SSH_SOCK_ENV)
     if dedicated:
         if exists(dedicated):
-            return (
-                ["--ro-bind", dedicated, dedicated, "--setenv", "SSH_AUTH_SOCK", dedicated],
-                None,
-            )
+            return "socket", dedicated, None
         return (
-            ["--unsetenv", "SSH_AUTH_SOCK"],
+            None,
+            None,
             f"{SANDBOX_SSH_SOCK_ENV} is set to {dedicated}, which does not exist; "
             "continuing with no SSH agent.",
         )
 
-    login_sock = env.get("SSH_AUTH_SOCK")
-    if env.get(FULL_AGENT_ENV) == "1" and login_sock and exists(login_sock):
-        return (
-            ["--ro-bind", login_sock, login_sock, "--setenv", "SSH_AUTH_SOCK", login_sock],
-            f"{FULL_AGENT_ENV} is set: the login SSH agent is exposed to the "
-            "sandbox, which can use every key it holds.",
-        )
+    if env.get(FULL_AGENT_ENV) == "1":
+        login_sock = env.get("SSH_AUTH_SOCK")
+        if login_sock and exists(login_sock):
+            return (
+                "socket",
+                login_sock,
+                f"{FULL_AGENT_ENV} is set: the login SSH agent is exposed to the "
+                "sandbox, which can use every key it holds.",
+            )
+        return None, None, None
 
-    return (["--unsetenv", "SSH_AUTH_SOCK"], None)
+    key = forge_key_path(env, home_dir)
+    if exists(key):
+        return "forge", key, None
+    return None, None, missing_forge_key_message(key, home_dir)
+
+
+def one_line(text):
+    return " ".join(text.split())
+
+
+def start_forge_agent(key_path, sandbox_tmp, ssh_agent=SSH_AGENT, ssh_add=SSH_ADD, timeout=10):
+    """Start an ssh-agent for one sandbox, holding only the key at key_path.
+
+    Returns (proc, warning). proc is None when the agent could not be set up,
+    and then nothing is left running.
+
+    The agent runs on the host with its socket in sandbox_tmp, which the
+    sandbox already sees as /tmp. ssh-add reads the private key out here; the
+    key file never enters the sandbox. The socket is named relative to
+    sandbox_tmp because its absolute path can outgrow the 108 bytes a Unix
+    socket address holds once TMPDIR is itself deep.
+
+    Lifetime: the launcher stops the agent when the sandbox exits, and the
+    kernel stops it if the launcher dies without getting to — SIGKILL, a
+    SIGHUP or SIGTERM taking the default action, any exit that skips cleanup.
+    PR_SET_PDEATHSIG makes that SIGTERM rather than SIGKILL because ssh-agent
+    removes its socket on SIGTERM. The agent gets its own session so that
+    terminal keys (Ctrl-C, Ctrl-Z) reach the sandbox and the launcher as
+    before, but never the agent directly.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in ("SSH_AUTH_SOCK", "SSH_AGENT_PID")}
+    env["SSH_AUTH_SOCK"] = FORGE_AGENT_SOCK  # relative to cwd=sandbox_tmp
+    # Never prompt: the key has no passphrase by design, and a prompt or an
+    # askpass window popping up as the sandbox starts is worse than a clear
+    # failure.
+    env["SSH_ASKPASS_REQUIRE"] = "never"
+
+    prctl = ctypes.CDLL(None, use_errno=True).prctl
+    launcher = os.getpid()
+
+    def die_with_launcher():
+        if prctl(PR_SET_PDEATHSIG, signal.SIGTERM) != 0:
+            raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG)")
+        if os.getppid() != launcher:  # it died before prctl took effect
+            os._exit(1)
+
+    try:
+        proc = subprocess.Popen(
+            [ssh_agent, "-D", "-a", FORGE_AGENT_SOCK],
+            cwd=sandbox_tmp,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            preexec_fn=die_with_launcher,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, f"could not start ssh-agent ({e}); continuing with no SSH agent."
+
+    # With -D, ssh-agent prints its environment lines once it is listening.
+    ready, _, _ = select.select([proc.stdout], [], [], timeout)
+    if not ready or not proc.stdout.readline():
+        proc.terminate()
+        proc.wait()
+        err = one_line(proc.stderr.read().decode(errors="replace"))
+        return None, f"ssh-agent did not start ({err}); continuing with no SSH agent."
+    proc.stdout.close()
+    proc.stderr.close()  # later log lines are dropped, not sent to the terminal
+
+    added = subprocess.run(
+        [ssh_add, "-q", key_path],
+        cwd=sandbox_tmp,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        start_new_session=True,  # no controlling terminal to prompt on
+    )
+    if added.returncode != 0:
+        proc.terminate()
+        proc.wait()
+        return None, (
+            f"ssh-add {key_path} failed ({one_line(added.stderr)}); "
+            "continuing with no SSH agent."
+        )
+    return proc, None
+
+
+def forge_agent_args(key_path, home_dir, env, exists=os.path.exists):
+    """bwrap arguments pointing the sandbox at its forge agent."""
+    pub = key_path + ".pub"
+    args = ["--setenv", "SSH_AUTH_SOCK", "/tmp/" + FORGE_AGENT_SOCK]
+
+    # git signs through the agent with user.signingKey, which names the login
+    # key; point it at the one key this agent holds. GIT_CONFIG_* is appended
+    # to rather than overwritten, in case the caller already uses it.
+    n = int(env.get("GIT_CONFIG_COUNT") or 0)
+    args += [
+        "--setenv", "GIT_CONFIG_COUNT", str(n + 1),
+        "--setenv", f"GIT_CONFIG_KEY_{n}", "user.signingKey",
+        "--setenv", f"GIT_CONFIG_VALUE_{n}", pub,
+    ]
+
+    # ~/.ssh/*.pub is bound anyway; a key kept elsewhere needs its .pub bound.
+    if os.path.dirname(pub) != os.path.join(home_dir, ".ssh") and exists(pub):
+        args += ["--ro-bind", pub, pub]
+    return args
+
+
+def ssh_agent_setup(home_dir, sandbox_tmp, env=None, exists=os.path.exists, start_agent=None):
+    """bwrap arguments for the sandbox's SSH agent, the agent process to stop
+    once the sandbox exits (or None), and a warning to print (or None).
+
+    Without an agent SSH_AUTH_SOCK is actively unset rather than left
+    inherited, because bwrap keeps the environment otherwise and a variable
+    pointing at an unbound path fails as a baffling "Permission denied
+    (publickey)" instead of an honest "no agent".
+    """
+    env = os.environ if env is None else env
+    kind, path, warning = choose_ssh_agent(env, home_dir, exists)
+    if kind == "socket":
+        return ["--ro-bind", path, path, "--setenv", "SSH_AUTH_SOCK", path], None, warning
+    if kind == "forge":
+        proc, warning = (start_agent or start_forge_agent)(path, sandbox_tmp)
+        if proc is not None:
+            return forge_agent_args(path, home_dir, env, exists), proc, None
+    return ["--unsetenv", "SSH_AUTH_SOCK"], None, warning
 
 
 def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
@@ -405,12 +583,6 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
         if os.path.isdir(crossbridge_dir):
             args += ["--ro-bind", crossbridge_dir, crossbridge_dir]
 
-    # SSH agent: opt-in, and scoped by default. See ssh_agent_bind_args.
-    ssh_args, ssh_warning = ssh_agent_bind_args()
-    if ssh_warning:
-        print(f"claude-sandbox: {ssh_warning}", file=sys.stderr)
-    args += ssh_args
-
     # c8ctl config (read-only): plugins and profiles for preprod debugging
     c8ctl_plugins_dir = os.path.join(home_dir, ".config", "c8ctl", "plugins")
     c8ctl_plugins_json = os.path.join(home_dir, ".config", "c8ctl", "plugins.json")
@@ -531,8 +703,12 @@ def resolve_shell(home_dir):
     return BASH
 
 
-def exec_bwrap(bwrap_args, inner_cmd, podman_proc, tmpdir):
-    """Fork, exec bwrap in the child, then clean up in the parent on exit."""
+def exec_bwrap(bwrap_args, inner_cmd, helpers, tmpdir):
+    """Fork, exec bwrap in the child, then clean up in the parent on exit.
+
+    helpers are the host-side processes serving this sandbox (Podman, its SSH
+    agent); they are stopped once it exits.
+    """
     full_cmd = [BWRAP] + bwrap_args + ["--"] + inner_cmd
 
     pid = os.fork()
@@ -543,9 +719,9 @@ def exec_bwrap(bwrap_args, inner_cmd, podman_proc, tmpdir):
     try:
         _, status = os.waitpid(pid, 0)
     finally:
-        if podman_proc is not None:
-            podman_proc.terminate()
-            podman_proc.wait()
+        for proc in helpers:
+            proc.terminate()
+            proc.wait()
         shutil.rmtree(tmpdir, ignore_errors=True)
 
     sys.exit(os.waitstatus_to_exitcode(status))
@@ -584,12 +760,21 @@ def main():
     shell_path = resolve_shell(home_dir)
     bwrap_args = build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path)
 
+    # SSH agent: never the login one by default. See choose_ssh_agent.
+    ssh_args, agent_proc, ssh_warning = ssh_agent_setup(home_dir, sandbox_tmp)
+    if ssh_warning:
+        print(f"claude-sandbox: {ssh_warning}", file=sys.stderr)
+    bwrap_args += ssh_args
+    helpers = [agent_proc] if agent_proc is not None else []
+
     # Per-sandbox Podman: isolated storage root and socket under sandbox_tmp.
     # The socket ends up at sandbox_tmp/podman/podman.sock, which is visible
     # inside the sandbox as /tmp/podman/podman.sock via the existing /tmp bind.
     # Testcontainers: TESTCONTAINERS_RYUK_DISABLED is always set (Ryuk requests a
     # privileged container which fails in rootless Podman; JVM hooks still clean up).
     podman_proc, podman_socket = start_podman_service(sandbox_tmp)
+    if podman_proc is not None:
+        helpers.append(podman_proc)
     if podman_socket:
         # Inside the sandbox, sandbox_tmp == /tmp, so rewrite the path.
         inner_socket = "/tmp" + podman_socket[len(sandbox_tmp):]
@@ -601,7 +786,7 @@ def main():
 
     if args.shell:
         print(f"Entering sandboxed shell in {project_dir}")
-        exec_bwrap(bwrap_args, [shell_path], podman_proc, sandbox_tmp)
+        exec_bwrap(bwrap_args, [shell_path], helpers, sandbox_tmp)
     else:
         launch_cmd = args.launch_cmd
         print(f"Starting sandboxed {launch_cmd.split()[0]} in {project_dir}")
@@ -614,15 +799,15 @@ def main():
                 os.path.dirname(nix_file),
                 "--command", BASH, "-c", launch_cmd,
             ]
-            exec_bwrap(bwrap_args, nix_args, podman_proc, sandbox_tmp)
+            exec_bwrap(bwrap_args, nix_args, helpers, sandbox_tmp)
         elif nix_file:
             nix_args = [NIX_SHELL, nix_file]
             if mode == MODE_ATTR:
                 nix_args += ["-A", "shell"]
             nix_args += ["--run", launch_cmd]
-            exec_bwrap(bwrap_args, nix_args, podman_proc, sandbox_tmp)
+            exec_bwrap(bwrap_args, nix_args, helpers, sandbox_tmp)
         else:
-            exec_bwrap(bwrap_args, [BASH, "-c", launch_cmd], podman_proc, sandbox_tmp)
+            exec_bwrap(bwrap_args, [BASH, "-c", launch_cmd], helpers, sandbox_tmp)
 
 
 if __name__ == "__main__":
