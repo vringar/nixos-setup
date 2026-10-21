@@ -1,114 +1,139 @@
-"""board-admin (the deleting TUI) and board (the server) share one SQLite
-file and must not disagree about it. These tests run the two against the
-same database: pure admin operations, main()'s service handling, a real
-`board-server` process with admin deletions between two server runs, and the
-curses TUI itself driven through a pty.
+"""board-admin (the deleting TUI) and board-server share one SQLite file and
+must not disagree about it. These tests run the two programs against the
+same database: the TUI driven through a pty, its handling of the user
+service through a stand-in systemctl that runs a real board-server, and
+admin deletions between two server runs.
 """
 
-import importlib.util
-import json
 import os
-import pty
 import re
-import select
-import shlex
 import signal
-import socket
-import struct
-import subprocess
-import sys
-import termios
-import time
-import fcntl
-import urllib.request
 from pathlib import Path
 
 import pytest
 
-_APP = Path(__file__).parent.parent / "apps" / "message-board"
-_spec = importlib.util.spec_from_file_location("board_admin", _APP / "board-admin.py")
-admin = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(admin)
-board = admin.core  # the very module instance admin operates on
+from board_harness import (
+    Board, Do, FakeSystemd, Forbidden, Key, Kill, Pick, Server, Wait, admin, drive_tui, isolate,
+    make_db, running, sql, sql_changes,
+)
 
-# The integration tests below launch the two programs as processes. By
-# default that's the source files; point these at the installed wrappers to
-# test what actually gets deployed (the Nix package's bin/board and
-# bin/board-admin), e.g.
-#   BOARD_SERVER_BIN=$out/bin/board-server BOARD_ADMIN_BIN=$out/bin/board-admin pytest ...
-BOARD_CMD = shlex.split(os.environ.get("BOARD_SERVER_BIN", "")) or [sys.executable, str(_APP / "board_server.py")]
-ADMIN_CMD = shlex.split(os.environ.get("BOARD_ADMIN_BIN", "")) or [sys.executable, str(_APP / "board-admin.py")]
+# The confirmation prompts, as board-admin shows them.
+DELETE_ONE = "Delete permanently? [y/N]"
+RELEASE = "Release this claim? [y/N]"
 
-# How long a server start, a request or the TUI's exit may take: a bound on a
-# hang, not a speed check. On a loaded box a single SQLite commit (an fsync)
-# has stalled for half a minute.
-HANG_TIMEOUT = 120
+
+@pytest.fixture(autouse=True)
+def isolated(tmp_path, monkeypatch):
+    isolate(monkeypatch, tmp_path)
+
+
+def _env(tmp_path, **extra):
+    """board-admin on the test's database, with no service to manage."""
+    return {**os.environ, "BOARD_DB": str(tmp_path / "board.db"), "BOARD_ADMIN_SERVICE": "",
+            "BOARD_ADMIN_LOG": str(tmp_path / "audit.log"), **extra}
+
+
+def _populate(b):
+    b.post("proj", "design", "alice", "design one")
+    b.post("proj", "design", "bob", "design two")
+    b.post("proj", "chatter", "alice", "noise")
+    b.post("other", "general", "carol", "elsewhere")
+    b.set_pin("proj", "design", "stefan", "design pin")
 
 
 @pytest.fixture
-def db(tmp_path):
-    board.init_db(str(tmp_path / "board.db"))
-    return board
+def populated(tmp_path):
+    """A board database with two areas in it, its server stopped again: an
+    admin session happens between two server runs."""
+    with running(tmp_path / "board.db", tmp_path / "logs") as b:
+        _populate(b)
+    return tmp_path / "board.db"
 
 
-def _populate(db):
-    db.post("proj", "design", "alice", "design one")
-    db.post("proj", "design", "bob", "design two")
-    db.post("proj", "chatter", "alice", "noise")
-    db.post("other", "general", "carol", "elsewhere")
-    db.set_pin("proj", "design", "stefan", "design pin")
+def _ids(db, area, topic):
+    return [i for (i,) in sql(db, "SELECT id FROM messages WHERE area=? AND topic=? ORDER BY id",
+                              area, topic)]
 
 
-# --- pure operations ---------------------------------------------------------
+def _bodies(db, area, topic):
+    return [b for (b,) in sql(db, "SELECT body FROM messages WHERE area=? AND topic=?"
+                                  " ORDER BY id", area, topic)]
 
 
-def test_counts_cover_archived_and_empty_areas(db):
-    _populate(db)
-    db.create_area("empty", "")
-    db.set_archived("other", True)
-    counts = {a: (arch, n) for a, arch, n in admin.area_counts()}
-    assert counts["proj"] == (False, 3 + 1)  # +1: the pin announcement on proj/design
-    assert counts["other"] == (True, 1)  # archived areas are exactly what cleanup targets
-    assert counts["empty"] == (False, 0)
-    assert dict(admin.topic_counts("proj")) == {"chatter": 1, "design": 3}
+def _audit(tmp_path):
+    log = tmp_path / "audit.log"
+    return log.read_text() if log.exists() else ""
 
 
-def test_delete_message_deletes_only_that_message(db):
-    _populate(db)
-    target = admin.messages_in("proj", "design")[0]
-    assert admin.delete_message(target["id"]) is True
-    assert [m["body"] for m in admin.messages_in("proj", "design")][0] == "design two"
-    assert admin.delete_message(target["id"]) is False  # already gone: reported, not an error
-    assert admin.messages_in("proj", "chatter")  # neighbours untouched
+# --- what the TUI shows, and what its deletions do --------------------------------
 
 
-def test_delete_topic_removes_messages_but_not_pins_or_other_topics(db):
-    _populate(db)
-    assert admin.delete_topic("proj", "design") == 3
-    assert admin.messages_in("proj", "design") == []
-    assert admin.messages_in("proj", "chatter")
-    assert admin.messages_in("other", "general")
+def test_counts_cover_archived_and_empty_areas(tmp_path):
+    with running(tmp_path / "board.db", tmp_path / "logs") as b:
+        _populate(b)
+        b.create_area("empty", "")
+        b.set_archived("other", True)
+    run = drive_tui(_env(tmp_path), [Wait("select an area"), Pick("proj  ["),
+                                     Wait("select a topic"), b"q", b"q"])
+    assert run.code == 0
+    assert run.seen("proj  [live]  (4 messages)")  # +1: the pin announcement on proj/design
+    assert run.seen("other  [archived]  (1 messages)")  # archived areas are what cleanup targets
+    assert run.seen("empty  [live]  (0 messages)")
+    assert run.seen("chatter  (1 messages)") and run.seen("design  (3 messages)")
+
+
+def test_delete_message_deletes_only_that_message(populated, tmp_path):
+    first, second, _ = _ids(populated, "proj", "design")
+    run = drive_tui(_env(tmp_path), [
+        Pick("proj  ["), Pick("design  ("), b"b", Pick(f"#{first}  "), Wait(DELETE_ONE), b"y",
+        Wait(f"#{second}  "), b"q", b"q", b"q"])
+    assert run.code == 0
+    assert _bodies(populated, "proj", "design")[0] == "design two"
+    assert _bodies(populated, "proj", "chatter") == ["noise"]  # neighbours untouched
+
+
+def test_a_message_already_deleted_meanwhile_is_not_an_error(populated, tmp_path):
+    first, _, _ = _ids(populated, "proj", "design")
+    run = drive_tui(_env(tmp_path), [
+        Pick("proj  ["), Pick("design  ("), b"b", Pick(f"#{first}  "), Wait(DELETE_ONE),
+        Do(lambda: sql_changes(populated, "DELETE FROM messages WHERE id=?", first)), b"y",
+        Wait("view/delete one message"),
+        b"q", b"q", b"q"])
+    assert run.code == 0
+    assert f"#{first} " not in _audit(tmp_path)  # nothing was deleted by this session
+    assert len(_ids(populated, "proj", "design")) == 2
+
+
+def test_delete_topic_removes_messages_but_not_pins_or_other_topics(populated, tmp_path):
+    run = drive_tui(_env(tmp_path), [
+        Pick("proj  ["), Pick("design  ("), b"d", b"proj/design\r", Wait("chatter  ("),
+        b"q", b"q"])
+    assert run.code == 0
+    assert _ids(populated, "proj", "design") == []
+    assert _bodies(populated, "proj", "chatter") == ["noise"]
+    assert _bodies(populated, "other", "general") == ["elsewhere"]
     # a pin is its own row; this tool's scope is messages
-    assert db.get_pin("proj", "design")["body"] == "design pin"
+    assert sql(populated, "SELECT body FROM pins WHERE area='proj' AND topic='design'") == [
+        ("design pin",)]
 
 
-def test_audit_log_records_every_deletion(db, tmp_path, monkeypatch):
-    log = tmp_path / "state" / "admin-deletions.log"
-    monkeypatch.setattr(admin, "AUDIT_LOG", log)
-    admin.log_deletion("delete_topic", "proj/design (3 messages)")
-    admin.log_deletion("delete_message", "#7 proj/chatter from=alice")
+def test_audit_log_records_every_deletion(populated, tmp_path):
+    log = tmp_path / "state" / "admin-deletions.log"  # its directory does not exist yet
+    [chatter] = _ids(populated, "proj", "chatter")
+    run = drive_tui(_env(tmp_path, BOARD_ADMIN_LOG=str(log)), [
+        Pick("proj  ["), Pick("design  ("), b"d", b"proj/design\r",
+        Pick("chatter  ("), b"b", Pick(f"#{chatter}  "), Wait(DELETE_ONE), b"y",
+        Wait("proj: no messages."), b"x", Wait("select an area"), b"q"])
+    assert run.code == 0
     lines = log.read_text().splitlines()
-    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ delete_topic proj/design \(3 messages\)", lines[0])
-    assert lines[1].endswith("delete_message #7 proj/chatter from=alice")
+    stamp = r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"
+    assert re.fullmatch(rf"{stamp} delete_topic proj/design \(3 messages\)", lines[0])
+    assert re.fullmatch(rf"{stamp} delete_message #{chatter} proj/chatter from=alice", lines[1])
+    assert len(lines) == 2
 
 
 def test_pre_archive_database_is_migrated_not_rejected(tmp_path):
-    import sqlite3
-
-    path = tmp_path / "old.db"
-    old = sqlite3.connect(path)
-    old.executescript(
-        """
+    make_db(tmp_path / "board.db", """
         CREATE TABLE areas(name TEXT PRIMARY KEY, description TEXT NOT NULL DEFAULT '',
                            created_ts TEXT NOT NULL);
         CREATE TABLE messages(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
@@ -117,208 +142,168 @@ def test_pre_archive_database_is_migrated_not_rejected(tmp_path):
         INSERT INTO areas VALUES('legacy', '', '2026-09-01T00:00:00Z');
         INSERT INTO messages(ts, area, topic, sender, body)
             VALUES('2026-09-01T00:00:00Z', 'legacy', 't', 's', 'old message');
-        """
-    )
-    old.commit()
-    old.close()
-    board.init_db(str(path))  # what main() does before the TUI
-    assert admin.area_counts() == [("legacy", False, 1)]
-    assert admin.delete_topic("legacy", "t") == 1
+        """)
+    run = drive_tui(_env(tmp_path), [
+        Pick("legacy  [live]  (1 messages)"), Pick("t  (1 messages)"), b"d", b"legacy/t\r",
+        Wait("legacy: no messages."), b"x", Wait("select an area"), b"q"])
+    assert run.code == 0
+    assert sql(tmp_path / "board.db", "SELECT COUNT(*) FROM messages") == [(0,)]
+    columns = [c[1] for c in sql(tmp_path / "board.db", "PRAGMA table_info(areas)")]
+    assert "archived_ts" in columns
 
 
 # --- locating the database ---------------------------------------------------
 
 
-def test_db_path_defaults_to_where_the_service_keeps_it():
-    assert admin.resolve_db_path({"BOARD_DB": "/x/y.db"}) == Path("/x/y.db")
-    assert admin.resolve_db_path({"XDG_STATE_HOME": "/st"}) == Path("/st/message-board/board.db")
-    assert admin.resolve_db_path({"HOME": "/h"}).name == "board.db"
-    assert admin.resolve_db_path({}).parts[-2:] == ("message-board", "board.db")
+def _refused_db_path(tmp_path, **env):
+    """The database path board-admin looked for and did not find."""
+    systemd = FakeSystemd(tmp_path, active=True)
+    base = {k: v for k, v in os.environ.items()
+            if k not in ("BOARD_DB", "XDG_STATE_HOME", "HOME")}
+    r = admin({**base, "PATH": systemd.path(), "BOARD_ADMIN_SERVICE": "message-board", **env})
+    assert r.code == 1 and systemd.calls() == []  # refused before touching the service
+    return re.search(r"no database at (.*) \(set BOARD_DB to point elsewhere\)", r.err)[1]
 
 
-def test_default_db_path_matches_the_deployed_service():
+def test_db_path_defaults_to_where_the_service_keeps_it(tmp_path):
+    # Every case names a directory that does not exist, so none can reach a
+    # real board's database.
+    assert _refused_db_path(tmp_path, BOARD_DB="/nonexistent/y.db") == "/nonexistent/y.db"
+    assert _refused_db_path(tmp_path, XDG_STATE_HOME="/nonexistent/st") == \
+        "/nonexistent/st/message-board/board.db"
+    assert _refused_db_path(tmp_path, HOME="/nonexistent/h") == \
+        "/nonexistent/h/.local/state/message-board/board.db"
+    assert _refused_db_path(tmp_path, BOARD_DB="", XDG_STATE_HOME="", HOME="/nonexistent/h") == \
+        "/nonexistent/h/.local/state/message-board/board.db"  # empty is unset
+
+
+def test_default_db_path_matches_the_deployed_service(tmp_path):
     """Drift guard: if the unit's state dir or BOARD_DB moves, board-admin
     must follow -- otherwise it opens the wrong (or a fresh, empty) file."""
     ai = (Path(__file__).parent.parent / "home-manager" / "ai.nix").read_text()
     assert 'StateDirectory = "message-board"' in ai
     assert 'BOARD_DB=%S/message-board/board.db' in ai
-    assert admin.resolve_db_path({"XDG_STATE_HOME": "/s"}) == Path("/s/message-board/board.db")
+    assert _refused_db_path(tmp_path, XDG_STATE_HOME="/nonexistent/s") == \
+        "/nonexistent/s/message-board/board.db"
 
 
-def test_missing_database_is_refused_not_created(tmp_path, monkeypatch):
+def test_missing_database_is_refused_not_created(tmp_path):
     target = tmp_path / "nope.db"
-    monkeypatch.setenv("BOARD_DB", str(target))
-    calls = []
-    monkeypatch.setattr(admin, "service_is_active", lambda: calls.append("active?") or True)
-    with pytest.raises(SystemExit) as e:
-        admin.main()
-    assert "no database" in str(e.value)
-    assert not target.exists()  # init_db never ran
-    assert calls == []  # and the service was never touched
+    systemd = FakeSystemd(tmp_path, active=True)
+    r = admin(_env(tmp_path, BOARD_DB=str(target), PATH=systemd.path(),
+                   BOARD_ADMIN_SERVICE="message-board"))
+    assert r.code == 1 and "no database" in r.err
+    assert not target.exists()  # it never opened one
+    assert systemd.calls() == []  # and the service was never touched
 
 
-# --- main(): taking the service down and bringing it back ---------------------
+# --- taking the service down and bringing it back ------------------------------------
 
 
 @pytest.fixture
-def svc(tmp_path, monkeypatch):
-    """main() with systemctl, the port probe and the TUI all faked."""
-    path = tmp_path / "board.db"
-    board.init_db(str(path))
-    monkeypatch.setenv("BOARD_DB", str(path))
-    state = {"active": True, "live": True, "events": [], "tui": lambda s: None}
-
-    monkeypatch.setattr(admin, "service_is_active", lambda: state["active"])
-
-    def stop():
-        state["events"].append("stop")
-        state["active"] = False
-        state["live"] = False
-
-    def start():
-        state["events"].append("start")
-        state["active"] = True
-
-    monkeypatch.setattr(admin, "service_stop", stop)
-    monkeypatch.setattr(admin, "service_start", start)
-    monkeypatch.setattr(admin, "service_is_live", lambda url: state["live"])
-    monkeypatch.setattr(admin.curses, "wrapper", lambda fn: (state["events"].append("tui"), state["tui"](None)))
-    monkeypatch.setattr(admin.time, "sleep", lambda s: None)
-    return state
+def service(tmp_path):
+    """The board as a user service: a real board-server on the test's
+    database. FakeSystemd(server=...) makes `systemctl stop` stop it."""
+    server = Server(tmp_path / "board.db", tmp_path / "logs").start()
+    Board(server).post("proj", "t", "a", "live data")
+    yield server
+    server.stop()
 
 
-def test_running_service_is_stopped_for_the_session_then_restarted(svc):
-    assert admin.main() == 0
-    assert svc["events"] == ["stop", "tui", "start"]
+def _service_env(tmp_path, systemd, server):
+    return _env(tmp_path, BOARD_ADMIN_SERVICE="message-board", PATH=systemd.path(),
+                BOARD_URL=server.url)
 
 
-def test_service_comes_back_even_if_the_tui_crashes(svc):
-    def boom(_):
-        raise RuntimeError("tui exploded")
-
-    svc["tui"] = boom
-    with pytest.raises(RuntimeError):
-        admin.main()
-    assert svc["events"] == ["stop", "tui", "start"]
-
-
-def test_service_comes_back_on_ctrl_c(svc):
-    def interrupt(_):
-        raise KeyboardInterrupt
-
-    svc["tui"] = interrupt
-    with pytest.raises(KeyboardInterrupt):
-        admin.main()
-    assert svc["events"][-1] == "start"
+def test_running_service_is_stopped_for_the_session_then_restarted(tmp_path, service):
+    systemd = FakeSystemd(tmp_path, active=True, server=service)
+    during = []
+    run = drive_tui(_service_env(tmp_path, systemd, service), [
+        Wait("select an area"), Do(lambda: during.extend(systemd.calls())), b"q"])
+    assert run.code == 0
+    assert during == ["is-active", "stop"]  # the session runs with the board down
+    assert systemd.calls() == ["is-active", "stop", "start"]
+    assert run.seen("stopping message-board") and run.seen("restarting message-board")
 
 
-def test_service_that_was_not_running_is_left_alone(svc):
-    svc["active"] = False
-    svc["live"] = False
-    assert admin.main() == 0
-    assert svc["events"] == ["tui"]  # no stop, and crucially no start afterwards
+def test_service_comes_back_even_if_the_tui_crashes(tmp_path, service):
+    systemd = FakeSystemd(tmp_path, active=True, server=service)
+    run = drive_tui(_service_env(tmp_path, systemd, service), [
+        Wait("select an area"),
+        Do(lambda: sql(tmp_path / "board.db", "DROP TABLE messages")),  # the next query fails
+        Pick("proj  [")])
+    assert run.code != 0
+    assert systemd.calls() == ["is-active", "stop", "start"]
+    assert run.seen("no such table: messages")  # the cause is shown, not swallowed
+    assert not run.term.alt  # and the terminal is given back
 
 
-def test_unmanaged_server_is_refused_without_touching_anything(svc):
-    svc["active"] = False  # systemd says down...
-    svc["live"] = True  # ...but something answers on the port
-    with pytest.raises(SystemExit) as e:
-        admin.main()
-    assert "unmanaged" in str(e.value)
-    assert svc["events"] == []
+def test_service_comes_back_on_ctrl_c(tmp_path, service):
+    systemd = FakeSystemd(tmp_path, active=True, server=service)
+    run = drive_tui(_service_env(tmp_path, systemd, service), [Wait("select an area"), b"\x03"])
+    assert run.code != 0
+    assert systemd.calls() == ["is-active", "stop", "start"]
+    assert not run.term.alt
 
 
-def test_port_still_answering_after_stop_restarts_the_service_we_stopped(svc, monkeypatch):
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP])
+def test_service_comes_back_when_the_session_is_killed(tmp_path, service, signum):
+    """A plain kill, or the terminal closing under it (SIGHUP), ends the
+    session like a quit: the board is restarted and the terminal restored."""
+    systemd = FakeSystemd(tmp_path, active=True, server=service)
+    run = drive_tui(_service_env(tmp_path, systemd, service),
+                    [Wait("select an area"), Kill(signum)])
+    assert run.code != 0
+    assert systemd.calls() == ["is-active", "stop", "start"]
+    assert not run.term.alt
+
+
+def test_service_that_was_not_running_is_left_alone(populated, tmp_path):
+    systemd = FakeSystemd(tmp_path, active=False)  # and nothing answers on BOARD_URL
+    run = drive_tui(_env(tmp_path, BOARD_ADMIN_SERVICE="message-board", PATH=systemd.path()),
+                    [Wait("select an area"), b"q"])
+    assert run.code == 0
+    assert systemd.calls() == ["is-active"]  # no stop, and crucially no start afterwards
+
+
+def test_unmanaged_server_is_refused_without_touching_anything(tmp_path, service):
+    systemd = FakeSystemd(tmp_path, active=False, server=service)  # systemd says down...
+    r = admin(_service_env(tmp_path, systemd, service))  # ...but something answers the port
+    assert r.code == 1 and "unmanaged" in r.err
+    assert systemd.calls() == ["is-active"]
+    assert [m["body"] for m in Board(service).query_since(0, "proj")] == ["live data"]
+
+
+def test_port_still_answering_after_stop_restarts_the_service_we_stopped(tmp_path, service):
     # stop "succeeds" but a second server keeps the port busy
-    monkeypatch.setattr(admin, "service_stop", lambda: svc["events"].append("stop"))
-    svc["live"] = True
-    with pytest.raises(SystemExit) as e:
-        admin.main()
-    assert "still answering" in str(e.value)
-    assert svc["events"] == ["stop", "start"]  # we took it down, so we bring it back
-    assert "tui" not in svc["events"]
+    systemd = FakeSystemd(tmp_path, active=True, server=service, stop_works=False)
+    r = admin(_service_env(tmp_path, systemd, service))
+    assert r.code == 1 and "still answering" in r.err
+    assert systemd.calls() == ["is-active", "stop", "start"]  # we took it down, so we bring it back
 
 
-def test_failed_restart_warns_instead_of_raising(svc, monkeypatch, capsys):
-    def fail():
-        raise subprocess.CalledProcessError(1, ["systemctl"])
-
-    monkeypatch.setattr(admin, "service_start", fail)
-    assert admin.main() == 0
-    assert "systemctl --user start" in capsys.readouterr().err
-
-
-def test_service_handling_can_be_disabled(monkeypatch):
-    monkeypatch.setattr(admin, "SERVICE", "")
-    assert admin.service_is_active() is False
+def test_failed_restart_warns_instead_of_raising(tmp_path, service):
+    systemd = FakeSystemd(tmp_path, active=True, server=service, start_fails=True)
+    run = drive_tui(_service_env(tmp_path, systemd, service), [Wait("select an area"), b"q"],
+                    cols=400)  # the warning on one line
+    assert run.code == 0
+    assert run.seen("systemctl --user start message-board")
 
 
-# --- the two real binaries on one database -------------------------------------
+def test_service_handling_can_be_disabled(populated, tmp_path):
+    systemd = FakeSystemd(tmp_path, active=True)
+    run = drive_tui(_env(tmp_path, BOARD_ADMIN_SERVICE="", PATH=systemd.path()),
+                    [Wait("select an area"), b"q"])
+    assert run.code == 0
+    assert systemd.calls() == []
 
 
-def _free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-class Server:
-    """A real `board-server` process on a private port and database."""
-
-    def __init__(self, dbpath):
-        self.port = _free_port()
-        self.url = f"http://127.0.0.1:{self.port}"
-        self.env = dict(os.environ, BOARD_DB=str(dbpath), BOARD_PORT=str(self.port), BOARD_URL=self.url)
-        self.proc = None
-
-    def start(self):
-        self.proc = subprocess.Popen(
-            BOARD_CMD,
-            env=self.env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
-        deadline = time.time() + HANG_TIMEOUT
-        while time.time() < deadline:
-            try:
-                self.get("/healthz")
-                return self
-            except OSError:
-                time.sleep(0.1)
-        raise AssertionError("board-server never came up")
-
-    def stop(self):
-        if self.proc and self.proc.poll() is None:
-            self.proc.send_signal(signal.SIGTERM)
-            try:
-                self.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait()
-        self.proc = None
-
-    def get(self, path):
-        with urllib.request.urlopen(self.url + path, timeout=HANG_TIMEOUT) as r:
-            return json.loads(r.read())
-
-    def post(self, area, topic, sender, body):
-        req = urllib.request.Request(
-            self.url + "/post",
-            data=json.dumps({"area": area, "topic": topic, "from": sender, "body": body}).encode(),
-            headers={"content-type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=HANG_TIMEOUT) as r:
-            return json.loads(r.read())["id"]
-
-    def poll(self, since=0, area="", topic="", archived=True):
-        q = f"/poll?since={since}&area={area}&topic={topic}&timeout=0" + ("&archived=1" if archived else "")
-        return self.get(q)
+# --- the two real programs on one database -------------------------------------
 
 
 @pytest.fixture
 def server(tmp_path):
-    srv = Server(tmp_path / "board.db")
+    srv = Server(tmp_path / "board.db", tmp_path / "logs")
     try:  # a start that times out has a process too, and nothing else stops it
         yield srv.start()
     finally:
@@ -328,258 +313,201 @@ def server(tmp_path):
 def test_server_exits_cleanly_on_sigterm(server):
     # It has a handler, so it also stops as PID 1 of a PID namespace (the
     # user unit's PrivatePIDs=), where SIGTERM without one is dropped.
-    proc = server.proc
     server.stop()
-    assert proc.returncode == 0
+    assert server.returncode == 0
 
 
-def _admin_session(dbpath):
-    """What board-admin does to the file between two server runs."""
-    board.init_db(str(dbpath))
+def _purge_topic(tmp_path, area, topic, then):
+    """An admin session that deletes area/topic, then waits for `then`."""
+    run = drive_tui(_env(tmp_path), [
+        Pick(f"{area}  ["), Pick(f"{topic}  ("), b"d", f"{area}/{topic}\r".encode(), Wait(then),
+        b"q", b"q"])
+    assert run.code == 0
 
 
-def test_admin_deletions_are_visible_to_the_restarted_server_and_ids_never_return(server, tmp_path):
-    ids = [server.post("proj", "design", "a", f"m{i}") for i in range(3)]
-    keep = server.post("proj", "chatter", "a", "keep me")
+def _delete_message(tmp_path, area, topic, mid):
+    run = drive_tui(_env(tmp_path), [
+        Pick(f"{area}  ["), Pick(f"{topic}  ("), b"b", Pick(f"#{mid}  "), Wait(DELETE_ONE), b"y",
+        b"q", b"q", b"q"])
+    assert run.code == 0
+
+
+def test_admin_deletions_are_visible_to_the_restarted_server_and_ids_never_return(server,
+                                                                                    tmp_path):
+    b = Board(server)
+    ids = [b.post("proj", "design", "a", f"m{i}") for i in range(3)]
+    keep = b.post("proj", "chatter", "a", "keep me")
     server.stop()
 
-    _admin_session(tmp_path / "board.db")
-    assert admin.delete_topic("proj", "design") == 3
+    _purge_topic(tmp_path, "proj", "design", then="chatter  (")
     server.start()
 
-    left = [(m["topic"], m["body"]) for m in server.poll(area="proj")]
+    left = [(m["topic"], m["body"]) for m in b.poll(area="proj")]
     assert left == [("chatter", "keep me")]
-    new = server.post("proj", "design", "a", "after the purge")
+    new = b.post("proj", "design", "a", "after the purge")
     assert new > max(ids + [keep]), "a deleted id was handed out again"
 
 
 def test_head_never_moves_backwards_after_the_newest_message_is_deleted(server, tmp_path):
-    server.post("proj", "t", "a", "one")
-    newest = server.post("proj", "t", "a", "two")
-    before = server.get("/healthz")["head"]
+    b = Board(server)
+    b.post("proj", "t", "a", "one")
+    newest = b.post("proj", "t", "a", "two")
+    before = b.head_id()
     server.stop()
 
-    _admin_session(tmp_path / "board.db")
-    assert admin.delete_message(newest) is True
+    _delete_message(tmp_path, "proj", "t", newest)
     server.start()
 
     # `board read` hands out a resume cursor from this, and `watch --since head`
     # starts from it: both assume ids only ever go up.
-    assert server.get("/healthz")["head"] >= before
+    assert b.head_id() >= before
+    assert [m["body"] for m in b.poll(area="proj")] == ["one"]
 
 
-def test_a_watcher_cursor_from_before_the_purge_still_gets_exactly_the_next_post(server, tmp_path):
-    server.post("proj", "t", "a", "one")
-    cursor = server.post("proj", "t", "a", "two")  # a watcher has seen up to here
+def test_a_watcher_cursor_from_before_the_purge_still_gets_exactly_the_next_post(server,
+                                                                                tmp_path):
+    b = Board(server)
+    b.post("proj", "t", "a", "one")
+    cursor = b.post("proj", "t", "a", "two")  # a watcher has seen up to here
     server.stop()
 
-    _admin_session(tmp_path / "board.db")
-    admin.delete_message(cursor)
+    _delete_message(tmp_path, "proj", "t", cursor)
     server.start()
-    nxt = server.post("proj", "t", "a", "three")
+    nxt = b.post("proj", "t", "a", "three")
 
-    got = server.poll(since=cursor, area="proj")
-    assert [m["id"] for m in got] == [nxt]
+    assert [m["id"] for m in b.poll(since=cursor, area="proj")] == [nxt]
 
 
 def test_archive_state_and_pins_survive_a_purge_of_another_topic(server, tmp_path):
-    server.post("proj", "design", "a", "d")
-    server.post("proj", "chatter", "a", "c")
-    server.post("old", "x", "a", "y")
-    for path, body in (("/pin", {"area": "proj", "topic": "", "from": "s", "body": "area pin"}),
-                       ("/archive", {"area": "old", "archived": True})):
-        req = urllib.request.Request(server.url + path, data=json.dumps(body).encode(),
-                                     headers={"content-type": "application/json"}, method="POST")
-        urllib.request.urlopen(req, timeout=HANG_TIMEOUT).read()
+    b = Board(server)
+    b.post("proj", "design", "a", "d")
+    b.post("proj", "chatter", "a", "c")
+    b.post("old", "x", "a", "y")
+    b.set_pin("proj", "", "s", "area pin")
+    b.set_archived("old", True)
     server.stop()
 
-    _admin_session(tmp_path / "board.db")
-    admin.delete_topic("proj", "design")
+    _purge_topic(tmp_path, "proj", "design", then="chatter  (")
     server.start()
 
-    areas = {a["name"]: a["archived_ts"] for a in server.get("/areas?archived=1")}
+    areas = {a["name"]: a["archived_ts"] for a in b.list_areas(include_archived=True)}
     assert areas["old"] is not None and areas["proj"] is None
-    assert server.get("/pin?area=proj")["body"] == "area pin"
-    assert [m["body"] for m in server.poll(area="proj", topic="chatter") if m["topic"] == "chatter"] == ["c"]
+    assert b.get_pin("proj")["body"] == "area pin"
+    assert [m["body"] for m in b.poll(area="proj", topic="chatter")
+            if m["topic"] == "chatter"] == ["c"]
 
 
-def test_admin_refuses_while_the_server_is_up_and_does_not_disturb_it(server, tmp_path, monkeypatch):
-    server.post("proj", "t", "a", "live data")
-    monkeypatch.setenv("BOARD_DB", str(tmp_path / "board.db"))
-    monkeypatch.setenv("BOARD_URL", server.url)
-    monkeypatch.setattr(admin, "SERVICE", "")  # no systemd here: only the port probe applies
-    with pytest.raises(SystemExit) as e:
-        admin.main()
-    assert "unmanaged" in str(e.value)
-    assert [m["body"] for m in server.poll(area="proj")] == ["live data"]
+def test_admin_refuses_while_the_server_is_up_and_does_not_disturb_it(server, tmp_path):
+    b = Board(server)
+    b.post("proj", "t", "a", "live data")
+    r = admin(_env(tmp_path, BOARD_URL=server.url))  # no service: only the port probe applies
+    assert r.code == 1 and "unmanaged" in r.err
+    assert [m["body"] for m in b.poll(area="proj")] == ["live data"]
 
 
 # --- the TUI itself, through a real terminal -------------------------------------
 
 
-def _drive_tui(dbpath, keys, tmp_path):
-    """Run board-admin under a pty and feed it keystrokes. Returns (exit
-    code, everything it drew)."""
-    master, slave = pty.openpty()
-    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
-    env = dict(
-        os.environ,
-        TERM="xterm",
-        BOARD_DB=str(dbpath),
-        BOARD_ADMIN_SERVICE="",
-        BOARD_URL=f"http://127.0.0.1:{_free_port()}",  # nothing listens here
-        BOARD_ADMIN_LOG=str(tmp_path / "audit.log"),
-    )
-    proc = subprocess.Popen(
-        ADMIN_CMD,
-        stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True, start_new_session=True,
-    )
-    os.close(slave)
-    drawn = b""
-
-    def drain(wait):
-        nonlocal drawn
-        end = time.time() + wait
-        while time.time() < end:
-            r, _, _ = select.select([master], [], [], 0.05)
-            if r:
-                try:
-                    chunk = os.read(master, 65536)
-                except OSError:
-                    return
-                if not chunk:
-                    return
-                drawn += chunk
-
-    try:
-        drain(0.6)  # let it start and draw the first screen
-        for k in keys:
-            os.write(master, k)
-            drain(0.25)
-        deadline = time.time() + HANG_TIMEOUT
-        while proc.poll() is None and time.time() < deadline:
-            drain(0.1)
-        if proc.poll() is None:
-            proc.kill()
-            raise AssertionError("board-admin did not exit; screen so far: " + drawn.decode("utf-8", "replace")[-400:])
-    finally:
-        os.close(master)
-    return proc.returncode, drawn.decode("utf-8", "replace")
+def test_tui_shows_the_real_areas_and_quits_cleanly(populated, tmp_path):
+    run = drive_tui(_env(tmp_path), [Wait("select an area"), b"q"])
+    assert run.code == 0
+    assert run.seen("select an area") and run.seen("proj  [") and run.seen("other  [")
+    assert not run.term.alt
 
 
-def _nav(area_idx):
-    return [b"j"] * area_idx + [b"\r"]
+def test_tui_wipes_a_topic_only_after_the_typed_confirmation(populated, tmp_path):
+    run = drive_tui(_env(tmp_path), [
+        Pick("proj  ["), Pick("design  ("), b"d", b"proj/design\r",  # exact word required
+        Wait("chatter  ("), b"q", b"q"])
+    assert run.code == 0
+    assert _ids(populated, "proj", "design") == []
+    assert _bodies(populated, "proj", "chatter")  # the neighbour topic is untouched
+    assert "delete_topic proj/design (3 messages)" in _audit(tmp_path)
 
 
-def test_tui_shows_the_real_areas_and_quits_cleanly(db, tmp_path):
-    _populate(db)
-    code, screen = _drive_tui(tmp_path / "board.db", [b"q"], tmp_path)
-    assert code == 0
-    assert "select an area" in screen and "proj" in screen and "other" in screen
-
-
-def test_tui_wipes_a_topic_only_after_the_typed_confirmation(db, tmp_path):
-    _populate(db)
-    areas = [a for a, _, _ in admin.area_counts()]
-    topics = [t for t, _ in admin.topic_counts("proj")]
-    keys = (
-        _nav(areas.index("proj"))
-        + _nav(topics.index("design"))
-        + [b"d", b"proj/design\r"]  # exact word required
-        + [b"q", b"q"]
-    )
-    code, _ = _drive_tui(tmp_path / "board.db", keys, tmp_path)
-    assert code == 0
-    board.init_db(str(tmp_path / "board.db"))
-    assert admin.messages_in("proj", "design") == []
-    assert admin.messages_in("proj", "chatter")  # the neighbour topic is untouched
-    log = (tmp_path / "audit.log").read_text()
-    assert "delete_topic proj/design (3 messages)" in log
-
-
-def test_tui_wrong_confirmation_deletes_nothing(db, tmp_path):
-    _populate(db)
-    areas = [a for a, _, _ in admin.area_counts()]
-    topics = [t for t, _ in admin.topic_counts("proj")]
-    keys = (
-        _nav(areas.index("proj"))
-        + _nav(topics.index("design"))
-        + [b"d", b"yes\r"]  # not the required word
-        + [b"q", b"q"]
-    )
-    code, _ = _drive_tui(tmp_path / "board.db", keys, tmp_path)
-    assert code == 0
-    board.init_db(str(tmp_path / "board.db"))
-    assert len(admin.messages_in("proj", "design")) == 3
+def test_tui_wrong_confirmation_deletes_nothing(populated, tmp_path):
+    run = drive_tui(_env(tmp_path), [
+        Pick("proj  ["), Pick("design  ("), b"d", b"yes\r",  # not the required word
+        Wait("design  ("), b"q", b"q"])
+    assert run.code == 0
+    assert len(_ids(populated, "proj", "design")) == 3
     assert not (tmp_path / "audit.log").exists()
 
 
-def test_tui_deletes_one_message_on_y_and_keeps_it_on_anything_else(db, tmp_path):
-    _populate(db)
-    areas = [a for a, _, _ in admin.area_counts()]
-    topics = [t for t, _ in admin.topic_counts("proj")]
-    first = admin.messages_in("proj", "design")[0]["id"]
-    keys = (
-        _nav(areas.index("proj"))
-        + _nav(topics.index("design"))
-        + [b"b"]
-        + [b"\r", b"n"]  # open message 0, decline
-        + [b"\r", b"y"]  # open message 0 again, confirm
-        + [b"q", b"q", b"q"]
-    )
-    code, _ = _drive_tui(tmp_path / "board.db", keys, tmp_path)
-    assert code == 0
-    board.init_db(str(tmp_path / "board.db"))
-    assert first not in [m["id"] for m in admin.messages_in("proj", "design")]
-    assert len(admin.messages_in("proj", "design")) == 2
-    assert f"delete_message #{first} proj/design" in (tmp_path / "audit.log").read_text()
+def test_tui_deletes_one_message_on_y_and_keeps_it_on_anything_else(populated, tmp_path):
+    first = _ids(populated, "proj", "design")[0]
+    run = drive_tui(_env(tmp_path), [
+        Pick("proj  ["), Pick("design  ("), b"b",
+        Pick(f"#{first}  "), Wait(DELETE_ONE), b"n",  # open the message, decline
+        Pick(f"#{first}  "), Wait(DELETE_ONE), b"y",  # open it again, confirm
+        b"q", b"q", b"q"])
+    assert run.code == 0
+    assert first not in _ids(populated, "proj", "design")
+    assert len(_ids(populated, "proj", "design")) == 2
+    assert f"delete_message #{first} proj/design" in _audit(tmp_path)
 
 
 # --- name claims --------------------------------------------------------------
 
 
-def _claim(db, name, fingerprint):
-    signer = db.Signer(f"ssh-ed25519 KEY-{fingerprint}", fingerprint, "sig", str(db.head_id()))
-    db.post("proj", "t", name, f"{name} signs", signer=signer)
-    return signer
+def _claim(b, tmp_path, name):
+    key = Key.make(tmp_path, f"{name}-key")
+    b.post("proj", "t", name, f"{name} signs", signer=b.signer(key))
+    return key
 
 
-def test_release_frees_a_claimed_name(db):
-    _claim(db, "agent", "SHA256:a")
-    with pytest.raises(db.Forbidden):
-        db.post("proj", "t", "agent", "unsigned")
-    assert [c["name"] for c in admin.list_identities()] == ["agent"]
-    assert admin.delete_identity("agent") is True
-    assert admin.delete_identity("agent") is False  # already free: reported, not an error
-    db.post("proj", "t", "agent", "unsigned works again")
-    _claim(db, "agent", "SHA256:new")  # and a new key can claim it
-    assert db.get_identity("agent")["fingerprint"] == "SHA256:new"
+def _release(tmp_path, name, *before_yes):
+    run = drive_tui(_env(tmp_path), [
+        Pick("-- name claims"), Pick(f"{name}  ["), Wait(RELEASE), *before_yes, b"y",
+        Wait("name claims (q back)"), b"q", b"q"])
+    assert run.code == 0
+    return run
 
 
-def test_release_frees_the_names_around_it_too(db):
-    _claim(db, "Stefan", "SHA256:s")
-    with pytest.raises(db.Forbidden, match="too close to the claimed name 'Stefan'"):
-        db.post("proj", "t", "stefan", "a look-alike")
-    assert admin.delete_identity("Stefan")
-    db.post("proj", "t", "stefan", "free again")
-    _claim(db, "Stefn", "SHA256:other")
+def test_release_frees_a_claimed_name(tmp_path):
+    with running(tmp_path / "board.db", tmp_path / "logs") as b:
+        _claim(b, tmp_path, "agent")
+        with pytest.raises(Forbidden):
+            b.post("proj", "t", "agent", "unsigned")
+        b.server.stop()
+        _release(tmp_path, "agent")
+        b.server.start()
+        b.post("proj", "t", "agent", "unsigned works again")
+        new = Key.make(tmp_path, "new-key")  # and a new key can claim it
+        b.post("proj", "t", "agent", "a new key claims it", signer=b.signer(new))
+        assert b.get_identity("agent")["fingerprint"] == new.fingerprint
 
 
-def test_tui_releases_a_name_claim_only_on_y(db, tmp_path):
-    _populate(db)
-    _claim(db, "alice", "SHA256:alice")
-    _claim(db, "bob", "SHA256:bob")
-    claims_entry = len(admin.area_counts())  # listed after the areas
-    keys = (
-        _nav(claims_entry)
-        + [b"\r", b"n"]  # alice, declined
-        + [b"j", b"\r", b"y"]  # bob, released
-        + [b"q", b"q"]
-    )
-    code, screen = _drive_tui(tmp_path / "board.db", keys, tmp_path)
-    assert code == 0
-    assert "name claims (2)" in screen
-    board.init_db(str(tmp_path / "board.db"))
-    assert [c["name"] for c in admin.list_identities()] == ["alice"]
-    log = (tmp_path / "audit.log").read_text()
-    assert log.endswith("release_claim bob SHA256:bob (tofu)\n")
+def test_a_claim_already_released_meanwhile_is_not_an_error(tmp_path):
+    with running(tmp_path / "board.db", tmp_path / "logs") as b:
+        _claim(b, tmp_path, "agent")
+    db = tmp_path / "board.db"
+    _release(tmp_path, "agent", Do(lambda: sql_changes(db, "DELETE FROM identities")))
+    assert "release_claim" not in _audit(tmp_path)  # this session released nothing
+
+
+def test_release_frees_the_names_around_it_too(tmp_path):
+    with running(tmp_path / "board.db", tmp_path / "logs") as b:
+        _claim(b, tmp_path, "Stefan")
+        with pytest.raises(Forbidden, match="too close to the claimed name 'Stefan'"):
+            b.post("proj", "t", "stefan", "a look-alike")
+        b.server.stop()
+        _release(tmp_path, "Stefan")
+        b.server.start()
+        b.post("proj", "t", "stefan", "free again")
+        _claim(b, tmp_path, "Stefn")
+
+
+def test_tui_releases_a_name_claim_only_on_y(populated, tmp_path):
+    with running(populated, tmp_path / "logs") as b:
+        _claim(b, tmp_path, "alice")
+        bob = _claim(b, tmp_path, "bob")
+    run = drive_tui(_env(tmp_path), [
+        Pick("-- name claims"),
+        Pick("alice  ["), Wait(RELEASE), b"n",  # alice, declined
+        Pick("bob  ["), Wait(RELEASE), b"y",  # bob, released
+        Wait("name claims (q back)"), b"q", b"q"])
+    assert run.code == 0
+    assert run.seen("-- name claims (2)")
+    assert [n for (n,) in sql(populated, "SELECT name FROM identities ORDER BY name")] == ["alice"]
+    assert _audit(tmp_path).endswith(f"release_claim bob {bob.fingerprint} (tofu)\n")
