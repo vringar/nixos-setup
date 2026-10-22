@@ -336,7 +336,7 @@ impl From<StoreError> for Refused {
             StoreError::StaleNonce { head } => Self::Refusal { status: 409, message, stale_head: Some(head) },
             StoreError::Forbidden(_) => Self::Refusal { status: 403, message, stale_head: None },
             StoreError::Conflict(_) => Self::Refusal { status: 409, message, stale_head: None },
-            StoreError::BadName(_) | StoreError::NoSuchArea(_) | StoreError::SystemArea => {
+            StoreError::BadName(_) | StoreError::BadPlace(_) | StoreError::NoSuchArea(_) | StoreError::SystemArea => {
                 Self::Refusal { status: 400, message, stale_head: None }
             }
         }
@@ -601,7 +601,7 @@ fn api_archive(app: &App, data: &Fields) -> Answer {
 }
 
 fn api_pin(app: &App, data: &Fields) -> Answer {
-    if data.optional_text("area")?.is_none() || data.get("body").is_none() {
+    if data.get("area").is_none() || data.get("body").is_none() {
         return Ok(json_error(400, "need 'area' and 'body'")?);
     }
     let signature = data.optional_text("signature")?;

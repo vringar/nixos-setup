@@ -53,7 +53,7 @@ use serde_json::{Value, json};
 use signal_hook::consts::SIGINT;
 
 use message_board::sign::{self, Kind, MESSAGE, PIN, PrivateKey, SignatureError};
-use message_board::store::check_name;
+use message_board::store::{check_name, check_place};
 use message_board::text::one_line;
 
 use crate::client::{Client, HttpError};
@@ -309,6 +309,11 @@ fn checked_name(name: &str) -> Result<(), Failure> {
     check_name(name).map_err(|err| Failure::Exit(format!("board: {err}")))
 }
 
+/// Refuse an area or topic messages cannot be addressed by, likewise.
+fn checked_place(area: &str, topic: Option<&str>) -> Result<(), Failure> {
+    check_place(area, topic).map_err(|err| Failure::Exit(format!("board: {err}")))
+}
+
 /// A refusal the board answered with: its JSON error, else the status's
 /// reason phrase.
 fn refusal(status: u16, reason: &str, body: &str) -> Failure {
@@ -487,6 +492,7 @@ fn post_key() -> Result<String, Failure> {
 }
 
 fn post(client: &Client, area: &str, topic: &str, sender: &str, body: &str) -> Result<(), Failure> {
+    checked_place(area, Some(topic))?;
     checked_name(sender)?;
     let key = post_key()?;
     let payload = Payload {
@@ -603,6 +609,7 @@ struct Saved {
 
 /// Replace a pin with stdin; empty input removes it.
 fn set_pin(client: &Client, area: &str, topic: &str, sender: &str) -> Result<(), Failure> {
+    checked_place(area, (!topic.is_empty()).then_some(topic))?;
     checked_name(sender)?;
     let mut body = String::new();
     io::stdin().read_to_string(&mut body).map_err(io_failure("cannot read the pin from stdin"))?;

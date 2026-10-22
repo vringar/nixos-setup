@@ -110,6 +110,21 @@ fn look_alikes_of_claims_and_of_the_board_are_refused() -> TestResult {
 }
 
 #[test]
+fn areas_and_topics_must_be_addressable() -> TestResult {
+    let f = fixture()?;
+    for (area, topic) in [("", "t"), ("x", ""), ("a\nb", "t"), ("x", "t\r")] {
+        assert!(matches!(post(&f.board, area, topic, "a", "lost"), Err(Error::BadPlace(_))), "{area:?} {topic:?}");
+    }
+    assert!(matches!(post(&f.board, "x", PIN_TOPIC, "a", "a fake doorbell"), Err(Error::Forbidden(_))));
+    assert!(matches!(pin(&f.board, "x", PIN_TOPIC, "a", "a pin"), Err(Error::Forbidden(_))));
+    assert!(matches!(pin(&f.board, "", "", "a", "a pin"), Err(Error::BadPlace(_))));
+    assert!(matches!(f.board.create_area("", "nameless"), Err(Error::BadPlace(_))));
+    assert_eq!(f.board.head_id()?, 0); // nothing was written
+    assert_eq!(pin(&f.board, "x", "", "a", "the area pin")?, 1); // an area pin has no topic
+    Ok(())
+}
+
+#[test]
 fn names_follow_the_rule() {
     for good in ["Stefan", "board", "me", "psp_db", "007", &"x".repeat(64)] {
         assert!(check_name(good).is_ok(), "{good}");

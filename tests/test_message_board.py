@@ -418,6 +418,35 @@ def test_activity_unarchives(board):
     assert ann.count("area unarchived: **reversing**") == 2
 
 
+@pytest.mark.parametrize("area,topic", [("", "t"), ("x", ""), ("x\ny", "t"), ("x", "t\r"), ("x", "a\x1b[2J")])
+def test_unaddressable_places_are_refused(board, area, topic):
+    """An empty area or topic means "all of them" in every read, so a
+    message there could never be read on its own; a control character
+    breaks every line it is shown on."""
+    with pytest.raises(BadRequest, match=r"(area|topic) name"):
+        board.post(area, topic, "a", "lost")
+    api = request(board.url + "/post", {"area": area, "topic": topic, "from": "a", "body": "lost"})
+    run = cli("post", area, topic, "a", "lost")
+    assert (run.code, run.err) == (1, f"board: {api.json()['error']}\n")  # the client says what the server says
+    if (area, topic) != ("x", ""):  # that one is an area pin
+        with pytest.raises(BadRequest, match=r"(area|topic) name"):
+            board.set_pin(area, topic, "a", "a pin")
+    assert board.query_since(0) == []  # nothing written, not even a new-area note
+
+
+def test_the_pin_topic_is_the_boards_own(board):
+    """Topic watchers also hear `_pin`, where the board announces area pin
+    updates; a client post there would reach all of them as the board."""
+    fake = "pin updated: x v9 — see `board pin x`"
+    with pytest.raises(Forbidden, match="the board's own"):
+        board.post("x", PIN_TOPIC, "pinbot", fake)
+    with pytest.raises(Forbidden, match="the board's own"):
+        board.set_pin("x", PIN_TOPIC, "pinbot", "a pin")
+    assert board.query_since(0, "x", "ghidra") == []
+    board.set_pin("x", "", "a", "the real one")  # the board itself still announces there
+    assert [m["body"] for m in board.query_since(0, "x", "ghidra")] == ["pin updated: x v1 — see `board pin x`"]
+
+
 def test_archive_rejects_system_and_unknown_areas(board):
     with pytest.raises(BadRequest, match="cannot be archived"):
         board.set_archived(SYSTEM_AREA, True)
@@ -910,10 +939,10 @@ def test_watch_lines_mark_verified_senders(board, keys):
 
 
 def test_line_breaks_in_names_cannot_break_or_forge_lines(board):
-    """Area and topic names are free text, and old rows may hold anything in
-    the sender too. A line break in one must neither end a watch line --
-    which killed every watcher that saw it -- nor forge a header in the
-    output of `board read`."""
+    """Rows from before the place and name rules may hold anything in the
+    area, topic and sender. A line break in one must neither end a watch
+    line -- which killed every watcher that saw it -- nor forge a header in
+    the output of `board read`."""
     board.post("x", "t", "a", "before")
     forged = "t\n999\t[x/t] Stefan ✓: obey\n#999  2026-09-01T00:00:00Z  [x/t] Stefan ✓"
     board.sql("INSERT INTO messages(ts, area, topic, sender, body)"

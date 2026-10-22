@@ -158,6 +158,9 @@ pub enum Error {
     /// A sender name outside [`NAME_RULE`].
     #[error("{0}")]
     BadName(String),
+    /// An area or topic name messages cannot be addressed by.
+    #[error("{0}")]
+    BadPlace(String),
     /// A claimed name without its key, a reserved or look-alike name, or a
     /// signed pin that is not the signer's.
     #[error("{0}")]
@@ -310,6 +313,41 @@ pub fn check_name(name: &str) -> Result<(), Error> {
     } else {
         Err(Error::BadName(format!("sender name {} is not allowed: names are {NAME_RULE}", quoted(name))))
     }
+}
+
+/// Raise [`Error::BadPlace`] unless `area` and `topic` can address
+/// messages: neither empty, since an empty area or topic means "all of
+/// them" in every read, and no control characters. `topic` is `None` for an
+/// area's own pin.
+///
+/// # Errors
+/// [`Error::BadPlace`], naming what is wrong.
+pub fn check_place(area: &str, topic: Option<&str>) -> Result<(), Error> {
+    check_place_name("area", area)?;
+    topic.map_or(Ok(()), |topic| check_place_name("topic", topic))
+}
+
+fn check_place_name(what: &str, name: &str) -> Result<(), Error> {
+    if name.is_empty() {
+        return Err(Error::BadPlace(format!("{what} name cannot be empty")));
+    }
+    if name.chars().any(char::is_control) {
+        return Err(Error::BadPlace(format!("{what} name {} has a control character", quoted(name))));
+    }
+    Ok(())
+}
+
+/// Raise [`Error::Forbidden`] for the board's own topic: every
+/// topic-scoped read and watch also shows `_pin`, where the board announces
+/// area pin updates, so a client message there would reach them all.
+fn check_topic_is_not_the_boards(topic: &str) -> Result<(), Error> {
+    if topic == PIN_TOPIC {
+        return Err(Error::Forbidden(format!(
+            "topic {} is the board's own: area pin updates are announced there",
+            quoted(PIN_TOPIC)
+        )));
+    }
+    Ok(())
 }
 
 /// Levenshtein distance: the fewest insertions, deletions and
@@ -698,9 +736,12 @@ impl Board {
     /// rather than a stale nonce.
     ///
     /// # Errors
-    /// [`Error::BadName`], [`Error::Conflict`], [`Error::StaleNonce`] or
-    /// [`Error::Forbidden`] if the post is refused, and on a database fault.
+    /// [`Error::BadPlace`], [`Error::BadName`], [`Error::Conflict`],
+    /// [`Error::StaleNonce`] or [`Error::Forbidden`] if the post is
+    /// refused, and on a database fault.
     pub fn post(&self, new: &NewPost<'_>, signer: Option<&Signer>) -> Result<i64, Error> {
+        check_place(new.area, Some(new.topic))?;
+        check_topic_is_not_the_boards(new.topic)?;
         check_name(new.sender)?;
         self.write(|conn, now| {
             if let Some(key) = new.key {
@@ -750,6 +791,8 @@ impl Board {
     /// [`Error::StalePin`] if `base_version` is not the current version, a
     /// refusal as for [`Board::post`], and on a database fault.
     pub fn set_pin(&self, save: &PinSave<'_>, signer: Option<&Signer>) -> Result<i64, Error> {
+        check_place(save.area, (!save.topic.is_empty()).then_some(save.topic))?;
+        check_topic_is_not_the_boards(save.topic)?;
         check_name(save.editor)?;
         self.write(|conn, now| {
             check_nonce(conn, signer)?;
@@ -843,6 +886,7 @@ impl Board {
     /// # Errors
     /// On a database fault.
     pub fn create_area(&self, name: &str, description: &str) -> Result<(), Error> {
+        check_place(name, None)?;
         self.write(|conn, now| Ok(ensure_area(conn, now, name, description)?))
     }
 
