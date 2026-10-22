@@ -667,6 +667,27 @@ class Run:
         lines = self.err.splitlines()
         return lines[-1] if lines else ""
 
+    @property
+    def lines(self):
+        """stdout as JSON Lines: each line one JSON object, "type" first."""
+        return [json_line(line) for line in self.out.split("\n") if line]
+
+    @property
+    def result(self):
+        """The one object a command that is not a stream prints."""
+        lines = self.lines
+        assert len(lines) == 1, self.out
+        return lines[0]
+
+
+def json_line(line):
+    """One line of `board` output, checked to be a JSON object that starts
+    with its "type" and has no line break of any kind in it."""
+    assert line == line.strip() and len(line.splitlines()) == 1, repr(line)
+    value = json.loads(line)
+    assert isinstance(value, dict) and next(iter(value)) == "type", line
+    return value
+
 
 def cli(*args, stdin="", env=None, timeout=HANG_TIMEOUT):
     """Run `board` in the current directory with the current environment."""
@@ -696,7 +717,12 @@ class Watch:
         if got is None:
             raise AssertionError(f"board watch exited with {self.proc.wait()}:"
                                  f" {self.proc.stderr.read().decode()}")
-        return got.rstrip("\n")
+        assert got.endswith("\n"), got
+        return got[:-1]
+
+    def event(self, timeout=HANG_TIMEOUT):
+        """The next line, parsed (see `json_line`)."""
+        return json_line(self.line(timeout))
 
     def stop(self):
         if self.proc.poll() is None:

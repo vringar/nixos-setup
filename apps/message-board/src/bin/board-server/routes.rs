@@ -10,7 +10,6 @@ use serde_json::{Map, Value, json};
 
 use message_board::sign::{self, Kind, MESSAGE, PIN, SignatureError};
 use message_board::store::{Area, Board, DbError, Error as StoreError, NewPost, PinSave, Scope, Signer};
-use message_board::text::one_line;
 
 use crate::html::{self, Html, Page, PinForm};
 use crate::http::{Request, Response};
@@ -240,11 +239,7 @@ fn get(app: &App, path: &str, q: &Params, ctx: &Context<'_>) -> Answer {
             let wait = Duration::try_from_secs_f64(timeout.clamp(0.0, MAX_POLL)).unwrap_or(Duration::ZERO);
             let scope = Scope { since, area, topic, include_archived: archived_flag(q) };
             let messages = app.board.poll(&scope, wait, ctx.waiting)?.ok_or(Failure::Gone)?;
-            if q.get("format") == Some("lines") {
-                Ok(Response::text(200, &format_lines(&messages)))
-            } else {
-                Ok(Response::json(200, serde_json::to_string(&messages)?))
-            }
+            Ok(Response::json(200, serde_json::to_string(&messages)?))
         }
         "/areas" => Ok(Response::json(200, serde_json::to_string(&app.board.list_areas(archived_flag(q))?)?)),
         "/pins" => Ok(Response::json(200, serde_json::to_string(&app.board.pins_for(area, topic, archived_flag(q))?)?)),
@@ -279,39 +274,6 @@ fn static_file(app: &App, path: &str, ctx: &Context<'_>) -> Result<Response, ser
             ctx.log(&format!("cannot read {}: {err}", file.display()));
             json_error(404, &format!("{name} not found"))
         }
-    }
-}
-
-/// The watch stream: `id\t[area/topic] from: first line`, with ` ✓` after
-/// a verified sender. One line per message, whatever the names and the
-/// body hold: a watcher reads the id up to the first tab of each line.
-fn format_lines(messages: &[message_board::store::Message]) -> String {
-    messages
-        .iter()
-        .map(|m| {
-            let mark = if m.verified { " ✓" } else { "" };
-            format!(
-                "{}\t[{}/{}] {}{mark}: {}\n",
-                m.id,
-                one_line(&m.area),
-                one_line(&m.topic),
-                one_line(&m.sender),
-                one_line(&summary(&m.body))
-            )
-        })
-        .collect::<Vec<_>>()
-        .concat()
-}
-
-/// The first line of a body, cut at 200 characters.
-fn summary(body: &str) -> String {
-    let first = body.trim().lines().next().unwrap_or_default();
-    if first.chars().count() <= 200 {
-        first.to_owned()
-    } else {
-        let mut cut: String = first.chars().take(197).collect();
-        cut.push_str("...");
-        cut
     }
 }
 
@@ -723,28 +685,5 @@ mod tests {
         assert!(matches!(number::<i64>(&q, "since", 0), Ok(7)));
         assert!(matches!(number::<i64>(&q, "missing", 3), Ok(3)));
         assert!(matches!(number::<i64>(&Params::parse(b"since=x"), "since", 0), Err(Failure::Bad(_))));
-    }
-
-    #[test]
-    fn summaries_are_the_first_line_cut_at_200() {
-        assert_eq!(summary("  \n first\nsecond"), "first");
-        assert_eq!(summary(""), "");
-        let long = "é".repeat(250);
-        assert_eq!(summary(&long), format!("{}...", "é".repeat(197)));
-    }
-
-    #[test]
-    fn a_watch_line_is_one_line_whatever_it_holds() {
-        let m = message_board::store::Message {
-            id: 7,
-            ts: "2026-10-22T00:00:00Z".to_owned(),
-            area: "x\n8\t[forged".to_owned(),
-            topic: "t\r".to_owned(),
-            sender: "a".to_owned(),
-            body: "first\rhidden\nsecond".to_owned(),
-            signed_by: None,
-            verified: false,
-        };
-        assert_eq!(format_lines(&[m]), "7\t[x\\n8\\t[forged/t\\r] a: first\\rhidden\n");
     }
 }
