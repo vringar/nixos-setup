@@ -341,7 +341,10 @@ def crossbridge_own_slug(project_dir):
     if os.path.isdir(os.path.join(project_dir, ".jj")):
         try:
             out = subprocess.run(
-                ["jj", "--repository", project_dir, "git", "remote", "list"],
+                # Reading the remotes must not first record the project's
+                # changed files as an operation in its log, on every launch.
+                ["jj", "--repository", project_dir, "--ignore-working-copy",
+                 "git", "remote", "list"],
                 capture_output=True, text=True, check=True,
             ).stdout
             for line in out.splitlines():

@@ -540,3 +540,33 @@ def test_a_project_inside_the_home_is_fine(tmp_path):
     launcher.project.mkdir()
     result = launcher.run(shutil.which("true"))
     assert result.returncode == 0, result.stderr
+
+
+# --- what the launcher does to the project ------------------------------------
+
+
+@pytest.mark.skipif(shutil.which("jj") is None, reason="jj is not on PATH")
+def test_finding_the_crossbridge_slug_records_nothing_in_the_project(tmp_path, monkeypatch):
+    # No GIT_* from a hook runner: the launcher's git fallback would follow
+    # GIT_DIR to the repository under test.
+    for name in list(os.environ):
+        if name.startswith(("GIT_", "JJ_", "CROSSBRIDGE_")):
+            monkeypatch.delenv(name)
+    config = tmp_path / "jj-config.toml"
+    config.write_text('user.name = "t"\nuser.email = "t@example.com"\n')
+    monkeypatch.setenv("JJ_CONFIG", str(config))
+    project = tmp_path / "foo"
+    subprocess.run(["jj", "git", "init", str(project)], check=True, capture_output=True)
+
+    def jj(*args):
+        return subprocess.run(
+            ["jj", "--repository", str(project), *args],
+            check=True, capture_output=True, text=True,
+        ).stdout
+
+    jj("git", "remote", "add", "origin", "git@example.com:someone/foo-repo.git")
+    operations = jj("op", "log", "--no-graph", "-T", "id ++ \"\\n\"")
+    (project / "new-file").write_text("not to be recorded by the launcher\n")
+
+    assert sandbox.crossbridge_own_slug(str(project)) == "foo-repo"
+    assert jj("op", "log", "--no-graph", "--ignore-working-copy", "-T", "id ++ \"\\n\"") == operations
