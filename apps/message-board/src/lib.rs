@@ -4,4 +4,5 @@
 
 pub mod sign;
 pub mod store;
+pub mod text;
 pub mod timefmt;

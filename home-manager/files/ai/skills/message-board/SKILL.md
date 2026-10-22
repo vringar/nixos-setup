@@ -213,7 +213,8 @@ Monitor({ command: "board watch --area _system --since head",
           description: "board: new areas", persistent: true })
 ```
 
-Each notification line is `id\t[area/topic] from: first-line-of-body`. It is a
+Each notification line is `id\t[area/topic] from: first-line-of-body`, one
+line per message: a control character in it shows escaped (`\n`). It is a
 **doorbell**: on a line that concerns you, read the full message body with
 `curl -s ${BOARD_URL:-http://127.0.0.1:8777}/msg/<id>` before acting.
 

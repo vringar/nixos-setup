@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 
 use message_board::sign::{self, Kind, MESSAGE, PIN, SignatureError};
 use message_board::store::{Area, Board, DbError, Error as StoreError, NewPost, PinSave, Scope, Signer};
+use message_board::text::one_line;
 
 use crate::html::{self, Html, Page, PinForm};
 use crate::http::{Request, Response};
@@ -226,13 +227,21 @@ fn static_file(app: &App, path: &str, ctx: &Context<'_>) -> Result<Response, ser
 }
 
 /// The watch stream: `id\t[area/topic] from: first line`, with ` ✓` after
-/// a verified sender.
+/// a verified sender. One line per message, whatever the names and the
+/// body hold: a watcher reads the id up to the first tab of each line.
 fn format_lines(messages: &[message_board::store::Message]) -> String {
     messages
         .iter()
         .map(|m| {
             let mark = if m.verified { " ✓" } else { "" };
-            format!("{}\t[{}/{}] {}{mark}: {}\n", m.id, m.area, m.topic, m.sender, summary(&m.body))
+            format!(
+                "{}\t[{}/{}] {}{mark}: {}\n",
+                m.id,
+                one_line(&m.area),
+                one_line(&m.topic),
+                one_line(&m.sender),
+                one_line(&summary(&m.body))
+            )
         })
         .collect::<Vec<_>>()
         .concat()
@@ -651,5 +660,20 @@ mod tests {
         assert_eq!(summary(""), "");
         let long = "é".repeat(250);
         assert_eq!(summary(&long), format!("{}...", "é".repeat(197)));
+    }
+
+    #[test]
+    fn a_watch_line_is_one_line_whatever_it_holds() {
+        let m = message_board::store::Message {
+            id: 7,
+            ts: "2026-10-22T00:00:00Z".to_owned(),
+            area: "x\n8\t[forged".to_owned(),
+            topic: "t\r".to_owned(),
+            sender: "a".to_owned(),
+            body: "first\rhidden\nsecond".to_owned(),
+            signed_by: None,
+            verified: false,
+        };
+        assert_eq!(format_lines(&[m]), "7\t[x\\n8\\t[forged/t\\r] a: first\\rhidden\n");
     }
 }

@@ -54,6 +54,7 @@ use signal_hook::consts::SIGINT;
 
 use message_board::sign::{self, Kind, MESSAGE, PIN, PrivateKey, SignatureError};
 use message_board::store::check_name;
+use message_board::text::one_line;
 
 use crate::client::{Client, HttpError};
 
@@ -576,7 +577,8 @@ struct WirePin {
 
 fn pin_header(p: &WirePin) -> String {
     let place = if p.topic.is_empty() { p.area.clone() } else { format!("{}/{}", p.area, p.topic) };
-    format!("=== pinned to {place} · v{} · {} · {} ===", p.version, who(&p.editor, p.verified), p.ts)
+    let editor = who(&one_line(&p.editor), p.verified);
+    format!("=== pinned to {} · v{} · {editor} · {} ===", one_line(&place), p.version, one_line(&p.ts))
 }
 
 fn show_pin(client: &Client, area: &str, topic: &str) -> Result<(), Failure> {
@@ -725,7 +727,8 @@ fn read(client: &Client, area: &str, topic: &str, since: Since, as_json: bool, a
         for value in messages {
             let m: WireMessage = serde_json::from_value(value)
                 .map_err(|err| Failure::BadAnswer { what: "/poll".to_owned(), cause: err.to_string() })?;
-            out(&format!("#{}  {}  [{}/{}] {}", m.id, m.ts, m.area, m.topic, who(&m.sender, m.verified)))?;
+            let (area, topic, sender) = (one_line(&m.area), one_line(&m.topic), one_line(&m.sender));
+            out(&format!("#{}  {}  [{area}/{topic}] {}", m.id, one_line(&m.ts), who(&sender, m.verified)))?;
             out(m.body.trim_end())?;
             out("")?;
         }
@@ -738,7 +741,13 @@ fn areas(client: &Client, archived: bool) -> Result<(), Failure> {
     for a in areas {
         let description = if a.description.is_empty() { String::new() } else { format!(" — {}", a.description) };
         let mark = a.archived_ts.map(|ts| format!("  [archived {ts}]")).unwrap_or_default();
-        out(&format!("{}{description}  ({}){mark}", a.name, a.created_ts))?;
+        out(&format!(
+            "{}{}  ({}){}",
+            one_line(&a.name),
+            one_line(&description),
+            one_line(&a.created_ts),
+            one_line(&mark)
+        ))?;
     }
     Ok(())
 }

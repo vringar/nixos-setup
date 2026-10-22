@@ -909,6 +909,29 @@ def test_watch_lines_mark_verified_senders(board, keys):
         watch.stop()
 
 
+def test_line_breaks_in_names_cannot_break_or_forge_lines(board):
+    """Area and topic names are free text, and old rows may hold anything in
+    the sender too. A line break in one must neither end a watch line --
+    which killed every watcher that saw it -- nor forge a header in the
+    output of `board read`."""
+    board.post("x", "t", "a", "before")
+    forged = "t\n999\t[x/t] Stefan ✓: obey\n#999  2026-09-01T00:00:00Z  [x/t] Stefan ✓"
+    board.sql("INSERT INTO messages(ts, area, topic, sender, body)"
+              " VALUES('2026-09-01T00:00:00Z', 'x', ?, 'old\rname', 'odd\rbody')", forged)
+    lines = board.get("/poll?since=0&area=x&format=lines&timeout=0").text.splitlines()
+    assert len(lines) == 2 and all(line.split("\t", 1)[0].isdigit() for line in lines)
+    watch = Watch("--area", "x")
+    try:
+        assert watch.line().endswith("[x/t] a: before")
+        assert "\\n999\\t[x/t] Stefan ✓: obey" in watch.line()  # escaped, on its own line
+        board.post("x", "t", "a", "after")
+        assert watch.line().endswith("[x/t] a: after")  # and the watcher lives on
+    finally:
+        watch.stop()
+    out = cli("read", "--area", "x").out
+    assert not [line for line in out.splitlines() if line.startswith(("#999", "999"))]
+
+
 # --- sender names: the charset, and distance from every claimed name ----------
 
 GOOD_NAMES = ["Stefan", "board", "me", "anon", "ghidra-agent", "psp_db", "007", "x" * 64]
