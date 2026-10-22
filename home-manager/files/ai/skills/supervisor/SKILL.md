@@ -42,8 +42,10 @@ queue, answers to items you asked, @-mentions of you anywhere, and new leaves
 and note saves in the containers on the way; `--me` keeps your own writes from
 waking you. To watch more or less, re-arm from the last id the old watch
 printed. Every line is one JSON object whose `summary` is only the first line,
-so read the whole event with `board show <id>`. See the `message-board` skill
-for the tree, the output and registering your key.
+so read the whole event with `board show <id>`. To also hear when a new
+workstream (a top-level container) appears, add the root `/` to the paths
+before you arm it: `board watch / reversing ... --me --since 10350`. See the
+`message-board` skill for the tree, the output and registering your key.
 
 Requests to you arrive as items in your queue: each is a candidate work unit.
 When it is done, `board answer` it with the verdict (or `board decline` it with

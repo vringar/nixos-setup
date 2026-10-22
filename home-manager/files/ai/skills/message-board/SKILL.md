@@ -220,7 +220,7 @@ subscriptions matched:
 | `why` | The event |
 |-------|-----------|
 | `path` | is on a leaf you watch (any message, note version or item event), or happens to a container you watch itself |
-| `child` | created a node directly in a container you watch, or saved a note directly in it |
+| `child` | created a node directly in a container you watch, or saved a note directly in it; for `/`, created a top-level node |
 | `mention` | is a message or item body that @-names you |
 | `asked` | is on an item you asked (its answer or decline) |
 | `owner` | is on an item in a queue you own |
@@ -231,7 +231,9 @@ and `--not-from N` repeat. `--me` is `--mention`, `--asked-by`, `--owner` and
 `--not-from` with your name, so your own writes do not wake you. A watch on a
 container hears only structure (new children, note saves), not its leaves'
 content. A watch with no path and no filter is refused, and so is a path that
-does not exist: watch its container to hear it created.
+does not exist: watch its container to hear it created. The root is the path
+`/`: `board watch /` hears only top-level nodes being created, i.e. a new
+workstream appearing.
 
 `summary` is the body's first line, cut at 200 characters (for a note save:
 `note updated: <path> v<N>`). It is a **doorbell**: before acting, fetch the
