@@ -148,17 +148,25 @@ def test_background_processes_end_with_the_sandbox():
 
 
 def fake_podman(tmp_path):
-    """Stands in for podman: creates the socket file it is asked to serve on,
-    then serves nothing until it is stopped."""
+    """Stands in for podman: notes its pid in podman.pids next to itself,
+    creates the socket file it is asked to serve on, then serves nothing
+    until it is stopped."""
     path = tmp_path / "podman"
     path.write_text(textwrap.dedent(f"""\
         #!{sys.executable}
-        import sys, time
+        import os, sys, time
+        with open(os.path.realpath(__file__) + ".pids", "a") as pids:
+            print(os.getpid(), file=pids)
         open(sys.argv[-1].removeprefix("unix://"), "w").close()
         time.sleep(3600)
     """))
     path.chmod(0o755)
     return path
+
+
+def podman_pids(podman):
+    pids = Path(f"{podman}.pids")
+    return [int(pid) for pid in pids.read_text().split()] if pids.exists() else []
 
 
 # Starts Podman as the launcher does, reports its pid, then waits for the test
@@ -210,7 +218,7 @@ class Launcher:
     """The launcher as default.nix builds it, from the tools on PATH, run
     against a throwaway home, project and temp dir."""
 
-    def __init__(self, tmp_path, podman=None):
+    def __init__(self, tmp_path, podman=None, bwrap=BWRAP):
         self.home = tmp_path / "home"
         for path in (".config/git", ".config/jj", ".nix-profile", ".local/state/nix"):
             (self.home / path).mkdir(parents=True)
@@ -227,7 +235,7 @@ class Launcher:
         text = SCRIPT.read_text()
         for placeholder, value in {
             "@python3@": sys.executable,
-            "@bwrap@": BWRAP,
+            "@bwrap@": bwrap,
             "@nix_shell@": "/nonexistent/nix-shell",
             "@nix@": "/nonexistent/nix",
             "@bash@": shutil.which("bash"),
@@ -249,17 +257,19 @@ class Launcher:
         # PATH holds podman, if anything: commands are given by absolute path.
         self.env.update(HOME=str(self.home), TMPDIR=str(self.tmpdir), PATH=str(bin_dir))
 
-    def popen(self, *command, **kwargs):
-        return subprocess.Popen(
-            [str(self.script), "--project-dir", str(self.project), "--", *command],
-            env=self.env, **kwargs,
+    def argv(self, command, options):
+        return [str(self.script), "--project-dir", str(self.project), *options, "--", *command]
+
+    def popen(self, *command, options=(), **kwargs):
+        return subprocess.Popen(self.argv(command, options), env=self.env, **kwargs)
+
+    def run(self, *command, options=()):
+        return subprocess.run(
+            self.argv(command, options), env=self.env, capture_output=True, text=True
         )
 
-    def run(self, *command):
-        return subprocess.run(
-            [str(self.script), "--project-dir", str(self.project), "--", *command],
-            env=self.env, capture_output=True, text=True,
-        )
+    def leftovers(self):
+        return sorted(self.tmpdir.iterdir())
 
 
 def children(pid):
@@ -312,3 +322,51 @@ def test_sandbox_killed_by_a_signal_exits_128_plus_the_signal(tmp_path):
     finally:
         proc.kill()
         proc.wait()
+
+
+# --- stopping the launcher, and failing to start ------------------------------
+
+
+@needs_bwrap
+@pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT])
+def test_a_stopped_launcher_stops_the_sandbox_and_cleans_up(tmp_path, sig):
+    podman = fake_podman(tmp_path)
+    launcher = Launcher(tmp_path, podman=podman)
+    sleep = sleeper()
+    proc = launcher.popen(*sleep, stderr=subprocess.PIPE, text=True)
+    try:
+        wait_until_running(sleep, proc)
+        in_sandbox = pids_running(sleep)
+        os.kill(proc.pid, sig)
+        _, stderr = proc.communicate(timeout=10)
+    finally:
+        proc.kill()
+        proc.wait()
+
+    assert proc.returncode == 128 + sig, stderr
+    assert "Traceback" not in stderr
+    [podman_pid] = podman_pids(podman)
+    assert_all_gone(in_sandbox + [podman_pid])
+    assert launcher.leftovers() == []
+
+
+@needs_bwrap
+def test_a_bad_nix_file_starts_nothing(tmp_path):
+    podman = fake_podman(tmp_path)
+    launcher = Launcher(tmp_path, podman=podman)
+    result = launcher.run(shutil.which("true"), options=["--nix-file", "missing.nix"])
+    assert result.returncode == 1
+    assert "nix file not found" in result.stderr
+    assert podman_pids(podman) == []
+    assert launcher.leftovers() == []
+
+
+def test_a_failed_start_still_cleans_up(tmp_path):
+    podman = fake_podman(tmp_path)
+    launcher = Launcher(tmp_path, podman=podman, bwrap=str(tmp_path / "no-bwrap"))
+    result = launcher.run(shutil.which("true"))
+    assert result.returncode != 0
+    assert "no-bwrap" in result.stderr
+    [podman_pid] = podman_pids(podman)
+    assert_all_gone([podman_pid])
+    assert launcher.leftovers() == []

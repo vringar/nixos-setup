@@ -716,6 +716,54 @@ def resolve_shell(home_dir):
     return BASH
 
 
+def launch_command(launch_cmd, project_dir, nix_file_arg):
+    """What bwrap runs for launch_cmd: inside the project's dev shell, if any."""
+    nix_file, mode = resolve_nix_file(project_dir, nix_file_arg)
+    if nix_file and mode == MODE_FLAKE:
+        return [
+            NIX, "develop",
+            "--extra-experimental-features", "nix-command flakes",
+            os.path.dirname(nix_file),
+            "--command", BASH, "-c", launch_cmd,
+        ]
+    if nix_file:
+        nix_args = [NIX_SHELL, nix_file]
+        if mode == MODE_ATTR:
+            nix_args += ["-A", "shell"]
+        return nix_args + ["--run", launch_cmd]
+    return [BASH, "-c", launch_cmd]
+
+
+# Signals that stop the launcher. It does not die of them on the spot, which
+# would leave its cleanup undone, but takes the sandbox down, cleans up after
+# it and then exits 128+N, as the shell reports a command killed by signal N.
+STOP_SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM)
+
+
+class Stopped(Exception):
+    """The launcher received one of STOP_SIGNALS."""
+
+    def __init__(self, signum):
+        super().__init__(signal.Signals(signum).name)
+        self.signum = signum
+
+
+def stop_on_signals():
+    def stop(signum, _frame):
+        ignore_stop_signals()  # once is enough
+        raise Stopped(signum)
+
+    for sig in STOP_SIGNALS:
+        signal.signal(sig, stop)
+
+
+def ignore_stop_signals():
+    """Let no signal cut the cleanup short. A handler that does nothing rather
+    than SIG_IGN, which the cleanup's own child processes would inherit."""
+    for sig in STOP_SIGNALS:
+        signal.signal(sig, lambda *_: None)
+
+
 def run_sandbox(bwrap_args, inner_cmd, bwrap=BWRAP):
     """Run inner_cmd under bwrap and wait for it; returns bwrap's returncode.
 
@@ -730,13 +778,20 @@ def run_sandbox(bwrap_args, inner_cmd, bwrap=BWRAP):
     everything left in a pid namespace whose pid 1 is gone. That includes
     processes the command left running in the background, which would
     otherwise carry on after bwrap returns, against a temp dir and helpers
-    that are about to go.
+    that are about to go. When the wait is cut short (Stopped), bwrap is
+    killed and reaped before the launcher moves on to clean up.
     """
-    return subprocess.Popen(
+    sandbox = subprocess.Popen(
         [bwrap, "--die-with-parent"] + bwrap_args + ["--"] + inner_cmd,
         # bwrap sets this itself only once the sandbox is already set up.
         preexec_fn=die_with_launcher(signal.SIGKILL),
-    ).wait()
+    )
+    try:
+        return sandbox.wait()
+    except BaseException:
+        sandbox.kill()
+        sandbox.wait()
+        raise
 
 
 def exit_status(returncode):
@@ -746,23 +801,6 @@ def exit_status(returncode):
     subprocess reports that death as -N, which sys.exit would turn into 256-N.
     """
     return 128 - returncode if returncode < 0 else returncode
-
-
-def exec_bwrap(bwrap_args, inner_cmd, helpers, tmpdir):
-    """Run the sandbox, then clean up after it.
-
-    helpers are the host-side processes serving this sandbox (Podman, its SSH
-    agent); they are stopped once it exits.
-    """
-    try:
-        returncode = run_sandbox(bwrap_args, inner_cmd)
-    finally:
-        for proc in helpers:
-            proc.terminate()
-            proc.wait()
-        shutil.rmtree(tmpdir, ignore_errors=True)
-
-    sys.exit(exit_status(returncode))
 
 
 def main():
@@ -782,70 +820,71 @@ def main():
         )
         sys.exit(1)
 
+    home_dir = os.environ["HOME"]
+    shell_path = resolve_shell(home_dir)
+
+    # Settled before anything is started, so that a mistake ends the launch
+    # with nothing to clean up.
+    if args.shell:
+        inner_cmd = [shell_path]
+        banner = f"Entering sandboxed shell in {project_dir}"
+    else:
+        inner_cmd = launch_command(args.launch_cmd, project_dir, args.nix_file)
+        banner = f"Starting sandboxed {args.launch_cmd.split()[0]} in {project_dir}"
+
     project_name = os.path.basename(project_dir)
     script_name = get_script_name()
     sandbox_tmp = tempfile.mkdtemp(prefix=f"{script_name}-{project_name}-")
 
-    home_dir = os.environ["HOME"]
-
-    # Seed a history file with the launch command
-    histfile = os.path.join(sandbox_tmp, ".zsh_history")
-    if not os.path.isfile(histfile):
-        seed = args.launch_cmd or ""
+    # The host-side processes serving this sandbox (its SSH agent, Podman),
+    # stopped once it exits.
+    helpers = []
+    stop_on_signals()
+    try:
+        # Seed a history file with the launch command
+        histfile = os.path.join(sandbox_tmp, ".zsh_history")
         with open(histfile, "w") as f:
-            f.write(seed + "\n")
+            f.write((args.launch_cmd or "") + "\n")
 
-    shell_path = resolve_shell(home_dir)
-    bwrap_args = build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path)
+        bwrap_args = build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path)
 
-    # SSH agent: never the login one by default. See choose_ssh_agent.
-    ssh_args, agent_proc, ssh_warning = ssh_agent_setup(home_dir, sandbox_tmp)
-    if ssh_warning:
-        print(f"claude-sandbox: {ssh_warning}", file=sys.stderr)
-    bwrap_args += ssh_args
-    helpers = [agent_proc] if agent_proc is not None else []
+        # SSH agent: never the login one by default. See choose_ssh_agent.
+        ssh_args, agent_proc, ssh_warning = ssh_agent_setup(home_dir, sandbox_tmp)
+        if ssh_warning:
+            print(f"claude-sandbox: {ssh_warning}", file=sys.stderr)
+        bwrap_args += ssh_args
+        if agent_proc is not None:
+            helpers.append(agent_proc)
 
-    # Per-sandbox Podman: isolated storage root and socket under sandbox_tmp.
-    # The socket ends up at sandbox_tmp/podman/podman.sock, which is visible
-    # inside the sandbox as /tmp/podman/podman.sock via the existing /tmp bind.
-    # Testcontainers: TESTCONTAINERS_RYUK_DISABLED is always set (Ryuk requests a
-    # privileged container which fails in rootless Podman; JVM hooks still clean up).
-    podman_proc, podman_socket = start_podman_service(sandbox_tmp)
-    if podman_proc is not None:
-        helpers.append(podman_proc)
-    if podman_socket:
-        # Inside the sandbox, sandbox_tmp == /tmp, so rewrite the path.
-        inner_socket = "/tmp" + podman_socket[len(sandbox_tmp):]
-        bwrap_args += [
-            "--setenv", "DOCKER_HOST", f"unix://{inner_socket}",
-            "--setenv", "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", inner_socket,
-            "--setenv", "TESTCONTAINERS_RYUK_DISABLED", "true",
-        ]
-
-    if args.shell:
-        print(f"Entering sandboxed shell in {project_dir}")
-        exec_bwrap(bwrap_args, [shell_path], helpers, sandbox_tmp)
-    else:
-        launch_cmd = args.launch_cmd
-        print(f"Starting sandboxed {launch_cmd.split()[0]} in {project_dir}")
-
-        nix_file, mode = resolve_nix_file(project_dir, args.nix_file)
-        if nix_file and mode == MODE_FLAKE:
-            nix_args = [
-                NIX, "develop",
-                "--extra-experimental-features", "nix-command flakes",
-                os.path.dirname(nix_file),
-                "--command", BASH, "-c", launch_cmd,
+        # Per-sandbox Podman: isolated storage root and socket under sandbox_tmp.
+        # The socket ends up at sandbox_tmp/podman/podman.sock, which is visible
+        # inside the sandbox as /tmp/podman/podman.sock via the existing /tmp bind.
+        # Testcontainers: TESTCONTAINERS_RYUK_DISABLED is always set (Ryuk requests a
+        # privileged container which fails in rootless Podman; JVM hooks still clean up).
+        podman_proc, podman_socket = start_podman_service(sandbox_tmp)
+        if podman_proc is not None:
+            helpers.append(podman_proc)
+        if podman_socket:
+            # Inside the sandbox, sandbox_tmp == /tmp, so rewrite the path.
+            inner_socket = "/tmp" + podman_socket[len(sandbox_tmp):]
+            bwrap_args += [
+                "--setenv", "DOCKER_HOST", f"unix://{inner_socket}",
+                "--setenv", "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", inner_socket,
+                "--setenv", "TESTCONTAINERS_RYUK_DISABLED", "true",
             ]
-            exec_bwrap(bwrap_args, nix_args, helpers, sandbox_tmp)
-        elif nix_file:
-            nix_args = [NIX_SHELL, nix_file]
-            if mode == MODE_ATTR:
-                nix_args += ["-A", "shell"]
-            nix_args += ["--run", launch_cmd]
-            exec_bwrap(bwrap_args, nix_args, helpers, sandbox_tmp)
-        else:
-            exec_bwrap(bwrap_args, [BASH, "-c", launch_cmd], helpers, sandbox_tmp)
+
+        print(banner)
+        status = exit_status(run_sandbox(bwrap_args, inner_cmd))
+    except Stopped as stopped:
+        status = 128 + stopped.signum
+    finally:
+        ignore_stop_signals()
+        for proc in helpers:
+            proc.terminate()
+            proc.wait()
+        shutil.rmtree(sandbox_tmp, ignore_errors=True)
+
+    sys.exit(status)
 
 
 if __name__ == "__main__":
