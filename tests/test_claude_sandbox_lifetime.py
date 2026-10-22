@@ -890,6 +890,47 @@ def test_the_parent_repositorys_git_config_and_hooks_are_read_only_from_a_worksp
     assert changed == {git_dir / "config": False, git_dir / "hooks": False, git_dir / "index": True}
 
 
+def jj_repo(path, legacy_config=False):
+    repo = path / ".jj" / "repo"
+    (repo / "op_heads").mkdir(parents=True)
+    (repo / "config-id").write_text("0123456789abcdef0123")
+    if legacy_config:
+        (repo / "config.toml").write_text('[ui]\npager = "less"\n')
+    else:
+        (repo / "config.toml").symlink_to("/nonexistent/jj/repos/0123456789abcdef0123/config.toml")
+    return repo
+
+
+@needs_bwrap
+def test_the_projects_jj_config_id_is_read_only(tmp_path):
+    """Without config-id, jj on the host would take a config.toml planted in
+    .jj/repo as the repository's config, and run the commands it names."""
+    launcher = Launcher(tmp_path)
+    repo = jj_repo(launcher.project)
+    changed = changeable_inside(launcher, repo / "config-id", repo / "op_heads")
+    assert changed == {repo / "config-id": False, repo / "op_heads": True}
+
+
+@needs_bwrap
+def test_a_jj_config_not_yet_moved_out_is_read_only(tmp_path):
+    launcher = Launcher(tmp_path)
+    repo = jj_repo(launcher.project, legacy_config=True)
+    changed = changeable_inside(launcher, repo / "config-id", repo / "config.toml")
+    assert changed == {repo / "config-id": False, repo / "config.toml": False}
+
+
+@needs_bwrap
+def test_the_parent_repositorys_jj_config_id_is_read_only_from_a_workspace(tmp_path):
+    launcher = Launcher(tmp_path)
+    main = tmp_path / "main"
+    repo = jj_repo(main)
+    launcher.project = main / ".workspace" / "ws"
+    (launcher.project / ".jj").mkdir(parents=True)
+    (launcher.project / ".jj" / "repo").write_text("../../../.jj/repo")
+    changed = changeable_inside(launcher, repo / "config-id", repo / "op_heads")
+    assert changed == {repo / "config-id": False, repo / "op_heads": True}
+
+
 @needs_bwrap
 def test_claude_settings_and_hooks_are_read_only(tmp_path):
     launcher = Launcher(tmp_path)
@@ -940,3 +981,46 @@ def test_git_still_commits_with_its_config_read_only(tmp_path):
     assert result.returncode == 0, result.stderr
     assert result.stdout == "committed\nconfig refused\n"
     assert "x.y" not in (launcher.project / ".git" / "config").read_text()
+
+
+@needs_bwrap
+@pytest.mark.skipif(shutil.which("jj") is None, reason="jj is not on PATH")
+def test_a_planted_jj_config_does_not_reach_the_host(tmp_path):
+    """The attack the config-id bind stops, with the real jj: plant a
+    config.toml naming a pager, which the next jj on the host would move into
+    the repository's config and run, unless config-id says where that config
+    is. jj writes config-id only once something asks for that place, so a
+    fresh repository has none until the launcher asks."""
+    launcher = Launcher(tmp_path)
+    jj = os.path.realpath(shutil.which("jj"))
+    (tmp_path / "bin" / "jj").symlink_to(jj)  # for the launcher
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "JJ_", "XDG_CONFIG"))}
+    env["HOME"] = str(launcher.home)  # its repo config goes under the throwaway home
+
+    def host_jj(*args):
+        return subprocess.run(
+            [jj, "--repository", str(launcher.project), "--ignore-working-copy", *args],
+            env=env, check=True, capture_output=True, text=True,
+        ).stdout
+
+    subprocess.run([jj, "git", "init", str(launcher.project)], env=env, check=True,
+                   capture_output=True)
+    pager = host_jj("config", "get", "ui.pager")
+    repo = launcher.project / ".jj" / "repo"
+    assert not (repo / "config-id").exists()
+
+    result = launcher.run(sys.executable, "-c", textwrap.dedent(f"""\
+        import os
+        try:
+            os.unlink({str(repo / "config-id")!r})
+        except OSError as e:
+            print("config-id stays:", e.strerror)
+        if os.path.lexists({str(repo / "config.toml")!r}):
+            os.unlink({str(repo / "config.toml")!r})
+        with open({str(repo / "config.toml")!r}, "w") as f:
+            f.write('[ui]\\npager = "planted"\\n')
+    """))
+    assert result.returncode == 0, result.stderr
+    assert launcher_warnings(result.stderr) == []
+    assert result.stdout.startswith("config-id stays:")
+    assert host_jj("config", "get", "ui.pager") == pager

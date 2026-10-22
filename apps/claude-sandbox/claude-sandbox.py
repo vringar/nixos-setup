@@ -648,6 +648,44 @@ def git_dirs(worktree):
     return dirs
 
 
+def jj_repo_dir(worktree):
+    """The jj repo dir a work tree uses: its .jj/repo, or for a workspace, the
+    dir that its .jj/repo file names. None without one."""
+    repo = os.path.join(worktree, ".jj", "repo")
+    if os.path.isdir(repo):
+        return repo
+    if os.path.isfile(repo):
+        with open(repo) as f:
+            return os.path.normpath(os.path.join(worktree, ".jj", f.read().strip()))
+    return None
+
+
+def pin_jj_repo_config(worktree, jj_repo):
+    """Make jj record where the repository's config lives, if it has not yet.
+
+    jj keeps that config outside the repository, under ~/.config/jj, and
+    finds it through .jj/repo/config-id. Without that file it takes a
+    .jj/repo/config.toml for config written before the move and moves it
+    there: a file the sandbox planted would be the repository's config on
+    the next jj run on the host. jj writes config-id only once it needs the
+    location, so it is asked for it here. Returns a warning, or None.
+    """
+    if os.path.exists(os.path.join(jj_repo, "config-id")):
+        return None
+    try:
+        subprocess.run(
+            ["jj", "--repository", worktree, "--ignore-working-copy", "config", "path", "--repo"],
+            capture_output=True, text=True, check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as e:
+        reason = one_line(getattr(e, "stderr", None) or str(e))
+        return (
+            f"could not have jj record where {worktree}'s config lives ({reason}); "
+            "the sandbox can plant a config there that jj on the host would run."
+        )
+    return None
+
+
 def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     claude_config_dir = os.environ.get(
         "CLAUDE_CONFIG_DIR",
@@ -829,8 +867,21 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     # Claude Code's settings.json defines its hooks, which run the scripts
     # in hooks/. A hooks dir that does not exist is created first, since the
     # sandbox could otherwise create it with hooks of its own in it.
+    #
+    # jj's repository config is under ~/.config/jj, read-only already, but
+    # what points jj at it is .jj/repo/config-id (see pin_jj_repo_config). A
+    # config.toml that is still a file of its own, from before jj moved repo
+    # config out, is the config itself.
     protected = []
     for worktree in [project_dir] + ([repo_root] if repo_root else []):
+        jj_repo = jj_repo_dir(worktree)
+        if jj_repo:
+            warning = pin_jj_repo_config(worktree, jj_repo)
+            if warning:
+                print(f"claude-sandbox: {warning}", file=sys.stderr)
+            protected.append(os.path.join(jj_repo, "config-id"))
+            if not os.path.islink(os.path.join(jj_repo, "config.toml")):
+                protected.append(os.path.join(jj_repo, "config.toml"))
         dirs = git_dirs(worktree)
         if not dirs:
             continue
