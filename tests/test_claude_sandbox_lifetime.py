@@ -191,3 +191,13 @@ def test_podman_dies_with_a_killed_launcher(tmp_path):
         launcher.stdin.close()
 
     assert_all_gone([podman_pid])
+
+
+# --- exit status --------------------------------------------------------------
+
+
+def test_exit_status_follows_the_shell_convention():
+    assert sandbox.exit_status(0) == 0
+    assert sandbox.exit_status(3) == 3
+    assert sandbox.exit_status(-signal.SIGTERM) == 128 + signal.SIGTERM
+    assert sandbox.exit_status(-signal.SIGKILL) == 128 + signal.SIGKILL

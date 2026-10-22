@@ -739,6 +739,15 @@ def run_sandbox(bwrap_args, inner_cmd, bwrap=BWRAP):
     ).wait()
 
 
+def exit_status(returncode):
+    """The launcher's exit status for a sandbox that ended with returncode.
+
+    The shell's convention: the exit code, or 128+N for death by signal N.
+    subprocess reports that death as -N, which sys.exit would turn into 256-N.
+    """
+    return 128 - returncode if returncode < 0 else returncode
+
+
 def exec_bwrap(bwrap_args, inner_cmd, helpers, tmpdir):
     """Run the sandbox, then clean up after it.
 
@@ -753,7 +762,7 @@ def exec_bwrap(bwrap_args, inner_cmd, helpers, tmpdir):
             proc.wait()
         shutil.rmtree(tmpdir, ignore_errors=True)
 
-    sys.exit(returncode)
+    sys.exit(exit_status(returncode))
 
 
 def main():
