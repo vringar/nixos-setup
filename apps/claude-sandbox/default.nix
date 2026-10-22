@@ -1,7 +1,16 @@
-{pkgs}: let
+{
+  pkgs,
+  # The key in ~/.ssh each sandbox's own SSH agent holds: my.user.sshKeyName.
+  sshKeyName,
+}: let
   inherit (pkgs) lib;
   python3 = pkgs.python3;
   python3WithShtab = python3.withPackages (ps: [ps.shtab]);
+  # Substituted into a Python string literal and joined to ~/.ssh.
+  keyName =
+    if builtins.match "[A-Za-z0-9._-]+" sshKeyName != null
+    then sshKeyName
+    else throw "claude-sandbox: sshKeyName must be a plain file name in ~/.ssh, not ${sshKeyName}";
 in
   pkgs.stdenv.mkDerivation {
     pname = "claude-sandbox";
@@ -39,7 +48,8 @@ in
         --replace-fail '@python3_bin_dir@' '${python3}/bin' \
         --replace-fail '@ssh_agent@' '${pkgs.openssh}/bin/ssh-agent' \
         --replace-fail '@ssh_add@' '${pkgs.openssh}/bin/ssh-add' \
-        --replace-fail '@rm@' '${pkgs.coreutils}/bin/rm'
+        --replace-fail '@rm@' '${pkgs.coreutils}/bin/rm' \
+        --replace-fail '@ssh_key_name@' ${lib.escapeShellArg keyName}
     '';
 
     checkPhase = ''

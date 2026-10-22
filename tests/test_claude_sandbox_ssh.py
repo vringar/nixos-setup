@@ -17,11 +17,13 @@ _spec = importlib.util.spec_from_file_location("claude_sandbox", SCRIPT)
 sandbox = importlib.util.module_from_spec(_spec)
 sys.modules["claude_sandbox"] = sandbox
 _spec.loader.exec_module(sandbox)
+# As default.nix substitutes it from my.user.sshKeyName.
+sandbox.SSH_KEY_NAME = "github_key"
 
 HOME = "/home/user"
 SOCK = "/run/user/1000/ssh-agent"
 DEDICATED = "/run/user/1000/ssh-agent-sandbox"
-FORGE_KEY = HOME + "/.ssh/forge_ed25519"
+FORGE_KEY = HOME + "/.ssh/github_key"
 SANDBOX_TMP = "/tmp/claude-sandbox-project-abcdefgh"
 INNER_SOCK = "/tmp/" + sandbox.FORGE_AGENT_SOCK
 NO_AGENT = ["--unsetenv", "SSH_AUTH_SOCK"]
@@ -214,7 +216,7 @@ def test_private_key_is_never_bound():
 def test_sandbox_sees_the_forge_pub_but_not_the_private_key(tmp_path):
     home = tmp_path / "home"
     (home / ".ssh").mkdir(parents=True)
-    key = home / ".ssh" / "forge_ed25519"
+    key = home / ".ssh" / "github_key"
     key.write_text("private\n")
     Path(f"{key}.pub").write_text("ssh-ed25519 AAAA forge:test\n")
     project = tmp_path / "project"
@@ -233,7 +235,7 @@ def test_sandbox_sees_the_forge_pub_but_not_the_private_key(tmp_path):
 
 def test_missing_key_message_gives_the_exact_command():
     _, _, warning = setup({}, only())
-    assert 'ssh-keygen -t ed25519 -N "" -C forge:$(hostname) -f ~/.ssh/forge_ed25519' in warning
+    assert 'ssh-keygen -t ed25519 -N "" -C forge:$(hostname) -f ~/.ssh/github_key' in warning
     assert "authentication and a signing key" in warning
     assert "SSO" in warning
     assert "\n" not in warning
@@ -356,7 +358,7 @@ PARENT = textwrap.dedent("""\
 
 @pytest.mark.parametrize("end", ["exit", "sigkill"])
 def test_real_agent_holds_only_the_forge_key_and_dies_with_its_parent(tmp_path, end):
-    key = make_key(tmp_path / "forge_ed25519")
+    key = make_key(tmp_path / "github_key")
     sandbox_tmp = deep_sandbox_tmp(tmp_path)
     sock = sandbox_tmp / sandbox.FORGE_AGENT_SOCK
 
@@ -394,7 +396,7 @@ def test_real_agent_holds_only_the_forge_key_and_dies_with_its_parent(tmp_path, 
 
 
 def test_real_agent_signs_git_commits_with_the_forge_key(tmp_path):
-    key = make_key(tmp_path / "forge_ed25519")
+    key = make_key(tmp_path / "github_key")
     repo = deep_sandbox_tmp(tmp_path)  # the repo doubles as the agent's dir
     proc, warning = sandbox.start_forge_agent(
         str(key), str(repo), ssh_agent=ssh_tool("ssh-agent"), ssh_add=ssh_tool("ssh-add")
@@ -428,7 +430,7 @@ def test_real_agent_signs_git_commits_with_the_forge_key(tmp_path):
 
 
 def test_real_agent_refuses_a_passphrase_key_without_prompting(tmp_path):
-    key = make_key(tmp_path / "forge_ed25519", passphrase="not-empty")
+    key = make_key(tmp_path / "github_key", passphrase="not-empty")
     sandbox_tmp = deep_sandbox_tmp(tmp_path)
     proc, warning = sandbox.start_forge_agent(
         str(key), str(sandbox_tmp), ssh_agent=ssh_tool("ssh-agent"), ssh_add=ssh_tool("ssh-add")

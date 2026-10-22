@@ -104,7 +104,10 @@
   claude-code = pkgs.claude-code.override {
     manifest = lib.importJSON ../apps/claude-code/manifest.zst.json;
   };
-  claude-sandbox = import ../apps/claude-sandbox {inherit pkgs;};
+  claude-sandbox = import ../apps/claude-sandbox {
+    inherit pkgs;
+    inherit (config.my.user) sshKeyName;
+  };
   claude-recall = import ../apps/claude-recall {inherit pkgs;};
   message-board = import ../apps/message-board {inherit pkgs sources;};
   bpmnlint = import ../apps/bpmnlint {inherit pkgs sources;};

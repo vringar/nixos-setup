@@ -23,6 +23,9 @@ PYTHON3_BIN_DIR = "@python3_bin_dir@"
 SSH_AGENT = "@ssh_agent@"
 SSH_ADD = "@ssh_add@"
 RM = "@rm@"
+# The key each sandbox's own SSH agent holds, ~/.ssh/<name>: home-manager's
+# my.user.sshKeyName, the key git and ssh use outside the sandbox as well.
+SSH_KEY_NAME = "@ssh_key_name@"
 
 # Default launch commands per script name (when no command is given after --)
 DEFAULT_COMMANDS = {
@@ -45,22 +48,24 @@ examples:
   {prog} --project-dir ~/p/foo -- cmd arg  # run a custom command
 
 ssh agent:
-  The sandbox never gets the login SSH agent by default. That agent usually
-  holds a key that authorized_keys accepts on every host, so passing it through
-  would grant anything inside silent SSH to the whole fleet.
+  The sandbox never gets the login SSH agent by default. That agent can hold
+  every key there is, so passing it through would hand all of them to
+  anything inside.
 
   Instead, each sandbox gets an agent of its own, started with it and stopped
-  with it, holding only the forge key ~/.ssh/forge_ed25519 (override the path
-  with {FORGE_KEY_ENV}). The key file stays outside; the sandbox
-  sees only the agent's socket, and git inside signs commits with that key.
-  Without the key the sandbox has no agent.
+  with it, holding only the key ~/.ssh/{SSH_KEY_NAME} (home-manager's
+  my.user.sshKeyName; override the path with {FORGE_KEY_ENV}). The
+  key file stays outside; the sandbox sees only the agent's socket, and git
+  inside signs commits with that key, as it does outside. Without the key the
+  sandbox has no agent. Anything inside can use the key wherever it is
+  authorized, so authorize it on the forge and nowhere else.
 
-  One-time setup per machine:
+  The key is loaded without a prompt, so it has no passphrase. To create it:
 
-    ssh-keygen -t ed25519 -N "" -C forge:$(hostname) -f ~/.ssh/forge_ed25519
+    ssh-keygen -t ed25519 -N "" -C forge:$(hostname) -f ~/.ssh/{SSH_KEY_NAME}
 
-  then add ~/.ssh/forge_ed25519.pub on GitHub as both an authentication and a
-  signing key, and authorize it for SSO in work orgs. Authorize it on no host.
+  then add its .pub on GitHub as both an authentication and a signing key,
+  and authorize it for SSO in work orgs.
 
   {SANDBOX_SSH_SOCK_ENV}=<socket> exposes that agent instead, and
   {FULL_AGENT_ENV}=1 the login agent, handing over every key it
@@ -424,9 +429,9 @@ SANDBOX_SSH_SOCK_ENV = "CLAUDE_SANDBOX_SSH_AUTH_SOCK"
 # as "off" must not hand over every key.
 FULL_AGENT_ENV = "CLAUDE_SANDBOX_SSH_FULL_AGENT"
 
-# The key each sandbox's own agent holds: one per machine, authorised on the
-# forge and on no host, and without a passphrase so the agent can be loaded
-# unattended at every start.
+# Overrides the path of the key each sandbox's own agent holds, ~/.ssh/
+# <SSH_KEY_NAME> otherwise. The key has no passphrase, so that the agent can
+# be loaded unattended at every start.
 FORGE_KEY_ENV = "CLAUDE_SANDBOX_FORGE_KEY"
 
 # The forge agent's socket, by its name inside the sandbox's temp dir. The
@@ -439,7 +444,7 @@ def forge_key_path(env, home_dir):
     if path:
         # Absolute, since ssh-add runs from the sandbox's temp dir.
         return os.path.abspath(os.path.expanduser(path))
-    return os.path.join(home_dir, ".ssh", "forge_ed25519")
+    return os.path.join(home_dir, ".ssh", SSH_KEY_NAME)
 
 
 def tilde_path(path, home_dir):

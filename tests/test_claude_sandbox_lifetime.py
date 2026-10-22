@@ -296,7 +296,7 @@ class Launcher:
     """The launcher as default.nix builds it, from the tools on PATH, run
     against a throwaway home, project and temp dir."""
 
-    def __init__(self, tmp_path, podman=False, bwrap=BWRAP):
+    def __init__(self, tmp_path, podman=False, bwrap=BWRAP, ssh_key_name="github_key"):
         self.home = tmp_path / "home"
         for path in (".config/git", ".config/jj", ".nix-profile", ".local/state/nix"):
             (self.home / path).mkdir(parents=True)
@@ -325,6 +325,7 @@ class Launcher:
             "@ssh_agent@": shutil.which("ssh-agent"),
             "@ssh_add@": shutil.which("ssh-add"),
             "@rm@": shutil.which("rm"),
+            "@ssh_key_name@": ssh_key_name,
         }.items():
             text = text.replace(placeholder, value)
         self.script = tmp_path / "claude-sandbox"
@@ -640,7 +641,7 @@ def test_the_sandbox_gets_the_forge_agent_but_no_private_key(tmp_path):
     ssh_dir = launcher.home / ".ssh"
     ssh_dir.mkdir()
     keygen = shutil.which("ssh-keygen")
-    for name in ("forge_ed25519", "id_ed25519"):
+    for name in ("github_key", "mozilla"):
         subprocess.run(
             [keygen, "-q", "-t", "ed25519", "-N", "", "-C", name, "-f", str(ssh_dir / name)],
             check=True,
@@ -654,8 +655,8 @@ def test_the_sandbox_gets_the_forge_agent_but_no_private_key(tmp_path):
     """))
     assert result.returncode == 0, result.stderr
     [listed, *read] = result.stdout.splitlines()
-    assert listed.endswith("forge_ed25519 (ED25519)")
-    assert sorted(read) == [f"read {ssh_dir}/forge_ed25519.pub", f"read {ssh_dir}/id_ed25519.pub"]
+    assert listed.endswith("github_key (ED25519)")
+    assert sorted(read) == [f"read {ssh_dir}/github_key.pub", f"read {ssh_dir}/mozilla.pub"]
     assert launcher_warnings(result.stderr) == []
     assert launcher.leftovers() == []
 
@@ -760,6 +761,37 @@ def test_the_token_stays_off_bwraps_command_line(tmp_path):
         proc.wait()
     assert TOKEN.encode() not in cmdline
     assert f"GH_TOKEN={TOKEN}".encode() in environ.split(b"\0")
+
+
+
+@needs_bwrap
+def test_the_agent_holds_the_key_the_build_names(tmp_path):
+    """default.nix substitutes my.user.sshKeyName; git inside signs with that
+    key's .pub, as git outside does."""
+    launcher = Launcher(tmp_path, ssh_key_name="id_ed25519")
+    ssh_dir = launcher.home / ".ssh"
+    ssh_dir.mkdir()
+    keygen = shutil.which("ssh-keygen")
+    for name in ("id_ed25519", "github_key"):
+        subprocess.run(
+            [keygen, "-q", "-t", "ed25519", "-N", "", "-C", name, "-f", str(ssh_dir / name)],
+            check=True,
+        )
+    result = launcher.run(shutil.which("sh"), "-c", textwrap.dedent(f"""\
+        {shutil.which("ssh-add")} -l
+        n=$((GIT_CONFIG_COUNT - 1))
+        eval "echo \\"\\$GIT_CONFIG_KEY_$n \\$GIT_CONFIG_VALUE_$n\\""
+    """))
+    assert result.returncode == 0, result.stderr
+    listed, signing = result.stdout.splitlines()
+    assert listed.endswith(" id_ed25519 (ED25519)")
+    assert signing == f"user.signingKey {ssh_dir}/id_ed25519.pub"
+
+    help_text = subprocess.run(
+        [str(launcher.script), "--help"], env=launcher.env, capture_output=True, text=True
+    ).stdout
+    assert "~/.ssh/id_ed25519" in help_text
+    assert "@ssh_key_name@" not in help_text
 
 
 # --- what the launcher does to the project ------------------------------------
