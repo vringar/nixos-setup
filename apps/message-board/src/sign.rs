@@ -1,4 +1,4 @@
-//! SSH signatures for board posts and pin edits.
+//! SSH signatures for board writes.
 //!
 //! `board` signs, board-server verifies. A signature is an OpenSSH SSHSIG
 //! (PROTOCOL.sshsig: sha512, ed25519 keys only) over a canonical encoding of
@@ -9,8 +9,9 @@
 //! Canonical encoding: the fields in a fixed order, each as
 //! `<name>:<utf-8 byte length>:<value>\n`. The length prefix is what makes
 //! it unambiguous: a `name=value` line format cannot tell a body containing
-//! "\nfrom=x" from a real `from` field. static/board-sign.js implements the
-//! same encoding and must stay byte-identical with this one.
+//! "\nkey=x" from a real `key` field. A field the write leaves out is
+//! signed as the empty string. static/board-sign.js implements the same
+//! encoding and must stay byte-identical with this one.
 
 use std::error::Error as StdError;
 use std::fmt;
@@ -24,20 +25,34 @@ use ed25519_dalek::{Signature, Signer as _, SigningKey, VerifyingKey};
 use sha2::{Digest as _, Sha256, Sha512};
 
 /// What a signature signs: its SSHSIG namespace, and its fields in signing
-/// order. The namespace keeps a message signature from being replayed as a
-/// pin edit and the other way round; `nonce`, the board's head when
-/// signing, keeps either from being replayed at all.
+/// order. The namespace keeps a signature for one action from being
+/// replayed as another; `nonce`, the board's head when signing, keeps it
+/// from being replayed at all.
+///
+/// The namespaces start with `board2-`: the v2 board's event counter
+/// started afresh, so a nonce from the v1 board could be current again,
+/// and a v1 signature must never verify here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Kind {
     pub namespace: &'static str,
-    pub fields: [&'static str; 6],
+    pub fields: &'static [&'static str],
 }
 
-pub const MESSAGE: Kind =
-    Kind { namespace: "board-message", fields: ["area", "topic", "from", "body", "key", "nonce"] };
+pub const CREATE: Kind =
+    Kind { namespace: "board2-create", fields: &["path", "kind", "description", "owner", "body", "key", "nonce"] };
+pub const POST: Kind = Kind { namespace: "board2-post", fields: &["path", "body", "key", "nonce"] };
+pub const NOTE: Kind =
+    Kind { namespace: "board2-note", fields: &["path", "body", "base_version", "through", "key", "nonce"] };
+pub const FILE: Kind = Kind { namespace: "board2-file", fields: &["path", "body", "key", "nonce"] };
+pub const RESOLVE: Kind =
+    Kind { namespace: "board2-resolve", fields: &["item", "state", "body", "ref", "key", "nonce"] };
+pub const REGISTER: Kind = Kind { namespace: "board2-register", fields: &["name", "note", "repo", "key", "nonce"] };
+pub const APPROVE: Kind =
+    Kind { namespace: "board2-approve", fields: &["item", "name", "fingerprint", "key", "nonce"] };
+pub const REVOKE: Kind = Kind { namespace: "board2-revoke", fields: &["fingerprint", "reason", "key", "nonce"] };
 
-pub const PIN: Kind =
-    Kind { namespace: "board-pin", fields: ["area", "topic", "from", "body", "base_version", "nonce"] };
+/// Every kind a board write can be signed as.
+pub const KINDS: [Kind; 8] = [CREATE, POST, NOTE, FILE, RESOLVE, REGISTER, APPROVE, REVOKE];
 
 const MAGIC: &[u8] = b"SSHSIG";
 const HASH: &str = "sha512";
@@ -76,16 +91,32 @@ impl StdError for SignatureError {
     }
 }
 
-/// The bytes a signature covers: `values` in the order of `kind.fields`.
-#[must_use]
-pub fn canonical(kind: &Kind, values: &[&str; 6]) -> Vec<u8> {
+/// The canonical encoding of `(name, value)` pairs, in the order given.
+pub(crate) fn encode<'a>(pairs: impl IntoIterator<Item = (&'a str, &'a str)>) -> Vec<u8> {
     let mut out = Vec::new();
-    for (name, value) in kind.fields.iter().zip(values) {
+    for (name, value) in pairs {
         out.extend_from_slice(format!("{name}:{}:", value.len()).as_bytes());
         out.extend_from_slice(value.as_bytes());
         out.push(b'\n');
     }
     out
+}
+
+/// The bytes a signature covers: `values` in the order of `kind.fields`.
+///
+/// # Errors
+/// If there is not exactly one value per field: a value too few or too
+/// many would silently shift what each one is signed as.
+pub fn canonical(kind: &Kind, values: &[&str]) -> Result<Vec<u8>, SignatureError> {
+    if values.len() != kind.fields.len() {
+        return Err(SignatureError::new(format!(
+            "{} signs {} fields, not {}",
+            kind.namespace,
+            kind.fields.len(),
+            values.len()
+        )));
+    }
+    Ok(encode(kind.fields.iter().copied().zip(values.iter().copied())))
 }
 
 /// Append an SSH wire-format string: a big-endian u32 length, then the bytes.
@@ -136,7 +167,6 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// The 32 raw key bytes of an `ssh-ed25519` public key blob.
 /// The ed25519 key in an OpenSSH public key blob. A key of low order is
 /// refused: with it, a signature verifies for almost any data.
 fn ed25519_from_blob(blob: &[u8]) -> Result<VerifyingKey, SignatureError> {
@@ -197,7 +227,7 @@ pub struct PrivateKey {
 }
 
 impl PrivateKey {
-    fn from_seed(seed: &[u8; 32]) -> Result<Self, SignatureError> {
+    pub(crate) fn from_seed(seed: &[u8; 32]) -> Result<Self, SignatureError> {
         let key = SigningKey::from_bytes(seed);
         let blob = public_blob(key.verifying_key().as_bytes())?;
         Ok(Self { key, blob })
@@ -207,6 +237,12 @@ impl PrivateKey {
     #[must_use]
     pub fn fingerprint(&self) -> String {
         fingerprint(&self.blob)
+    }
+
+    /// This key's public half as an `authorized_keys` line, without a comment.
+    #[must_use]
+    pub fn public_line(&self) -> String {
+        public_line(&self.blob)
     }
 
     /// An SSHSIG over `data` in `namespace`, as single-line base64.
@@ -221,12 +257,13 @@ impl PrivateKey {
         armored(&self.blob, namespace, &signature.to_bytes())
     }
 
-    /// Sign `values` as a message or pin save of `kind`.
+    /// Sign `values` as a write of `kind`.
     ///
     /// # Errors
-    /// Only if the fields are too long for the wire format.
-    pub fn sign(&self, kind: &Kind, values: &[&str; 6]) -> Result<String, SignatureError> {
-        self.sign_data(kind.namespace, &canonical(kind, values))
+    /// If `values` does not fit `kind` (see [`canonical`]), or is too long
+    /// for the wire format.
+    pub fn sign(&self, kind: &Kind, values: &[&str]) -> Result<String, SignatureError> {
+        self.sign_data(kind.namespace, &canonical(kind, values)?)
     }
 }
 
@@ -292,12 +329,12 @@ pub fn verify_data(namespace: &str, data: &[u8], signature: &str) -> Result<Veri
     Ok(Verified { public_line: public_line(key_blob), fingerprint: fingerprint(key_blob) })
 }
 
-/// Verify a message or pin-save signature over `values`.
+/// Verify a signature over `values` as a write of `kind`.
 ///
 /// # Errors
-/// As [`verify_data`].
-pub fn verify(kind: &Kind, values: &[&str; 6], signature: &str) -> Result<Verified, SignatureError> {
-    verify_data(kind.namespace, &canonical(kind, values), signature)
+/// As [`canonical`] and [`verify_data`].
+pub fn verify(kind: &Kind, values: &[&str], signature: &str) -> Result<Verified, SignatureError> {
+    verify_data(kind.namespace, &canonical(kind, values)?, signature)
 }
 
 /// An OpenSSH ed25519 public key line's (public line, fingerprint).
@@ -485,6 +522,7 @@ mod tests {
     struct Vectors {
         key: VectorKey,
         cases: Vec<Case>,
+        v2_cases: Vec<V2Case>,
         refusals: Vec<Refusal>,
         accepted: Vec<Accepted>,
     }
@@ -505,12 +543,23 @@ mod tests {
         fingerprint: String,
     }
 
+    /// A v1 board write: kept to hold the encoding to what it always was,
+    /// and as signatures v2 must refuse.
     #[derive(Deserialize)]
     struct Case {
         kind: String,
         values: [String; 6],
         canonical_hex: String,
         python: String,
+        js: String,
+    }
+
+    #[derive(Deserialize)]
+    struct V2Case {
+        kind: String,
+        values: Vec<String>,
+        canonical_hex: String,
+        ssh_keygen: String,
         js: String,
     }
 
@@ -522,6 +571,12 @@ mod tests {
         signature: String,
         python_error: String,
     }
+
+    /// The v1 board's kinds, which this board no longer signs or accepts.
+    const V1_MESSAGE: Kind =
+        Kind { namespace: "board-message", fields: &["area", "topic", "from", "body", "key", "nonce"] };
+    const V1_PIN: Kind =
+        Kind { namespace: "board-pin", fields: &["area", "topic", "from", "body", "base_version", "nonce"] };
 
     fn vectors() -> Result<Vectors, Box<dyn Error>> {
         Ok(serde_json::from_str(include_str!("../tests/sign-vectors.json"))?)
@@ -535,10 +590,10 @@ mod tests {
         text.as_bytes().chunks(2).map(|pair| Ok(u8::from_str_radix(std::str::from_utf8(pair)?, 16)?)).collect()
     }
 
-    fn kind(name: &str) -> Result<Kind, Box<dyn Error>> {
+    fn v1_kind(name: &str) -> Result<Kind, Box<dyn Error>> {
         match name {
-            "message" => Ok(MESSAGE),
-            "pin" => Ok(PIN),
+            "message" => Ok(V1_MESSAGE),
+            "pin" => Ok(V1_PIN),
             other => Err(format!("unknown kind {other}").into()),
         }
     }
@@ -549,9 +604,9 @@ mod tests {
         Ok(load_private_key(&path)?)
     }
 
-    /// The vectors were made by `board_sign.py` and `board-sign.js` with one
-    /// key: Rust must produce the same bytes and signatures, and accept
-    /// theirs.
+    /// The v1 vectors were made by `board_sign.py` and `board-sign.js` with
+    /// one key: the encoding, the signing and the verifying here must still
+    /// produce and accept exactly those bytes.
     #[test]
     fn python_and_browser_vectors_hold() -> Result<(), Box<dyn Error>> {
         let v = vectors()?;
@@ -559,19 +614,76 @@ mod tests {
         let key = vector_key(&v, &dir)?;
         assert_eq!(key.fingerprint(), v.key.fingerprint);
         assert_eq!(load_public_key(&v.key.public)?.fingerprint, v.key.fingerprint);
+        assert_eq!(key.public_line(), v.key.public.split(' ').take(2).collect::<Vec<_>>().join(" "));
         assert!(!v.cases.is_empty());
         for case in &v.cases {
-            let kind = kind(&case.kind)?;
+            let kind = v1_kind(&case.kind)?;
             let values = case.values.each_ref().map(String::as_str);
-            assert_eq!(hex(&canonical(&kind, &values)), case.canonical_hex);
+            assert_eq!(hex(&canonical(&kind, &values)?), case.canonical_hex);
             let signature = key.sign(&kind, &values)?;
             assert_eq!(signature, case.python);
             assert_eq!(signature, case.js);
             let verified = verify(&kind, &values, &case.python)?;
             assert_eq!(verified.fingerprint, v.key.fingerprint);
-            assert_eq!(verified.public_line, v.key.public.split(' ').take(2).collect::<Vec<_>>().join(" "));
+            assert_eq!(verified.public_line, key.public_line());
         }
         Ok(())
+    }
+
+    /// The board2-* vectors were signed by `ssh-keygen -Y sign` over bytes
+    /// encoded apart from the board, and by `board-sign.js` under node,
+    /// which agreed: Rust must make the same bytes and signatures, and every
+    /// kind must be covered.
+    #[test]
+    fn ssh_keygen_and_browser_v2_vectors_hold() -> Result<(), Box<dyn Error>> {
+        let v = vectors()?;
+        let dir = tempfile::tempdir()?;
+        let key = vector_key(&v, &dir)?;
+        for kind in KINDS {
+            assert!(v.v2_cases.iter().any(|case| case.kind == kind.namespace), "no vector for {}", kind.namespace);
+        }
+        for case in &v.v2_cases {
+            let kind = KINDS.iter().find(|k| k.namespace == case.kind).ok_or(format!("unknown kind {}", case.kind))?;
+            let values: Vec<&str> = case.values.iter().map(String::as_str).collect();
+            assert_eq!(hex(&canonical(kind, &values)?), case.canonical_hex, "{values:?}");
+            let signature = key.sign(kind, &values)?;
+            assert_eq!(signature, case.ssh_keygen, "{values:?}");
+            assert_eq!(signature, case.js, "{values:?}");
+            assert_eq!(verify(kind, &values, &case.ssh_keygen)?.fingerprint, v.key.fingerprint);
+        }
+        Ok(())
+    }
+
+    /// The v2 counter restarts, so a v1 nonce can be current again: a v1
+    /// signature must not verify for any v2 write, not even over the very
+    /// bytes it signed.
+    #[test]
+    fn a_v1_signature_never_verifies_for_a_v2_write() -> Result<(), Box<dyn Error>> {
+        let v = vectors()?;
+        for case in &v.cases {
+            let v1 = v1_kind(&case.kind)?;
+            let data = unhex(&case.canonical_hex)?;
+            for kind in KINDS {
+                let err = verify_data(kind.namespace, &data, &case.python).err().ok_or("a v1 signature verified")?;
+                assert_eq!(
+                    err.to_string(),
+                    format!("signature is for namespace {:?}, not {:?}", v1.namespace, kind.namespace)
+                );
+                let mut values: Vec<&str> = case.values.iter().map(String::as_str).collect();
+                values.resize(kind.fields.len(), "");
+                assert!(verify(&kind, &values, &case.python).is_err());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn every_kind_has_its_own_v2_namespace_and_a_nonce() {
+        for (i, kind) in KINDS.iter().enumerate() {
+            assert!(kind.namespace.starts_with("board2-"), "{}", kind.namespace);
+            assert_eq!(kind.fields.last(), Some(&"nonce"), "{}", kind.namespace);
+            assert!(KINDS.iter().skip(i + 1).all(|other| other.namespace != kind.namespace));
+        }
     }
 
     /// Signatures the Python verifier refused are refused here too, for the
@@ -605,12 +717,21 @@ mod tests {
     }
 
     #[test]
-    fn canonical_encoding_is_length_prefixed() {
-        let one = canonical(&MESSAGE, &["x", "t", "c", "a\nfrom=b", "k", "7"]);
-        let two = canonical(&MESSAGE, &["x", "t", "b\nfrom=c", "a", "k", "7"]);
+    fn canonical_encoding_is_length_prefixed() -> Result<(), Box<dyn Error>> {
+        let one = canonical(&POST, &["x", "a\nkey:1:b", "k", "7"])?;
+        let two = canonical(&POST, &["x", "a", "b\nkey:1:k", "7"])?;
         assert_ne!(one, two);
-        assert_eq!(one, b"area:1:x\ntopic:1:t\nfrom:1:c\nbody:8:a\nfrom=b\nkey:1:k\nnonce:1:7\n");
-        assert!(canonical(&PIN, &["\u{fc}", "", "", "", "", ""]).starts_with("area:2:\u{fc}\n".as_bytes()));
+        assert_eq!(one, b"path:1:x\nbody:9:a\nkey:1:b\nkey:1:k\nnonce:1:7\n");
+        assert!(canonical(&POST, &["\u{fc}", "", "", ""])?.starts_with("path:2:\u{fc}\n".as_bytes()));
+        Ok(())
+    }
+
+    #[test]
+    fn a_value_too_few_or_too_many_is_refused() {
+        for values in [&["x", "body", "k"][..], &["x", "body", "k", "7", "extra"]] {
+            let err = canonical(&POST, values).err().map(|e| e.to_string()).unwrap_or_default();
+            assert_eq!(err, format!("board2-post signs 4 fields, not {}", values.len()));
+        }
     }
 
     #[test]
@@ -623,10 +744,10 @@ mod tests {
         assert_eq!(key.fingerprint(), generated.fingerprint);
         assert!(generated.public.ends_with(" board:test\n"));
         assert_eq!(load_public_key(&generated.public)?.fingerprint, generated.fingerprint);
-        let signature = key.sign_data("board-message", b"data")?;
-        assert_eq!(verify_data("board-message", b"data", &signature)?.fingerprint, generated.fingerprint);
-        let err = verify_data("board-pin", b"data", &signature).err().ok_or("accepted another namespace")?;
-        assert_eq!(err.to_string(), "signature is for namespace \"board-message\", not \"board-pin\"");
+        let signature = key.sign_data(POST.namespace, b"data")?;
+        assert_eq!(verify_data(POST.namespace, b"data", &signature)?.fingerprint, generated.fingerprint);
+        let err = verify_data(FILE.namespace, b"data", &signature).err().ok_or("accepted another namespace")?;
+        assert_eq!(err.to_string(), "signature is for namespace \"board2-post\", not \"board2-file\"");
         Ok(())
     }
 
@@ -647,7 +768,7 @@ mod tests {
     }
 
     #[test]
-    fn a_key_of_low_order_signs_nothing() -> Result<(), Box<dyn std::error::Error>> {
+    fn a_key_of_low_order_signs_nothing() -> Result<(), Box<dyn Error>> {
         // The identity point as the key, and R = identity, S = 0 as the
         // signature: the plain ed25519 equation holds for any data.
         let mut identity = [0_u8; 32];
@@ -655,9 +776,9 @@ mod tests {
         let weak = public_blob(&identity)?;
         let mut forged = [0_u8; 64];
         forged[0] = 1;
-        let signature = armored(&weak, MESSAGE.namespace, &forged)?;
+        let signature = armored(&weak, POST.namespace, &forged)?;
         for data in [b"deploy main now".as_slice(), b"anything else"] {
-            let err = verify_data(MESSAGE.namespace, data, &signature).err().ok_or("a weak key signed")?;
+            let err = verify_data(POST.namespace, data, &signature).err().ok_or("a weak key signed")?;
             assert!(err.to_string().contains("weak"), "{err}");
         }
         let err = load_public_key(&public_line(&weak)).err().ok_or("a weak key loaded")?;

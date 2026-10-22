@@ -13,9 +13,18 @@
   const enc = new TextEncoder();
   const MAGIC = enc.encode("SSHSIG");
   const KEY_TYPE = "ssh-ed25519";
-  // [namespace, fields in signing order], as in src/sign.rs
-  const MESSAGE = ["board-message", ["area", "topic", "from", "body", "key", "nonce"]];
-  const PIN = ["board-pin", ["area", "topic", "from", "body", "base_version", "nonce"]];
+  // [namespace, fields in signing order] per write, as in src/sign.rs. A
+  // field the write leaves out is signed as "".
+  const KINDS = {
+    create: ["board2-create", ["path", "kind", "description", "owner", "body", "key", "nonce"]],
+    post: ["board2-post", ["path", "body", "key", "nonce"]],
+    note: ["board2-note", ["path", "body", "base_version", "through", "key", "nonce"]],
+    file: ["board2-file", ["path", "body", "key", "nonce"]],
+    resolve: ["board2-resolve", ["item", "state", "body", "ref", "key", "nonce"]],
+    register: ["board2-register", ["name", "note", "repo", "key", "nonce"]],
+    approve: ["board2-approve", ["item", "name", "fingerprint", "key", "nonce"]],
+    revoke: ["board2-revoke", ["fingerprint", "reason", "key", "nonce"]],
+  };
   // Signed submits in a row that may go stale before giving up, as `board` does.
   const NONCE_TRIES = 5;
 
@@ -120,8 +129,7 @@
     }
   }
 
-  globalThis.BoardSign = { MESSAGE, PIN, canonical, parsePrivateKey, importKey, signData, sign,
-                           postSigned };
+  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned };
   if (typeof document === "undefined") return;
 
   // --- the page --------------------------------------------------------------
