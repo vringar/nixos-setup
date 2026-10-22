@@ -142,38 +142,59 @@ def test_background_processes_end_with_the_sandbox():
 # --- Podman -------------------------------------------------------------------
 
 
-def fake_podman(tmp_path):
-    """Stands in for podman, noting each call in podman.calls next to itself.
+def fake_podman(directory):
+    """Stands in for podman as directory/podman, noting each call it can in
+    podman.calls next to itself (inside the service's view that is read-only).
 
-    `system service` notes its pid in podman.pids, creates the socket file it
-    is asked to serve on, then serves nothing until it is stopped. `unshare`
-    runs its command, and anything else does nothing.
+    `unshare CMD` runs CMD as root of a user namespace (unshare -r), with
+    _CONTAINERS_USERNS_CONFIGURED=done, as podman runs it in its own.
+    `system service` refuses to run anywhere else. There it writes what it
+    sees to $FAKE_PODMAN_REPORT, if set, starts a "container", a daemonized
+    `sleep $FAKE_CONTAINER`, if set, creates the socket file it is asked to
+    serve on, and then serves nothing until it is stopped. Anything else
+    does nothing.
     """
-    path = tmp_path / "podman"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "podman"
     path.write_text(textwrap.dedent(f"""\
         #!{sys.executable}
-        import json, os, sys, time
-        me = os.path.realpath(__file__)
+        import json, os, subprocess, sys, time
         args = sys.argv[1:]
-        while args[0].startswith("--"):  # --root and --runroot, with a value each
+        while args[0].startswith("--"):  # --root, --runroot, --tmpdir, each with a value
             args = args[2:]
-        with open(me + ".calls", "a") as calls:
-            print(json.dumps(sys.argv[1:]), file=calls)
+        try:
+            with open(os.path.realpath(__file__) + ".calls", "a") as calls:
+                print(json.dumps(sys.argv[1:]), file=calls)
+        except OSError:
+            pass  # read-only inside the service's view
+        if args[0] == "unshare":
+            env = dict(os.environ, _CONTAINERS_USERNS_CONFIGURED="done")
+            sys.exit(subprocess.call([{shutil.which("unshare")!r}, "-r", *args[1:]], env=env))
         if args[:2] == ["system", "service"]:
-            with open(me + ".pids", "a") as pids:
-                print(os.getpid(), file=pids)
+            if os.environ.get("_CONTAINERS_USERNS_CONFIGURED") != "done" or os.getuid() != 0:
+                sys.exit("Error: not in the user namespace")
+            report = os.environ.get("FAKE_PODMAN_REPORT")
+            if report:
+                with open(report, "w") as out:
+                    json.dump(dict(
+                        uid=os.getuid(),
+                        pid=os.getpid(),
+                        tmp=sorted(os.listdir("/tmp")),
+                        xdg_runtime_dir=os.environ.get("XDG_RUNTIME_DIR"),
+                        dbus=os.environ.get("DBUS_SESSION_BUS_ADDRESS"),
+                        sees={{p: os.path.exists(p) for p in json.loads(os.environ.get("FAKE_PODMAN_PATHS", "[]"))}},
+                    ), out)
+            container = os.environ.get("FAKE_CONTAINER")
+            if container and os.fork() == 0:
+                os.setsid()
+                if os.fork() == 0:
+                    os.execv({shutil.which("sleep")!r}, ["sleep", container])
+                os._exit(0)
             open(args[-1].removeprefix("unix://"), "w").close()
             time.sleep(3600)
-        elif args[0] == "unshare":
-            os.execv(args[1], args[1:])
     """))
     path.chmod(0o755)
     return path
-
-
-def podman_pids(podman):
-    pids = Path(f"{podman}.pids")
-    return [int(pid) for pid in pids.read_text().split()] if pids.exists() else []
 
 
 def podman_calls(podman):
@@ -181,46 +202,91 @@ def podman_calls(podman):
     return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
 
 
-# Starts Podman as the launcher does, reports its pid, then waits for the test
-# to end it. It never stops Podman itself; only the lifetime mechanism can.
+def processes_with(*parts):
+    """The pids of every process whose argv includes each of parts."""
+    wanted = [os.fsencode(str(p)) for p in parts]
+    pids = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            argv = Path(f"/proc/{entry}/cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue  # gone meanwhile
+        if all(part in argv for part in wanted):
+            pids.append(int(entry))
+    return pids
+
+
+def podman_services(podman):
+    """The fake's `system service` processes, wherever they run; not the
+    commands that start one."""
+    return [
+        pid for pid in processes_with(podman, "system", "service")
+        if Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")[1] == os.fsencode(str(podman))
+        and b"unshare" not in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+    ]
+
+
+def eventually(probe, timeout=10):
+    deadline = time.monotonic() + timeout
+    while not (found := probe()):
+        assert time.monotonic() < deadline, "never happened"
+        time.sleep(0.02)
+    return found
+
+
+def store_args(sandbox_tmp):
+    podman_dir = Path(sandbox_tmp) / "podman"
+    return ["--root", str(podman_dir / "storage"), "--runroot", str(podman_dir / "run"),
+            "--tmpdir", str(podman_dir / "tmp")]
+
+
+# Starts Podman as the launcher does, then waits for the test to end it. It
+# never stops Podman itself; only the lifetime mechanism can.
 PODMAN_LAUNCHER = textwrap.dedent("""\
-    import importlib.util, sys
+    import importlib.util, json, sys
     spec = importlib.util.spec_from_file_location("claude_sandbox", sys.argv[1])
     sandbox = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sandbox)
-    proc, _ = sandbox.start_podman_service(sys.argv[2], podman=sys.argv[3])
+    sandbox_tmp, view_args, podman, bwrap = json.loads(sys.argv[2])
+    proc, _ = sandbox.start_podman_service(sandbox_tmp, view_args, podman=podman, bwrap=bwrap)
     print(proc.pid, flush=True)
     sys.stdin.read()
 """)
 
 
-def test_podman_dies_with_a_killed_launcher(tmp_path):
+@needs_bwrap
+def test_podman_and_its_containers_die_with_a_killed_launcher(tmp_path):
     sandbox_tmp = tmp_path / "sandbox"
     sandbox_tmp.mkdir()
+    podman = fake_podman(tmp_path / "bin")
+    container = sleeper()[1]
+    report = sandbox_tmp / "report.json"
+    # Everything read-only but the sandbox's temp dir, where the socket goes.
+    view = BWRAP_ARGS + ["--bind", str(sandbox_tmp), str(sandbox_tmp)]
     launcher = subprocess.Popen(
-        [sys.executable, "-c", PODMAN_LAUNCHER, str(SCRIPT), str(sandbox_tmp),
-         str(fake_podman(tmp_path))],
+        [sys.executable, "-c", PODMAN_LAUNCHER, str(SCRIPT),
+         json.dumps([str(sandbox_tmp), view, str(podman), BWRAP])],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+        env=dict(os.environ, FAKE_CONTAINER=container, FAKE_PODMAN_REPORT=str(report)),
     )
     try:
-        podman_pid = int(launcher.stdout.readline())
+        outer = int(launcher.stdout.readline())
+        [service] = podman_services(podman)
+        [in_container] = eventually(lambda: processes_with(container))
+        seen = json.loads(report.read_text())
     finally:
         launcher.kill()  # no cleanup code of the launcher's gets to run
         launcher.wait()
         launcher.stdout.close()
         launcher.stdin.close()
 
-    assert_all_gone([podman_pid])
-
-
-# --- exit status --------------------------------------------------------------
-
-
-def test_exit_status_follows_the_shell_convention():
-    assert sandbox.exit_status(0) == 0
-    assert sandbox.exit_status(3) == 3
-    assert sandbox.exit_status(-signal.SIGTERM) == 128 + signal.SIGTERM
-    assert sandbox.exit_status(-signal.SIGKILL) == 128 + signal.SIGKILL
+    # The service ran as root of the user namespace, in a pid namespace of its
+    # own, where bwrap's init is 1.
+    assert seen["uid"] == 0
+    assert seen["pid"] == 2
+    assert_all_gone([outer, service, in_container])
 
 
 # --- the launcher end to end --------------------------------------------------
@@ -230,7 +296,7 @@ class Launcher:
     """The launcher as default.nix builds it, from the tools on PATH, run
     against a throwaway home, project and temp dir."""
 
-    def __init__(self, tmp_path, podman=None, bwrap=BWRAP):
+    def __init__(self, tmp_path, podman=False, bwrap=BWRAP):
         self.home = tmp_path / "home"
         for path in (".config/git", ".config/jj", ".nix-profile", ".local/state/nix"):
             (self.home / path).mkdir(parents=True)
@@ -241,8 +307,12 @@ class Launcher:
         self.tmpdir.mkdir()
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
+        path = [bin_dir]
+        # In the profile, as on a real host, where the Podman service, which
+        # sees only what the sandbox sees, can still run it.
+        self.podman = fake_podman(self.home / ".nix-profile" / "bin") if podman else None
         if podman:
-            (bin_dir / "podman").symlink_to(podman)
+            path.append(self.podman.parent)
 
         text = SCRIPT.read_text()
         for placeholder, value in {
@@ -268,7 +338,9 @@ class Launcher:
             if not k.startswith(("GIT_", "CLAUDE_", "CROSSBRIDGE_", "SSH_"))
         }
         # PATH holds podman, if anything: commands are given by absolute path.
-        self.env.update(HOME=str(self.home), TMPDIR=str(self.tmpdir), PATH=str(bin_dir))
+        self.env.update(
+            HOME=str(self.home), TMPDIR=str(self.tmpdir), PATH=os.pathsep.join(map(str, path))
+        )
 
     def argv(self, command, options):
         return [str(self.script), "--project-dir", str(self.project), *options, "--", *command]
@@ -354,13 +426,16 @@ def test_sandbox_killed_by_a_signal_exits_128_plus_the_signal(tmp_path):
 @needs_bwrap
 @pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT])
 def test_a_stopped_launcher_stops_the_sandbox_and_cleans_up(tmp_path, sig):
-    podman = fake_podman(tmp_path)
-    launcher = Launcher(tmp_path, podman=podman)
+    launcher = Launcher(tmp_path, podman=True)
+    container = sleeper()[1]
+    launcher.env["FAKE_CONTAINER"] = container
     sleep = sleeper()
     proc = launcher.popen(*sleep, stderr=subprocess.PIPE, text=True)
     try:
         wait_until_running(sleep, proc)
         in_sandbox = pids_running(sleep)
+        [service] = podman_services(launcher.podman)
+        [in_container] = eventually(lambda: processes_with(container))
         os.kill(proc.pid, sig)
         _, stderr = proc.communicate(timeout=10)
     finally:
@@ -369,31 +444,58 @@ def test_a_stopped_launcher_stops_the_sandbox_and_cleans_up(tmp_path, sig):
 
     assert proc.returncode == 128 + sig, stderr
     assert "Traceback" not in stderr
-    [podman_pid] = podman_pids(podman)
-    assert_all_gone(in_sandbox + [podman_pid])
+    assert_all_gone(in_sandbox + [service, in_container])
     assert launcher.leftovers() == []
 
 
 @needs_bwrap
 def test_a_bad_nix_file_starts_nothing(tmp_path):
-    podman = fake_podman(tmp_path)
-    launcher = Launcher(tmp_path, podman=podman)
+    launcher = Launcher(tmp_path, podman=True)
     result = launcher.run(shutil.which("true"), options=["--nix-file", "missing.nix"])
     assert result.returncode == 1
     assert "nix file not found" in result.stderr
-    assert podman_pids(podman) == []
+    assert podman_calls(launcher.podman) == []
     assert launcher.leftovers() == []
 
 
 def test_a_failed_start_still_cleans_up(tmp_path):
-    podman = fake_podman(tmp_path)
-    launcher = Launcher(tmp_path, podman=podman, bwrap=str(tmp_path / "no-bwrap"))
+    launcher = Launcher(tmp_path, podman=True, bwrap=str(tmp_path / "no-bwrap"))
     result = launcher.run(shutil.which("true"))
     assert result.returncode != 0
     assert "no-bwrap" in result.stderr
-    [podman_pid] = podman_pids(podman)
-    assert_all_gone([podman_pid])
+    assert podman_calls(launcher.podman)  # it was tried
+    assert podman_services(launcher.podman) == []
     assert launcher.leftovers() == []
+
+
+@needs_bwrap
+def test_the_podman_service_sees_only_what_the_sandbox_sees(tmp_path):
+    """Containers bind-mount from the service's view, so that view must not
+    hold ~/.ssh or anything else the sandbox does not have, and a path a
+    client in the sandbox names must be the same file for the service."""
+    launcher = Launcher(tmp_path, podman=True)
+    (launcher.home / ".ssh").mkdir()
+    key = launcher.home / ".ssh" / "id_ed25519"
+    key.write_text("private\n")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    report = launcher.project / "podman-view.json"
+    launcher.env.update(
+        FAKE_PODMAN_REPORT=str(report),
+        FAKE_PODMAN_PATHS=json.dumps([str(key), str(outside), str(launcher.project)]),
+    )
+    result = launcher.run(shutil.which("sh"), "-c", 'test -e "${DOCKER_HOST#unix://}" && echo "$DOCKER_HOST"')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "unix:///tmp/podman/podman.sock\n"
+    assert launcher_warnings(result.stderr) == []
+
+    seen = json.loads(report.read_text())
+    assert seen["sees"] == {str(key): False, str(outside): False, str(launcher.project): True}
+    # Its /tmp is the sandbox's /tmp.
+    assert {sandbox.OWNER_LOCK, "podman"} <= set(seen["tmp"])
+    assert seen["xdg_runtime_dir"].endswith("/podman/runtime")
+    assert seen["dbus"] is None
+    assert seen["uid"] == 0
 
 
 def test_a_podman_service_that_fails_says_why(tmp_path, capsys):
@@ -408,7 +510,7 @@ def test_a_podman_service_that_fails_says_why(tmp_path, capsys):
     sandbox_tmp = tmp_path / "sandbox"
     sandbox_tmp.mkdir()
 
-    assert sandbox.start_podman_service(str(sandbox_tmp), podman=str(podman)) == (None, None)
+    assert sandbox.start_podman_service(str(sandbox_tmp), [], podman=str(podman)) == (None, None)
     assert "exited with status 125 (Error: no such file or directory)" in capsys.readouterr().err
 
 
@@ -416,28 +518,31 @@ def test_a_podman_service_that_fails_says_why(tmp_path, capsys):
 
 
 def test_a_killed_launchers_temp_dir_is_removed_by_the_next_launch(tmp_path):
-    podman = fake_podman(tmp_path)
-    launcher = Launcher(tmp_path, podman=podman)
+    launcher = Launcher(tmp_path, podman=True)
+    container = sleeper()[1]
+    launcher.env["FAKE_CONTAINER"] = container
     sleep = sleeper()
     proc = launcher.popen(*sleep)
     try:
         wait_until_running(sleep, proc)
+        [service] = podman_services(launcher.podman)
+        [in_container] = eventually(lambda: processes_with(container))
     finally:
         proc.kill()  # no cleanup code of the launcher's gets to run
         proc.wait()
+    # The kernel ends the service and its containers...
+    assert_all_gone([service, in_container])
+    # ...but the temp dir is left for the next launch.
     [leftover] = launcher.leftovers()
-    _, storage_root, run_root = sandbox.podman_paths(str(leftover))
 
+    del launcher.env["FAKE_CONTAINER"]
     result = launcher.run(shutil.which("true"))
     assert result.returncode == 0, result.stderr
     assert launcher_warnings(result.stderr) == []
     assert launcher.leftovers() == []
-    # Its Podman's containers and storage went through podman.
-    calls = podman_calls(podman)
-    assert ["--root", storage_root, "--runroot", run_root,
-            "rm", "--all", "--force", "--time", "0"] in calls
-    assert ["--root", storage_root, "--runroot", run_root,
-            "unshare", shutil.which("rm"), "-rf", storage_root, run_root] in calls
+    # Its Podman storage went through podman's user namespace.
+    assert [*store_args(leftover), "unshare", shutil.which("rm"), "-rf",
+            str(leftover / "podman")] in podman_calls(launcher.podman)
 
 
 def test_a_live_sandboxs_temp_dir_is_left_alone(tmp_path):

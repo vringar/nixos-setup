@@ -147,19 +147,66 @@ def die_with_launcher(sig):
 
 
 # Written into the sandbox's Podman dir once the service is up. From then on
-# the storage can hold files only Podman's user namespace can delete, and
-# containers that keep running after the service stops.
+# the storage can hold files only Podman's user namespace can delete.
 PODMAN_SERVED = "served"
 
 
-def podman_paths(sandbox_tmp):
-    """The Podman dir under sandbox_tmp, and its storage and run roots."""
-    podman_dir = os.path.join(sandbox_tmp, "podman")
-    return podman_dir, os.path.join(podman_dir, "storage"), os.path.join(podman_dir, "run")
+def podman_dir(sandbox_tmp):
+    return os.path.join(sandbox_tmp, "podman")
 
 
-def start_podman_service(sandbox_tmp, podman=None):
-    """Start a per-sandbox rootless Podman service.
+def podman_store_args(sandbox_tmp):
+    """podman's global options for the sandbox's own store.
+
+    Every podman run against the store needs the same ones: libpod refuses a
+    database made with different paths. The tmp dir is given explicitly
+    because the service runs with an XDG_RUNTIME_DIR of its own, from which
+    it would otherwise be derived.
+    """
+    base = podman_dir(sandbox_tmp)
+    return [
+        "--root", os.path.join(base, "storage"),
+        "--runroot", os.path.join(base, "run"),
+        "--tmpdir", os.path.join(base, "tmp"),
+    ]
+
+
+def podman_view_args(sandbox_tmp):
+    """bwrap arguments the Podman service needs on top of the sandbox's view.
+
+    Run in that view, the service has no systemd (no /run/systemd/system),
+    so podman behaves as on a host without it: cgroupfs as cgroup manager,
+    k8s-file container logs and a file of events, none of which need
+    anything from outside the view.
+    """
+    return [
+        # /run/user is not in the view; podman needs a runtime dir that exists.
+        "--setenv", "XDG_RUNTIME_DIR", os.path.join(podman_dir(sandbox_tmp), "runtime"),
+        "--unsetenv", "DBUS_SESSION_BUS_ADDRESS",
+        # cgroup2 detection, and the sysfs crun bind-mounts into containers.
+        "--ro-bind-try", "/sys", "/sys",
+        # fuse-overlayfs, where the kernel's overlayfs cannot be used.
+        "--dev-bind-try", "/dev/fuse", "/dev/fuse",
+        # pasta, which gives containers their network.
+        "--dev-bind-try", "/dev/net/tun", "/dev/net/tun",
+    ]
+
+
+def start_podman_service(sandbox_tmp, view_args, podman=None, bwrap=BWRAP):
+    """Start a per-sandbox rootless Podman service that sees what the sandbox sees.
+
+    The service runs in a mount namespace set up with view_args, the bwrap
+    arguments of the sandbox's own view: containers can bind-mount only what
+    the sandbox could reach anyway, never ~/.ssh or the login agent, and a
+    path a client in the sandbox names, /tmp included, is the same file for
+    the service. It cannot run inside the sandbox itself: bwrap sets
+    no_new_privs, under which newuidmap cannot map the subordinate uid range,
+    and images that switch users would fail. So `podman unshare` sets up the
+    user namespace with that range, and bwrap runs in it as its root, which
+    keeps bwrap from creating a user namespace of its own and keeps the
+    capabilities podman needs. podman unshare also sets
+    _CONTAINERS_USERNS_CONFIGURED, by which the service knows it is in its
+    namespace already and runs there rather than re-executing itself.
 
     Its storage is kept under sandbox_tmp, so it is isolated from every other
     sandbox and goes with the sandbox's temp dir (see remove_sandbox_tmp).
@@ -169,26 +216,33 @@ def start_podman_service(sandbox_tmp, podman=None):
     /tmp inside the sandbox, so it appears at /tmp/podman/podman.sock there —
     no extra --bind is needed.
 
-    The launcher stops the service once the sandbox exits; should the launcher
-    die without getting to, the kernel sends the service SIGTERM, which podman
-    passes on to the copy of itself it re-runs inside its user namespace.
+    Lifetime: the launcher stops the service once the sandbox exits; should
+    the launcher die without getting to, the kernel sends podman SIGTERM,
+    which it passes on to the copy of itself it re-runs inside its user
+    namespace. Either way that copy exits, and the service's bwrap dies with
+    it (--die-with-parent). The service is the first process in a pid
+    namespace of its own, which the view's --unshare-pid makes, so every
+    container, conmon and pasta it started dies with it too.
     """
     podman = podman or shutil.which("podman")
     if not podman:
         return None, None
 
-    podman_dir, storage_root, run_root = podman_paths(sandbox_tmp)
-    socket_path = os.path.join(podman_dir, "podman.sock")
-    os.makedirs(run_root)
-    os.makedirs(storage_root)
+    base = podman_dir(sandbox_tmp)
+    socket_path = os.path.join(base, "podman.sock")
+    for sub in ("storage", "run", "tmp", "runtime"):
+        os.makedirs(os.path.join(base, sub), mode=0o700)
 
+    store = podman_store_args(sandbox_tmp)
     # Its log goes to a file rather than the terminal, and says why when the
     # service does not come up.
-    log_path = os.path.join(podman_dir, "service.log")
+    log_path = os.path.join(base, "service.log")
     with open(log_path, "w") as log:
         proc = subprocess.Popen(
-            [podman, "--root", storage_root, "--runroot", run_root,
-             "system", "service", "--time=0", f"unix://{socket_path}"],
+            [podman, *store, "unshare",
+             bwrap, "--die-with-parent", *view_args, *podman_view_args(sandbox_tmp), "--",
+             podman, *store, "system", "service", "--time=0", f"unix://{socket_path}"],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=log,
             preexec_fn=die_with_launcher(signal.SIGTERM),
@@ -211,32 +265,25 @@ def start_podman_service(sandbox_tmp, podman=None):
               "containers are unavailable.", file=sys.stderr)
         return None, None
 
-    open(os.path.join(podman_dir, PODMAN_SERVED), "x").close()
+    open(os.path.join(base, PODMAN_SERVED), "x").close()
     return proc, socket_path
 
 
 def remove_podman_storage(sandbox_tmp, podman):
-    """Remove the containers and storage of a sandbox's Podman, once stopped.
+    """Delete the storage of a sandbox's Podman, once the service is gone.
 
-    Containers started through the service outlive it, so they are removed
-    first, which also unmounts their file systems. Image layers hold files
-    owned by the subordinate uids of Podman's user namespace, which the
-    launcher cannot delete, so rm runs in that namespace, through `podman
-    unshare`. Returns warnings.
+    Image layers hold files owned by the subordinate uids of Podman's user
+    namespace, which the launcher cannot delete, so rm runs in that
+    namespace, through `podman unshare`. No container is left to remove
+    first: they all died with the service's pid namespace. Returns warnings.
     """
-    _, storage_root, run_root = podman_paths(sandbox_tmp)
-    podman_cmd = [podman, "--root", storage_root, "--runroot", run_root]
-    warnings = []
-    for args in (
-        ["rm", "--all", "--force", "--time", "0"],
-        ["unshare", RM, "-rf", storage_root, run_root],
-    ):
-        done = subprocess.run(
-            podman_cmd + args, stdin=subprocess.DEVNULL, capture_output=True, text=True
-        )
-        if done.returncode != 0:
-            warnings.append(f"podman {args[0]} failed ({one_line(done.stderr)})")
-    return warnings
+    done = subprocess.run(
+        [podman, *podman_store_args(sandbox_tmp), "unshare", RM, "-rf", podman_dir(sandbox_tmp)],
+        stdin=subprocess.DEVNULL, capture_output=True, text=True,
+    )
+    if done.returncode != 0:
+        return [f"podman unshare rm failed ({one_line(done.stderr)})"]
+    return []
 
 
 def remove_tree(path):
@@ -256,9 +303,8 @@ def remove_tree(path):
 def remove_sandbox_tmp(sandbox_tmp, podman=None):
     """Delete a sandbox's temp dir, Podman's storage included. Returns warnings."""
     warnings = []
-    podman_dir, _, _ = podman_paths(sandbox_tmp)
     podman = podman or shutil.which("podman")
-    if podman and os.path.exists(os.path.join(podman_dir, PODMAN_SERVED)):
+    if podman and os.path.exists(os.path.join(podman_dir(sandbox_tmp), PODMAN_SERVED)):
         warnings += remove_podman_storage(sandbox_tmp, podman)
     return warnings + remove_tree(sandbox_tmp)
 
@@ -1009,7 +1055,9 @@ def main():
         with open(histfile, "w") as f:
             f.write((args.launch_cmd or "") + "\n")
 
-        bwrap_args = build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path)
+        # The sandbox's view of the file system, which its Podman service gets too.
+        view_args = build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path)
+        bwrap_args = list(view_args)
 
         # SSH agent: never the login one by default. See choose_ssh_agent.
         ssh_args, agent_proc, ssh_warning = ssh_agent_setup(home_dir, sandbox_tmp)
@@ -1024,7 +1072,7 @@ def main():
         # inside the sandbox as /tmp/podman/podman.sock via the existing /tmp bind.
         # Testcontainers: TESTCONTAINERS_RYUK_DISABLED is always set (Ryuk requests a
         # privileged container which fails in rootless Podman; JVM hooks still clean up).
-        podman_proc, podman_socket = start_podman_service(sandbox_tmp)
+        podman_proc, podman_socket = start_podman_service(sandbox_tmp, view_args)
         if podman_proc is not None:
             helpers.append(podman_proc)
         if podman_socket:

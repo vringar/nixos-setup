@@ -99,6 +99,8 @@ When running inside `claude-sandbox`, the environment is a bubblewrap-isolated c
 - Do not attempt to reach `/run/docker.sock` or `/var/run/docker.sock` — they are absent
 - `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE` is also set to the Podman socket
 - `TESTCONTAINERS_RYUK_DISABLED=true` is always set (Ryuk requires a privileged container, which rootless Podman doesn't allow)
+- Containers see only what the sandbox sees: the Podman service runs in the sandbox's own view of the filesystem, so a bind mount (`-v`) of the project or of `/tmp/...` mounts what you see at that path, and one of anything outside the sandbox (e.g. `~/.ssh`) fails
+- Containers, images and volumes go away with the sandbox
 
 ## Language Specific
 - Prefer idiomatic solutions - Use language-native features over external dependencies
