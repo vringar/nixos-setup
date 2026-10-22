@@ -155,13 +155,18 @@ def test_full_agent_hatch_only_opens_on_1():
         assert setenvs(args)["SSH_AUTH_SOCK"] == INNER_SOCK, value
 
 
-def test_full_agent_hatch_without_a_login_agent_gets_no_agent():
-    agent = FakeAgent()
-    args, proc, warning = setup({sandbox.FULL_AGENT_ENV: "1"}, everything_exists, agent)
-    assert args == NO_AGENT
-    assert proc is None
-    assert warning is None
-    assert agent.calls == []
+def test_full_agent_hatch_without_a_login_agent_gets_no_agent_and_says_so():
+    for env, exists in [
+        ({sandbox.FULL_AGENT_ENV: "1"}, everything_exists),
+        ({"SSH_AUTH_SOCK": SOCK, sandbox.FULL_AGENT_ENV: "1"}, only(FORGE_KEY)),
+    ]:
+        agent = FakeAgent()
+        args, proc, warning = setup(env, exists, agent)
+        assert args == NO_AGENT
+        assert proc is None
+        assert sandbox.FULL_AGENT_ENV in warning
+        assert "no SSH agent" in warning
+        assert agent.calls == []
 
 
 def test_dedicated_socket_takes_precedence_over_the_hatch():

@@ -441,7 +441,12 @@ def choose_ssh_agent(env, home_dir, exists=os.path.exists):
                 f"{FULL_AGENT_ENV} is set: the login SSH agent is exposed to the "
                 "sandbox, which can use every key it holds.",
             )
-        return None, None, None
+        return (
+            None,
+            None,
+            f"{FULL_AGENT_ENV} is set, but there is no login SSH agent to expose; "
+            "continuing with no SSH agent.",
+        )
 
     key = forge_key_path(env, home_dir)
     if exists(key):
