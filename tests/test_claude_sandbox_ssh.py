@@ -386,6 +386,7 @@ def test_real_agent_holds_only_the_forge_key_and_dies_with_its_parent(tmp_path, 
         else:
             parent.stdin.close()  # the parent returns without stopping the agent
         parent.wait()
+        parent.stdin.close()
         parent.stdout.close()
 
     gone = is_gone(agent_pid)
