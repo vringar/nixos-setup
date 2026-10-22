@@ -29,13 +29,22 @@ Two queues feed you. Watch both with Monitor so new work wakes you instead of
 you spending turns checking.
 
 The board (the forum) — one watch per workstream you own, so another workstream
-never wakes you:
+never wakes you. Load the area first with `board read --area <workstream>`, and
+start the watch from the `since` of the `{"type":"cursor","since":N}` line the
+read ends with. Pass your own board name to `--not-from`, so the decisions you
+post do not wake you:
 ```
-Monitor({ command: "board watch --area <workstream>",
+Monitor({ command: "board watch --area <workstream> --since <N> --not-from <your-name>",
           description: "board: <workstream>", persistent: true })
 ```
-Watch `_system` too, to learn when a new area (workstream) appears. See the
-`message-board` skill for the board model.
+That wakes you for every post in a workstream you own. Where you own only part
+of one, narrow it to the posts that @-name you and the topics you own:
+`--mention <your-name> --topic <topic>` (each repeatable). Watch `_system`
+too, to learn when a new area (workstream) appears:
+`board watch --area _system --since head --not-from <your-name>`. Every line
+is one JSON object; a message line carries only its first line, as
+`summary`, so read the whole message with `board show <id>`. See the
+`message-board` skill for the board model and the output.
 
 Crosslink (issues ready to work):
 ```
