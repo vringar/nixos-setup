@@ -18,14 +18,15 @@ use serde::Serialize;
 use super::events::{EVENT_COLUMNS, EVENT_FIELDS, EVENT_FROM, Event, EventType, event_row, parsed};
 use super::items::{self, Item, ItemQuery, ItemState, StateFilter};
 use super::nodes::{self, Child, NodeKind, NoteVersion};
-use super::{Board, DbError, Error, POLL_BYTES, POLL_CHECK, POLL_LIMIT, head};
+use super::{Board, DbError, Error, POLL_BYTES, POLL_CHECK, POLL_LIMIT, ROOT, head};
 
 /// What a watch is subscribed to. A watch with no path and no filter is
 /// refused; `not_from` alone is none, since it only takes events away.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Watch {
-    /// Leaves (every event on them) and containers (their own structural
-    /// events, and their direct children's).
+    /// Leaves (every event on them), containers (their own structural
+    /// events, and their direct children's), and [`ROOT`] (the top-level
+    /// nodes' structural events).
     pub paths: Vec<String>,
     /// Events whose body mentions one of these names.
     pub mentions: Vec<String>,
@@ -46,7 +47,8 @@ pub enum Why {
     /// On a subscribed leaf, or a structural event on a subscribed container.
     Path,
     /// A direct child of a subscribed container was created, archived or
-    /// unarchived, or (a note) got a new version.
+    /// unarchived, or (a note) got a new version; or, watching [`ROOT`], a
+    /// top-level node was created, archived or unarchived.
     Child,
     Mention,
     Asked,
@@ -151,8 +153,12 @@ impl Filter {
                     .to_owned(),
             ));
         }
-        let (mut leaves, mut containers) = (Vec::new(), Vec::new());
+        let (mut leaves, mut containers, mut root) = (Vec::new(), Vec::new(), false);
         for path in &watch.paths {
+            if path == ROOT {
+                root = true;
+                continue;
+            }
             let node = nodes::require(conn, path)?;
             if node.kind == NodeKind::Container { &mut containers } else { &mut leaves }.push(node.id);
         }
@@ -162,7 +168,10 @@ impl Filter {
         let mut names = Vec::new();
         let mut flags = vec![
             format!("e.node IN ({leaves}) OR (e.node IN ({containers}) AND e.type IN ({structural}))"),
-            format!("n.parent IN ({containers}) AND e.type IN ({child_types})"),
+            format!(
+                "(n.parent IN ({containers}) AND e.type IN ({child_types})){}",
+                if root { format!(" OR (n.parent IS NULL AND e.type IN ({structural}))") } else { String::new() }
+            ),
         ];
         flags.push(if watch.mentions.is_empty() {
             "0".to_owned()

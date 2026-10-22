@@ -85,6 +85,9 @@ pub const MIN_DISTANCE: usize = 3;
 /// The board's own name: the actor of its own events. Nobody registers it
 /// or a name that looks like it.
 pub const SERVER_NAME: &str = "board";
+/// The root in a watch: what happens to the top-level nodes. It is no
+/// node, and nothing else takes it.
+pub const ROOT: &str = "/";
 /// The board's own container, and the two nodes in it.
 pub const BOARD_NODE: &str = "_board";
 /// Where registrations are filed; the owner's queue.
