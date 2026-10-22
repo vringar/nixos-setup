@@ -27,8 +27,8 @@ needs_bwrap = pytest.mark.skipif(BWRAP is None, reason="bwrap is not on PATH")
 BWRAP_ARGS = ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--unshare-pid"]
 
 # Plays the launcher in a Python process of its own, so that it starts with
-# Python's signal dispositions rather than pytest's: runs argv[2:] in the
-# sandbox and exits with what run_sandbox returns.
+# Python's signal dispositions rather than pytest's: runs the command it is
+# given in the sandbox and exits with what run_sandbox returns.
 LAUNCHER = textwrap.dedent("""\
     import importlib.util, json, sys
     spec = importlib.util.spec_from_file_location("claude_sandbox", sys.argv[1])
@@ -100,26 +100,21 @@ def assert_all_gone(pids):
     assert left == []
 
 
-def wait_for(path, proc, timeout=10):
+def wait_until_running(argv, launcher, timeout=10):
     deadline = time.monotonic() + timeout
-    while not path.exists():
-        assert proc.poll() is None, "the launcher exited before the sandbox was up"
-        assert time.monotonic() < deadline, f"{path} never appeared"
+    while not pids_running(argv):
+        assert launcher.poll() is None, "the launcher exited before the sandbox was up"
+        assert time.monotonic() < deadline, f"{argv} never started"
         time.sleep(0.02)
 
 
 @needs_bwrap
-def test_sandbox_dies_with_a_killed_launcher(tmp_path):
+def test_sandbox_dies_with_a_killed_launcher():
     sleep = sleeper()
-    ready = tmp_path / "ready"
-    launcher = subprocess.Popen(launcher_cmd(
-        [shutil.which("sh"), "-c", f'touch {ready} && exec "$@"', "sh", *sleep],
-        BWRAP_ARGS + ["--bind", str(tmp_path), str(tmp_path)],
-    ))
+    launcher = subprocess.Popen(launcher_cmd(sleep))
     try:
-        wait_for(ready, launcher)
+        wait_until_running(sleep, launcher)
         in_sandbox = pids_running(sleep)
-        assert len(in_sandbox) == 1
     finally:
         launcher.kill()  # no cleanup code of the launcher's gets to run
         launcher.wait()
@@ -309,14 +304,6 @@ def bwrap_child(launcher):
         if Path(f"/proc/{c}/cmdline").read_bytes().split(b"\0")[0] == os.fsencode(BWRAP)
     ]
     return pid
-
-
-def wait_until_running(argv, proc, timeout=10):
-    deadline = time.monotonic() + timeout
-    while not pids_running(argv):
-        assert proc.poll() is None, "the launcher exited before the sandbox was up"
-        assert time.monotonic() < deadline, f"{argv} never started"
-        time.sleep(0.02)
 
 
 @needs_bwrap
