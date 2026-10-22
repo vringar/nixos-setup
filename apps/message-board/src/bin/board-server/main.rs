@@ -5,20 +5,22 @@
 //! ```
 //!
 //! Agents talk to it through the `board` client; humans use the web view.
-//! Posts and pin edits may carry an SSH signature; the first signed post as
-//! a name claims it, and from then on writes as that name must be signed by
-//! the same key. A signature covers the board's head (`GET /healthz`) as
-//! its nonce and is accepted only while that is still the head; otherwise
-//! the write gets a 409 stale-nonce and the client signs again. That is the
-//! only authentication: reading is open to anyone who can connect, so
-//! binding anything but 127.0.0.1 makes the network the access boundary.
-//! Only do it behind a firewall rule scoped to a trusted interface.
+//! Every write is signed, by a key the owner approved: a new key may only
+//! register, and the owner approves it in the web view (or with
+//! `board approve`), signing with the owner key. A signature covers the
+//! board's head (`GET /healthz`) as its nonce and is accepted only while
+//! that is still the head; otherwise the write gets a 409 stale-nonce and
+//! the client signs again. Reading needs no key: it is open to anyone who
+//! can connect, so binding anything but 127.0.0.1 makes the network the
+//! access boundary. Only do it behind a firewall rule scoped to a trusted
+//! interface.
 //!
 //! Config via env: `BOARD_ADDR` (127.0.0.1), `BOARD_PORT` (8777),
-//! `BOARD_DB` (SQLite path, default ./board.db), `BOARD_STATIC_DIR`
-//! (htmx.min.js and board-sign.js; set by the packaged wrapper),
-//! `BOARD_OWNER_NAME` + `BOARD_OWNER_PUBKEY` (a name and the public key
-//! file it is bound to at startup, overriding any claim).
+//! `BOARD_DB` (SQLite path, default ./board-v2.db; a v1 board's file is
+//! refused, untouched), `BOARD_STATIC_DIR` (htmx.min.js and board-sign.js;
+//! set by the packaged wrapper), `BOARD_OWNER_NAME` + `BOARD_OWNER_PUBKEY`
+//! (the owner's name and the public key file of the owner key, bound at
+//! every start; a key that differs from the stored owner's revokes it).
 //!
 //! One thread per connection: a long poll blocks its thread on the store's
 //! condition variable for up to five minutes, which needs no async
@@ -26,10 +28,13 @@
 //! timed out when the client stalls or leaves, so that no client can use
 //! up the threads and file descriptors.
 
+mod api;
 mod html;
 mod http;
 mod log;
 mod routes;
+mod web;
+mod writes;
 
 use std::ffi::OsString;
 use std::fs;
@@ -43,7 +48,7 @@ use std::thread;
 use std::time::Duration;
 
 use message_board::sign;
-use message_board::store::{self, Board, DbError, MIN_DISTANCE};
+use message_board::store::{self, Board, DbError, KeyState, MIN_DISTANCE, looks_alike};
 use message_board::timefmt;
 use signal_hook::consts::{SIGINT, SIGTERM};
 
@@ -58,7 +63,7 @@ enum StartError {
     Open { path: String, source: DbError },
     #[error("database: {0}")]
     Db(#[from] DbError),
-    #[error("preseeding the owner: {0}")]
+    #[error("binding the owner key: {0}")]
     Owner(store::Error),
     #[error("cannot listen on {addr}: {source}")]
     Listen { addr: String, source: io::Error },
@@ -95,25 +100,29 @@ fn run() -> Result<(), StartError> {
     let port = port_text
         .parse::<u16>()
         .map_err(|err| StartError::Config(format!("BOARD_PORT {port_text:?} is not a port number: {err}")))?;
-    let db = PathBuf::from(std::env::var_os("BOARD_DB").unwrap_or_else(|| OsString::from("board.db")));
+    let db = PathBuf::from(std::env::var_os("BOARD_DB").unwrap_or_else(|| OsString::from("board-v2.db")));
     let static_dir = match std::env::var_os("BOARD_STATIC_DIR") {
         Some(dir) => PathBuf::from(dir),
         None => installed_static_dir()?,
     };
 
-    let opened = Board::open(&db).map_err(|source| StartError::Open { path: db.display().to_string(), source })?;
+    let opened = Board::open(&db).map_err(|source| match source {
+        // It names the file and says what to do.
+        DbError::NotABoard(why) => StartError::Config(why),
+        source => StartError::Open { path: db.display().to_string(), source },
+    })?;
     if opened.journal_mode != "wal" {
         log::line(&format!(
             "board: the database is in {} journal mode, not WAL; readers will wait for writers",
             opened.journal_mode
         ));
     }
-    preseed_owner(&opened.board)?;
+    bind_owner(&opened.board)?;
     let listener = listen(&addr, port)?;
     // The port bound, which BOARD_PORT=0 leaves to the system.
     let port =
         listener.local_addr().map_err(|source| StartError::Listen { addr: format!("{addr}:{port}"), source })?.port();
-    let head = opened.board.head_id()?;
+    let head = opened.board.head()?;
     let app = Arc::new(App { board: opened.board, static_dir });
     shutdown.serving(&app);
     log::info(&format!("board on http://{addr}:{port}  db={}  head={head}", db.display()));
@@ -146,21 +155,23 @@ fn listen(addr: &str, port: u16) -> Result<TcpListener, StartError> {
 }
 
 /// Bind `BOARD_OWNER_NAME` to the key in `BOARD_OWNER_PUBKEY`, if both are
-/// set. A missing or unusable key file, or a name outside the name rule or
-/// reserved for the board itself, is logged and skipped: the board runs
-/// fine without an owner, and the key may simply not exist yet. Other
-/// claims that look like the owner name stay, with a warning: releasing one
-/// is a human's call (board-admin).
-fn preseed_owner(board: &Board) -> Result<(), StartError> {
+/// set: the owner key, the human of the permission rules. Unchanged since
+/// the last start, nothing is written. A missing or unusable key file, or
+/// a name the board refuses, is logged and skipped: the board runs without
+/// an owner (it approves nothing then), and the key may simply not exist
+/// yet. Bound names that look like the owner's stay, with a warning:
+/// revoking one is the owner's call, in the web view.
+fn bind_owner(board: &Board) -> Result<(), StartError> {
     let name = setting("BOARD_OWNER_NAME")?.unwrap_or_default();
     let path = PathBuf::from(std::env::var_os("BOARD_OWNER_PUBKEY").unwrap_or_default());
     if name.is_empty() || path.as_os_str().is_empty() {
+        log::info("board: no owner key is configured (BOARD_OWNER_NAME, BOARD_OWNER_PUBKEY); nothing can be approved");
         return Ok(());
     }
     let shown = path.display();
     let key = match fs::read_to_string(&path) {
         Err(err) if err.kind() == ErrorKind::NotFound => {
-            log::info(&format!("board: no owner key at {shown}; {name} is not preseeded"));
+            log::info(&format!("board: no owner key at {shown}; {name} is not bound"));
             return Ok(());
         }
         Err(err) => Err(err.to_string()),
@@ -169,23 +180,30 @@ fn preseed_owner(board: &Board) -> Result<(), StartError> {
     let key = match key {
         Ok(key) => key,
         Err(why) => {
-            log::info(&format!("board: owner key {shown} unusable ({why}); {name} is not preseeded"));
+            log::info(&format!("board: owner key {shown} unusable ({why}); {name} is not bound"));
             return Ok(());
         }
     };
-    match board.set_owner(&name, &key.public_line, &key.fingerprint) {
-        Ok(()) => {}
-        Err(err @ (store::Error::BadName(_) | store::Error::Forbidden(_))) => {
-            log::info(&format!("board: BOARD_OWNER_NAME: {err}; no owner is preseeded"));
+    let change = match board.set_owner(&name, &key) {
+        Ok(change) => change,
+        Err(err @ (store::Error::BadRequest(_) | store::Error::Forbidden(_))) => {
+            log::info(&format!(
+                "board: BOARD_OWNER_NAME {name:?} with {}: {err}; the board has no owner",
+                key.fingerprint
+            ));
             return Ok(());
         }
         Err(err) => return Err(StartError::Owner(err)),
-    }
+    };
     log::info(&format!("board: owner {name} is {}", key.fingerprint));
-    for near in board.near_claims(&name)? {
+    for old in change.revoked {
+        log::info(&format!("board: revoked {old}: replaced by the owner key"));
+    }
+    for near in board.keys()?.into_iter().filter(|k| k.state == KeyState::Trusted && looks_alike(&k.name, &name)) {
         log::info(&format!(
-            "board: warning: the claimed name {near:?} is fewer than {MIN_DISTANCE} edits from the owner's {name:?}; \
-             if it is a look-alike, release it with board-admin"
+            "board: warning: the bound name {:?} ({}) is fewer than {MIN_DISTANCE} edits from the owner's {name:?}; \
+             if it is a look-alike, revoke it in the web view (/ui/keys)",
+            near.name, near.fingerprint
         ));
     }
     Ok(())
@@ -247,8 +265,8 @@ impl Shutdown {
 /// descriptors).
 const MAX_CONNECTIONS: usize = 256;
 
-/// The answer past [`MAX_CONNECTIONS`], as every error: JSON.
-const FULL: &str = r#"{"error":"the board has too many connections open; try again shortly"}"#;
+/// The answer past [`MAX_CONNECTIONS`], as every refusal: JSON with a code.
+const FULL: &str = r#"{"error":"busy","message":"the board has too many connections open; try again shortly"}"#;
 
 /// The connections open, and how many were turned away at the limit.
 #[derive(Default)]
@@ -273,7 +291,7 @@ impl Connections {
         if self.refused.fetch_add(1, Ordering::SeqCst) == 0 {
             log::line(&format!("board: {MAX_CONNECTIONS} connections open; answering new ones 503 until one closes"));
         }
-        let answer = Response::json(503, FULL.to_owned());
+        let answer = Response::json(503, FULL.to_owned()).with_header("Board-Error", "busy");
         // A new socket's send buffer is empty, so this does not block; the
         // timeout is only a backstop.
         let sent = stream
@@ -396,8 +414,9 @@ fn connection(app: &App, stream: &TcpStream, peer: SocketAddr) {
                     return;
                 };
                 log::line(&format!("board: bad request from {peer}: {err}"));
-                let answer = serde_json::to_string(&serde_json::json!({ "error": err.to_string() }))
-                    .map(|body| Response::json(status, body));
+                let refusal = serde_json::json!({ "error": err.code(), "message": err.to_string() });
+                let answer = serde_json::to_string(&refusal)
+                    .map(|body| Response::json(status, body).with_header("Board-Error", err.code()));
                 match answer {
                     Ok(answer) => {
                         if let Err(gone) = answer.write_to(&mut writer, date().as_deref()) {

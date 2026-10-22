@@ -78,6 +78,21 @@ impl ProtocolError {
             Self::Chunked => Some(501),
         }
     }
+
+    /// The code the answer carries, as every refusal's does: in its JSON
+    /// and in the `Board-Error` header.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::TimedOut => "timeout",
+            Self::HeadTooLarge | Self::BodyTooLarge(_) | Self::Malformed(httparse::Error::TooManyHeaders) => {
+                "too-large"
+            }
+            Self::Chunked => "not-implemented",
+            Self::Io(_) | Self::Truncated | Self::Malformed(_) | Self::BadLength(_) | Self::ConflictingLength => {
+                "bad-request"
+            }
+        }
+    }
 }
 
 /// A connection's reading side, with a deadline for each read: a read
@@ -209,13 +224,14 @@ pub fn read_request(reader: &mut impl BufRead, interim: &mut impl Write) -> Resu
 fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
-        303 => "See Other",
         400 => "Bad Request",
+        401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
         408 => "Request Timeout",
         409 => "Conflict",
         413 => "Content Too Large",
+        429 => "Too Many Requests",
         431 => "Request Header Fields Too Large",
         500 => "Internal Server Error",
         501 => "Not Implemented",
@@ -249,10 +265,6 @@ impl Response {
         let mut response = Self::bytes(status, "text/html; charset=utf-8", html.into_bytes());
         response.head.push(("Content-Security-Policy", CSP.to_owned()));
         response
-    }
-
-    pub fn redirect(location: &str) -> Self {
-        Self { status: 303, head: vec![("Location", location.to_owned())], tail: Vec::new(), body: Vec::new() }
     }
 
     #[must_use]
