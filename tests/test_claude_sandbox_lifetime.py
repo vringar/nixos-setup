@@ -203,6 +203,11 @@ def fake_podman(directory):
                         sees={{p: os.path.exists(p) for p in json.loads(os.environ.get("FAKE_PODMAN_PATHS", "[]"))}},
                     ), out)
             open(os.path.join(options["--root"], "db.sql"), "w").close()  # as podman's does
+            if os.environ.get("FAKE_PODMAN_DIE_LATE"):
+                open(args[-1].removeprefix("unix://"), "w").close()
+                time.sleep(0.3)
+                print("late failure", file=sys.stderr, flush=True)
+                sys.exit(7)
             container = os.environ.get("FAKE_CONTAINER")
             if container and os.fork() == 0:
                 os.setsid()
@@ -532,10 +537,12 @@ def test_a_podman_service_that_fails_says_why(tmp_path, capsys):
     sandbox_tmp = tmp_path / "sandbox"
     sandbox_tmp.mkdir()
 
-    assert sandbox.start_podman_service(str(sandbox_tmp), [], podman=str(podman)) == (None, None)
+    assert sandbox.start_podman_service(
+        str(sandbox_tmp), [], podman=str(podman), log_dir=str(tmp_path / "state")
+    ) == (None, None)
     err = capsys.readouterr().err
     assert "exited with status 125" in err
-    assert "/tmp/podman/service.log" in err
+    assert "kept in" in err
     quoted = [line.strip() for line in err.splitlines()[1:]]
     assert quoted == [f"line {n}" for n in range(4, 11)] + ["Error: no such file or directory"]
 
@@ -1164,3 +1171,95 @@ def test_a_planted_jj_config_does_not_reach_the_host(tmp_path):
     assert launcher_warnings(result.stderr) == []
     assert result.stdout.startswith("config-id stays:")
     assert host_jj("config", "get", "ui.pager") == pager
+
+
+# --- keeping the Podman log -----------------------------------------------------
+
+
+def test_a_failed_start_keeps_its_log_where_the_warning_says(tmp_path, capsys):
+    podman = tmp_path / "podman"
+    podman.write_text(f"#!{sys.executable}\nimport sys\nprint('boom', file=sys.stderr)\nsys.exit(3)\n")
+    podman.chmod(0o755)
+    sandbox_tmp = tmp_path / "claude-sandbox-proj-abc"
+    sandbox_tmp.mkdir()
+    state = tmp_path / "state"
+
+    sandbox.start_podman_service(str(sandbox_tmp), [], podman=str(podman), log_dir=str(state))
+    [saved] = state.iterdir()
+    assert str(saved) in capsys.readouterr().err
+    assert saved.name.startswith("podman-claude-sandbox-proj-abc-")
+    assert "boom" in saved.read_text()
+    assert stat.S_IMODE(saved.stat().st_mode) == 0o600
+    assert stat.S_IMODE(state.stat().st_mode) == 0o700
+
+
+def test_only_the_newest_podman_logs_are_kept(tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    for n in range(5):
+        old = state / f"podman-old-{n}.log"
+        old.write_text("x")
+        os.utime(old, (1000 + n, 1000 + n))
+    (state / "unrelated.txt").write_text("keep me")
+    src = tmp_path / "service.log"
+    src.write_text("new\n")
+
+    saved, warnings = sandbox.keep_podman_log(str(src), "p", directory=str(state), keep=3)
+    assert warnings == []
+    assert sorted(p.name for p in state.iterdir() if p.suffix == ".log") == sorted(
+        ["podman-old-3.log", "podman-old-4.log", Path(saved).name]
+    )
+    assert (state / "unrelated.txt").exists()
+
+
+def test_prune_errors_are_reported(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    state.mkdir()
+    old = state / "podman-old.log"
+    old.write_text("x")
+    os.utime(old, (1000, 1000))
+    src = tmp_path / "service.log"
+    src.write_text("new\n")
+    real = os.unlink
+
+    def refuse(path, *a, **k):
+        if str(path).endswith("podman-old.log"):
+            raise PermissionError(1, "Operation not permitted", path)
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(sandbox.os, "unlink", refuse)
+    saved, warnings = sandbox.keep_podman_log(str(src), "p", directory=str(state), keep=1)
+    assert saved
+    assert len(warnings) == 1 and "podman-old.log" in warnings[0]
+
+
+def test_an_unwritable_state_dir_is_reported_and_startup_goes_on(tmp_path, capsys):
+    state = tmp_path / "state"
+    state.mkdir()
+    state.chmod(0o500)
+    podman = tmp_path / "podman"
+    podman.write_text(f"#!{sys.executable}\nimport sys\nsys.exit(3)\n")
+    podman.chmod(0o755)
+    sandbox_tmp = tmp_path / "sb"
+    sandbox_tmp.mkdir()
+    try:
+        assert sandbox.start_podman_service(
+            str(sandbox_tmp), [], podman=str(podman), log_dir=str(state / "sub")
+        ) == (None, None)
+    finally:
+        state.chmod(0o700)
+    err = capsys.readouterr().err
+    assert "could not keep the Podman log" in err
+    assert "Its log could not be kept" in err
+
+
+@needs_bwrap
+def test_a_service_that_dies_mid_session_has_its_log_kept(tmp_path):
+    launcher = Launcher(tmp_path, podman=True)
+    state = tmp_path / "xdg"
+    launcher.env.update(XDG_STATE_HOME=str(state), FAKE_PODMAN_DIE_LATE="1")
+    result = launcher.run(shutil.which("sleep"), "1")
+    assert result.returncode == 0, result.stderr
+    assert "exited with status 7 during the session" in result.stderr
+    [saved] = (state / "claude-sandbox").iterdir()
+    assert "late failure" in saved.read_text()

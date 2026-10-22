@@ -222,7 +222,50 @@ PODMAN_START_TIMEOUT = 10
 PODMAN_LOG_LINES = 8
 
 
-def start_podman_service(sandbox_tmp, view_args, podman=None, bwrap=BWRAP):
+# How many saved Podman service logs are kept.
+PODMAN_LOGS_KEPT = 10
+
+
+def state_dir():
+    """The launcher's per-user state dir: $XDG_STATE_HOME/claude-sandbox."""
+    base = os.environ.get("XDG_STATE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".local", "state"
+    )
+    return os.path.join(base, "claude-sandbox")
+
+
+def keep_podman_log(log_path, label, directory=None, keep=PODMAN_LOGS_KEPT):
+    """Copy a Podman service log out of the sandbox's temp dir, which goes
+    when the sandbox does, to the state dir, mode 0600, and prune all but
+    the newest `keep` such logs. Returns (path or None, warnings): nothing
+    here raises, and a failure is a warning, since the launch goes on."""
+    directory = directory or state_dir()
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    warnings = []
+    try:
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        saved = os.path.join(directory, f"podman-{label}-{stamp}.log")
+        fd = os.open(saved, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as out, open(log_path, "rb") as src:
+            shutil.copyfileobj(src, out)
+    except OSError as e:
+        return None, [f"could not keep the Podman log {log_path} in {directory}: {e}"]
+    try:
+        names = [n for n in os.listdir(directory) if n.startswith("podman-") and n.endswith(".log")]
+        # Newest last: the timestamp is in the name, but modification time
+        # breaks ties between logs of the same second.
+        names.sort(key=lambda n: (os.stat(os.path.join(directory, n)).st_mtime, n))
+    except OSError as e:
+        return saved, [f"could not list {directory} to prune old Podman logs: {e}"]
+    for name in names[:-keep] if keep else names:
+        try:
+            os.unlink(os.path.join(directory, name))
+        except OSError as e:
+            warnings.append(f"could not prune the old Podman log {name}: {e}")
+    return saved, warnings
+
+
+def start_podman_service(sandbox_tmp, view_args, podman=None, bwrap=BWRAP, log_dir=None):
     """Start a per-sandbox rootless Podman service that sees what the sandbox sees.
 
     The service runs in a mount namespace set up with view_args, the bwrap
@@ -293,11 +336,14 @@ def start_podman_service(sandbox_tmp, view_args, podman=None, bwrap=BWRAP):
             continue
         with open(log_path, errors="replace") as log:
             tail = [line for line in log.read().splitlines() if line.strip()][-PODMAN_LOG_LINES:]
-        # The sandbox sees its temp dir as /tmp.
-        inner_log = "/tmp" + log_path[len(sandbox_tmp):]
+        saved, warnings = keep_podman_log(
+            log_path, os.path.basename(sandbox_tmp), directory=log_dir
+        )
+        for warning in warnings:
+            print(f"claude-sandbox: {warning}", file=sys.stderr)
+        where = f"Its whole log is kept in {saved}" if saved else "Its log could not be kept"
         print(f"claude-sandbox: the Podman service {failure}; containers are unavailable. "
-              f"Its whole log is {inner_log} in the sandbox, until it exits; it ends:",
-              file=sys.stderr)
+              f"{where}; it ends:", file=sys.stderr)
         for line in tail or ["(nothing)"]:
             print(f"  {line}", file=sys.stderr)
         return None, None
@@ -1162,6 +1208,7 @@ def main():
     # The host-side processes serving this sandbox (its SSH agent, Podman),
     # stopped once it exits.
     helpers = []
+    podman_proc = None
     stop_on_signals()
     try:
         # Seed a history file with the launch command
@@ -1213,6 +1260,18 @@ def main():
         status = 128 + stopped.signum
     finally:
         ignore_stop_signals()
+        # A service that died on its own while the sandbox ran: keep its log.
+        if podman_proc is not None and podman_proc.poll() not in (None, 0):
+            saved, warnings = keep_podman_log(
+                os.path.join(podman_dir(sandbox_tmp), "service.log"),
+                os.path.basename(sandbox_tmp),
+            )
+            for warning in warnings:
+                print(f"claude-sandbox: {warning}", file=sys.stderr)
+            print(f"claude-sandbox: the Podman service exited with status "
+                  f"{podman_proc.returncode} during the session; "
+                  + (f"its log is kept in {saved}" if saved else "its log could not be kept"),
+                  file=sys.stderr)
         for proc in helpers:
             proc.terminate()
             proc.wait()
