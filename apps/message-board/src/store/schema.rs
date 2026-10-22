@@ -6,6 +6,7 @@
 //! old `BOARD_DB`) must not write v2 tables into it, so a file is probed
 //! read-only first.
 
+use std::os::unix::ffi::OsStrExt as _;
 use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
@@ -100,10 +101,40 @@ pub(super) fn probe(path: &Path) -> Result<bool, DbError> {
     if !path.try_exists().map_err(|err| DbError::NotABoard(format!("cannot look at {}: {err}", path.display())))? {
         return Ok(true);
     }
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+    let conn = read_only(path)?;
     let verdict = verdict(&conn, path);
     conn.close().map_err(|(_unclosed, err)| DbError::Sqlite(err))?;
     verdict
+}
+
+/// A read-only connection that leaves no file beside `path`.
+///
+/// A plain read-only connection to a WAL database creates its `-wal` and
+/// `-shm` files if they are missing, so probing a checkpointed v1 board
+/// would leave an empty `board.db-wal` beside the archive. Without a WAL
+/// the file holds the whole database, and SQLite can read it as immutable:
+/// no lock, no files. With one, its program may be running, so it is read
+/// as any live WAL database; its files exist already.
+fn read_only(path: &Path) -> rusqlite::Result<Connection> {
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    if Path::new(&wal).exists() {
+        return Connection::open_with_flags(path, flags);
+    }
+    // A URI, so every byte of the path that is not plain is %-encoded.
+    let mut uri = String::from("file:");
+    for byte in path.as_os_str().as_bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-._~".contains(byte) {
+            uri.push(char::from(*byte));
+        } else {
+            uri.push('%');
+            // a nibble is always a hex digit
+            uri.extend([byte >> 4, byte & 0xf].map(|nibble| char::from_digit(u32::from(nibble), 16).unwrap_or('0')));
+        }
+    }
+    uri.push_str("?immutable=1");
+    Connection::open_with_flags(uri, flags | OpenFlags::SQLITE_OPEN_URI)
 }
 
 fn verdict(conn: &Connection, path: &Path) -> Result<bool, DbError> {
@@ -121,16 +152,14 @@ fn verdict(conn: &Connection, path: &Path) -> Result<bool, DbError> {
         return match schema.as_deref() {
             Some(SCHEMA_NAME) => Ok(false),
             other => Err(DbError::NotABoard(format!(
-                "{shown} is not a v2 board database (its schema is {other:?}); point BOARD_DB at a new file"
+                "{shown}: this is not a v2 board database (its schema is {other:?}); point BOARD_DB at a new file"
             ))),
         };
     }
     if has("messages")? {
-        return Err(DbError::NotABoard(format!("{shown} is a v1 board database; point BOARD_DB at a new file")));
+        return Err(DbError::NotABoard(format!("{shown}: this is a v1 board database; point BOARD_DB at a new file")));
     }
-    Err(DbError::NotABoard(format!(
-        "{shown} holds a database that is not a message board; point BOARD_DB at a new file"
-    )))
+    Err(DbError::NotABoard(format!("{shown}: this database is not a message board's; point BOARD_DB at a new file")))
 }
 
 /// Make the schema and the board's own nodes in a fresh database. The
