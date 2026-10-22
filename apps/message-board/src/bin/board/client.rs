@@ -1,6 +1,6 @@
-//! HTTP to board-server: one fresh connection per request, as the Python
-//! client had, so that a request the board never answered is never
-//! quietly sent again by a connection pool.
+//! HTTP to board-server: one fresh connection per request, so that a
+//! request the board never answered is never quietly sent again by a
+//! connection pool.
 
 use std::time::Duration;
 
@@ -20,8 +20,7 @@ pub struct Client {
     pub base: String,
 }
 
-/// An agent whose every connect, read and write may take `timeout`, like
-/// a Python socket timeout.
+/// An agent whose every connect, read and write may take `timeout`.
 fn agent(timeout: Duration) -> Agent {
     Agent::config_builder()
         .http_status_as_error(false)

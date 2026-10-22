@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use message_board::py::{self, Query};
 use message_board::sign::{self, Kind, MESSAGE, PIN, SignatureError};
 use message_board::store::{Area, Board, DbError, Error as StoreError, NewPost, PinSave, Scope, Signer};
 
@@ -83,7 +82,27 @@ impl Context<'_> {
 }
 
 fn json_error(status: u16, error: &str) -> Result<Response, serde_json::Error> {
-    Ok(Response::json(status, py::dumps(&json!({ "error": error }))?))
+    Ok(Response::json(status, serde_json::to_string(&json!({ "error": error }))?))
+}
+
+/// A query string or a form body, decoded the standard
+/// (`application/x-www-form-urlencoded`) way.
+struct Params(Vec<(String, String)>);
+
+impl Params {
+    fn parse(input: &[u8]) -> Self {
+        Self(form_urlencoded::parse(input).into_owned().collect())
+    }
+
+    /// The first value given for `name`, if any.
+    fn get(&self, name: &str) -> Option<&str> {
+        self.0.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
+    }
+
+    /// The value of `name`, or `default` when it is missing or empty.
+    fn or<'a>(&'a self, name: &str, default: &'a str) -> &'a str {
+        self.get(name).filter(|v| !v.is_empty()).unwrap_or(default)
+    }
 }
 
 /// Answer a request. Every way a request can go wrong ends here as a
@@ -92,11 +111,11 @@ pub fn handle(app: &App, request: &Request, peer: SocketAddr) -> Response {
     let (path, query) = split_target(&request.target);
     let ctx = Context { method: &request.method, path, peer };
     let answer = match request.method.as_str() {
-        "GET" => get(app, path, &Query::parse(query, false), &ctx),
+        "GET" => get(app, path, &Params::parse(query.as_bytes()), &ctx),
         "POST" => post(app, path, &request.body, &ctx),
         other => {
-            ctx.log(&format!("unsupported method {}", py::repr(other)));
-            json_error(501, &format!("unsupported method {}", py::repr(other))).map_err(Failure::NotJson)
+            ctx.log(&format!("unsupported method {other:?}"));
+            json_error(501, &format!("unsupported method {other:?}")).map_err(Failure::NotJson)
         }
     };
     let failed = match answer {
@@ -120,70 +139,73 @@ pub fn handle(app: &App, request: &Request, peer: SocketAddr) -> Response {
     }
 }
 
-/// The path and query string of a request target, as Python's
-/// `urlparse` splits them: an absolute-form target's scheme and host, the
-/// fragment, and `;params` of the last segment are not part of the path.
+/// The path and query string of a request target. An absolute-form target
+/// (`http://host/path?query`, which an HTTP/1.1 server must take) loses its
+/// scheme and host; a fragment is part of neither.
 fn split_target(target: &str) -> (&str, &str) {
-    let mut rest = target;
-    if let Some((scheme, after)) = rest.split_once(':') {
-        let is_scheme = scheme.starts_with(|c: char| c.is_ascii_alphabetic())
-            && scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
-        if is_scheme {
-            rest = after;
+    let target = target.split_once('#').map_or(target, |(before, _)| before);
+    let target = match target.split_once("://") {
+        Some((_, after)) if !target.starts_with('/') => {
+            after.find(['/', '?']).and_then(|at| after.get(at..)).unwrap_or("")
         }
-    }
-    if let Some(after) = rest.strip_prefix("//") {
-        rest = after.find(['/', '?', '#']).and_then(|end| after.get(end..)).unwrap_or("");
-    }
-    let rest = rest.split_once('#').map_or(rest, |(before, _)| before);
-    let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
-    let segment_start = path.rfind('/').unwrap_or(0);
-    let params = path.get(segment_start..).and_then(|segment| segment.find(';'));
-    let path = params.and_then(|at| path.get(..segment_start.saturating_add(at))).unwrap_or(path);
-    (path, query)
+        _ => target,
+    };
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    (if path.is_empty() { "/" } else { path }, query)
 }
 
-fn archived_flag(q: &Query) -> bool {
+fn archived_flag(q: &Params) -> bool {
     q.get("archived") == Some("1")
 }
 
-fn get(app: &App, path: &str, q: &Query, ctx: &Context<'_>) -> Answer {
-    let area = q.get_or("area", "");
-    let topic = q.get_or("topic", "");
+/// A number in a query string; `default` when it is missing or empty.
+fn number<T>(q: &Params, name: &str, default: T) -> Result<T, Failure>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    match q.get(name).filter(|v| !v.is_empty()) {
+        None => Ok(default),
+        Some(text) => text.parse().map_err(|err| Failure::Bad(format!("bad {name} {text:?}: {err}"))),
+    }
+}
+
+fn get(app: &App, path: &str, q: &Params, ctx: &Context<'_>) -> Answer {
+    let area = q.or("area", "");
+    let topic = q.or("topic", "");
     match path {
         "/poll" => {
-            let since = q.get_or("since", "0");
-            let since = py::int(since).ok_or_else(|| Failure::Bad(format!("bad since: {}", py::repr(since))))?;
-            let timeout_text = q.get_or("timeout", "50");
-            let timeout = py::float(timeout_text)
-                .filter(|t| !t.is_nan())
-                .ok_or_else(|| Failure::Bad(format!("bad timeout: {}", py::repr(timeout_text))))?;
+            let since: i64 = number(q, "since", 0)?;
+            let timeout: f64 = number(q, "timeout", 50.0)?;
+            if timeout.is_nan() {
+                return Err(Failure::Bad("bad timeout: NaN".to_owned()));
+            }
             let wait = Duration::try_from_secs_f64(timeout.clamp(0.0, MAX_POLL)).unwrap_or(Duration::ZERO);
             let scope = Scope { since, area, topic, include_archived: archived_flag(q) };
             let messages = app.board.poll(&scope, wait)?;
-            if q.get_or("format", "json") == "lines" {
+            if q.get("format") == Some("lines") {
                 Ok(Response::text(200, &format_lines(&messages)))
             } else {
-                Ok(Response::json(200, py::dumps(&messages)?))
+                Ok(Response::json(200, serde_json::to_string(&messages)?))
             }
         }
-        "/areas" => Ok(Response::json(200, py::dumps(&app.board.list_areas(archived_flag(q))?)?)),
-        "/pins" => Ok(Response::json(200, py::dumps(&app.board.pins_for(area, topic, archived_flag(q))?)?)),
+        "/areas" => Ok(Response::json(200, serde_json::to_string(&app.board.list_areas(archived_flag(q))?)?)),
+        "/pins" => Ok(Response::json(200, serde_json::to_string(&app.board.pins_for(area, topic, archived_flag(q))?)?)),
         "/pin" | "/ui/pin" | "/ui/pin/edit" if area.is_empty() => Ok(json_error(400, "need an 'area'")?),
         "/ui/pin" => Ok(Response::html(200, html::pin(area, topic, app.board.get_pin(area, topic)?.as_ref()))),
         "/ui/pin/edit" => Ok(Response::html(200, pin_form(app, area, topic, "me", None, None, "")?)),
         "/pin" => match app.board.get_pin(area, topic)? {
-            Some(pin) => Ok(Response::json(200, py::dumps(&pin)?)),
+            Some(pin) => Ok(Response::json(200, serde_json::to_string(&pin)?)),
             None => Ok(json_error(404, "no pin")?),
         },
         "/ui/messages" => Ok(Response::html(200, html::rows(&app.board.recent(area, topic, RECENT)?))),
         "/static/htmx.min.js" | "/static/board-sign.js" => Ok(static_file(app, path, ctx)?),
-        "/healthz" => Ok(Response::json(200, py::dumps(&json!({ "head": app.board.head_id()? }))?)),
+        "/healthz" => Ok(Response::json(200, serde_json::to_string(&json!({ "head": app.board.head_id()? }))?)),
         "/" => Ok(Response::html(200, page(app, area, topic, q.get("show") == Some("archived"))?)),
         _ if path.starts_with("/msg/") => {
-            let id = path.splitn(3, '/').nth(2).and_then(py::int);
+            let id = path.strip_prefix("/msg/").and_then(|id| id.parse::<i64>().ok());
             match id.map(|id| app.board.message(id)).transpose()?.flatten() {
-                Some(message) => Ok(Response::json(200, py::dumps(&message)?)),
+                Some(message) => Ok(Response::json(200, serde_json::to_string(&message)?)),
                 None => Ok(json_error(404, "no such id")?),
             }
         }
@@ -218,9 +240,9 @@ fn format_lines(messages: &[message_board::store::Message]) -> String {
 
 /// The first line of a body, cut at 200 characters.
 fn summary(body: &str) -> String {
-    let first = py::splitlines(py::strip(body)).into_iter().next().unwrap_or_default();
+    let first = body.trim().lines().next().unwrap_or_default();
     if first.chars().count() <= 200 {
-        first
+        first.to_owned()
     } else {
         let mut cut: String = first.chars().take(197).collect();
         cut.push_str("...");
@@ -315,8 +337,8 @@ impl From<StoreError> for Refused {
 /// A refusal as JSON. stale-nonce is a code: the client signs again on it.
 fn refusal_json(status: u16, message: &str, stale_head: Option<i64>) -> Result<Response, serde_json::Error> {
     let response = match stale_head {
-        Some(head) => Response::json(status, py::dumps(&json!({ "error": "stale-nonce", "head": head }))?),
-        None => Response::json(status, py::dumps(&json!({ "error": message }))?),
+        Some(head) => Response::json(status, serde_json::to_string(&json!({ "error": "stale-nonce", "head": head }))?),
+        None => Response::json(status, serde_json::to_string(&json!({ "error": message }))?),
     };
     Ok(with_board_error(response, stale_head))
 }
@@ -370,16 +392,11 @@ fn submit_pin(app: &App, save: &PinSave<'_>, signature: Option<&str>, nonce: &st
     Ok(app.board.set_pin(save, signer.as_ref())?)
 }
 
-fn form(body: &[u8]) -> Result<Query, Failure> {
-    let text = std::str::from_utf8(body).map_err(|err| Failure::Bad(format!("form body is not UTF-8: {err}")))?;
-    Ok(Query::parse(text, true))
-}
-
 fn post(app: &App, path: &str, body: &[u8], ctx: &Context<'_>) -> Answer {
     match path {
-        "/ui/archive" => ui_archive(app, &form(body)?),
-        "/ui/pin" => ui_pin(app, &form(body)?, ctx),
-        "/ui/post" => ui_post(app, &form(body)?, ctx),
+        "/ui/archive" => ui_archive(app, &Params::parse(body)),
+        "/ui/pin" => ui_pin(app, &Params::parse(body), ctx),
+        "/ui/post" => ui_post(app, &Params::parse(body), ctx),
         _ => {
             let data: Value = if body.is_empty() { Value::Object(Map::new()) } else { serde_json::from_slice(body)? };
             let api: fn(&App, &Fields) -> Answer = match path {
@@ -398,12 +415,16 @@ fn post(app: &App, path: &str, body: &[u8], ctx: &Context<'_>) -> Answer {
 }
 
 /// A plain form post: archive or unarchive, then back to a sensible page.
-fn ui_archive(app: &App, form: &Query) -> Answer {
-    let area = form.get_or("area", "");
+fn ui_archive(app: &App, form: &Params) -> Answer {
+    let area = form.get("area").unwrap_or_default();
     let archived = form.get("archived") == Some("1");
     match app.board.set_archived(area, archived) {
         Ok(_) => {
-            let location = if archived { "/".to_owned() } else { format!("/?{}", py::urlencode(&[("area", area)])) };
+            let location = if archived {
+                "/".to_owned()
+            } else {
+                format!("/?{}", form_urlencoded::Serializer::new(String::new()).append_pair("area", area).finish())
+            };
             Ok(Response::redirect(&location))
         }
         Err(StoreError::Db(err)) => Err(Failure::Db(err)),
@@ -412,20 +433,18 @@ fn ui_archive(app: &App, form: &Query) -> Answer {
 }
 
 /// The htmx pin editor: the saved pin box, or the form again with why.
-fn ui_pin(app: &App, form: &Query, ctx: &Context<'_>) -> Answer {
-    let area = form.get_or("area", "");
+fn ui_pin(app: &App, form: &Params, ctx: &Context<'_>) -> Answer {
+    let area = form.get("area").unwrap_or_default();
     if area.is_empty() {
         return Ok(json_error(400, "need an 'area'")?);
     }
-    let topic = form.get_or("topic", "");
-    let sender = form.get_nonempty_or("from", "anon");
-    let body = form.get_or("body", "");
-    let base_text = form.get_nonempty_or("base_version", "0");
-    let base_version =
-        py::int(base_text).ok_or_else(|| Failure::Bad(format!("bad base_version: {}", py::repr(base_text))))?;
+    let topic = form.get("topic").unwrap_or_default();
+    let sender = form.or("from", "anon");
+    let body = form.get("body").unwrap_or_default();
+    let base_version: i64 = number(form, "base_version", 0)?;
     let save = PinSave { area, topic, editor: sender, body, base_version: Some(base_version) };
     let refill = |base: i64, error: &str| pin_form(app, area, topic, sender, Some(body), Some(base), error);
-    match submit_pin(app, &save, form.get("signature"), form.get_or("nonce", "")) {
+    match submit_pin(app, &save, form.get("signature"), form.get("nonce").unwrap_or_default()) {
         Ok(_) => Ok(Response::html(200, html::pin(area, topic, app.board.get_pin(area, topic)?.as_ref()))),
         // Keep their text; the next save is a deliberate overwrite.
         Err(Refused::StalePin(version)) => Ok(Response::html(
@@ -449,16 +468,16 @@ fn ui_pin(app: &App, form: &Query, ctx: &Context<'_>) -> Answer {
 
 /// The htmx post form: the refreshed list, or why not as plain text
 /// (board-sign.js shows it by the form, unswapped).
-fn ui_post(app: &App, form: &Query, ctx: &Context<'_>) -> Answer {
+fn ui_post(app: &App, form: &Params, ctx: &Context<'_>) -> Answer {
     if let Some(body) = form.get("body").filter(|b| !b.is_empty()) {
         let submission = Submission {
-            area: form.get_nonempty_or("area", "general"),
-            topic: form.get_nonempty_or("topic", "general"),
-            sender: form.get_nonempty_or("from", "anon"),
+            area: form.or("area", "general"),
+            topic: form.or("topic", "general"),
+            sender: form.or("from", "anon"),
             body,
             key: form.get("key").filter(|k| !k.is_empty()),
             signature: form.get("signature"),
-            nonce: form.get_or("nonce", ""),
+            nonce: form.get("nonce").unwrap_or_default(),
         };
         match submit_post(app, &submission) {
             Ok(_) => {}
@@ -472,77 +491,58 @@ fn ui_post(app: &App, form: &Query, ctx: &Context<'_>) -> Answer {
             }
         }
     }
-    let rows = app.board.recent(form.get_or("area", ""), form.get_or("topic", ""), RECENT)?;
+    let rows = app.board.recent(form.get("area").unwrap_or_default(), form.get("topic").unwrap_or_default(), RECENT)?;
     Ok(Response::html(200, html::rows(&rows)))
 }
 
-/// A JSON request body's fields, read with the defaults Python's
-/// `data.get` gave them, and with their types checked.
+/// A JSON request body's fields, with their types checked. A field that is
+/// `null` counts as missing.
 struct Fields(Map<String, Value>);
 
-/// Python's truthiness of a JSON value.
-fn truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
-        Value::String(s) => !s.is_empty(),
-        Value::Array(a) => !a.is_empty(),
-        Value::Object(o) => !o.is_empty(),
-    }
+fn wrong_type(name: &str, kind: &str) -> Failure {
+    Failure::Bad(format!("field {name:?} must be {kind}"))
 }
 
 impl Fields {
-    fn has(&self, name: &str) -> bool {
-        self.0.contains_key(name)
+    fn get(&self, name: &str) -> Option<&Value> {
+        self.0.get(name).filter(|value| !value.is_null())
     }
 
     /// A text field, `default` when it is missing.
     fn text<'a>(&'a self, name: &str, default: &'a str) -> Result<&'a str, Failure> {
-        match self.0.get(name) {
+        match self.get(name) {
             None => Ok(default),
             Some(Value::String(s)) => Ok(s),
-            Some(_) => Err(Failure::Bad(format!("field {} must be a string", py::repr(name)))),
+            Some(_) => Err(wrong_type(name, "a string")),
         }
     }
 
-    /// `data.get(name) or None` for a text field: a false value is none.
+    /// A text field that may be missing or empty.
     fn optional_text(&self, name: &str) -> Result<Option<&str>, Failure> {
-        match self.0.get(name) {
-            Some(Value::String(s)) if !s.is_empty() => Ok(Some(s)),
-            Some(value) if truthy(value) => Err(Failure::Bad(format!("field {} must be a string", py::repr(name)))),
-            _ => Ok(None),
-        }
-    }
-
-    /// The signature, if any; one that is not text is no signature at all.
-    fn signature(&self) -> Result<Option<&str>, Refused> {
-        match self.0.get("signature") {
-            Some(Value::String(s)) if !s.is_empty() => Ok(Some(s)),
-            Some(value) if truthy(value) => {
-                Err(Refused::Refusal { status: 400, message: "signature is not base64".to_owned(), stale_head: None })
-            }
-            _ => Ok(None),
-        }
+        Ok(Some(self.text(name, "")?).filter(|s| !s.is_empty()))
     }
 
     /// The nonce as signed: text, or a number written out; empty if none.
     fn nonce(&self) -> Result<String, Failure> {
-        match self.0.get("nonce") {
-            None | Some(Value::Null) => Ok(String::new()),
+        match self.get("nonce") {
+            None => Ok(String::new()),
             Some(Value::String(s)) => Ok(s.clone()),
             Some(Value::Number(n)) if n.is_i64() || n.is_u64() => Ok(n.to_string()),
-            Some(_) => Err(Failure::Bad("field 'nonce' must be a string".to_owned())),
+            Some(_) => Err(wrong_type("nonce", "a string")),
         }
     }
 
     fn base_version(&self) -> Result<Option<i64>, Failure> {
-        match self.0.get("base_version") {
-            None | Some(Value::Null) => Ok(None),
-            Some(Value::Number(n)) => {
-                n.as_i64().map(Some).ok_or_else(|| Failure::Bad("field 'base_version' must be an integer".to_owned()))
-            }
-            Some(_) => Err(Failure::Bad("field 'base_version' must be an integer".to_owned())),
+        match self.get("base_version") {
+            None => Ok(None),
+            Some(value) => value.as_i64().map(Some).ok_or_else(|| wrong_type("base_version", "an integer")),
+        }
+    }
+
+    fn flag(&self, name: &str, default: bool) -> Result<bool, Failure> {
+        match self.get(name) {
+            None => Ok(default),
+            Some(value) => value.as_bool().ok_or_else(|| wrong_type(name, "true or false")),
         }
     }
 }
@@ -552,20 +552,17 @@ fn refused(r: Refused) -> Answer {
         Refused::Refusal { status, message, stale_head } => Ok(refusal_json(status, &message, stale_head)?),
         Refused::StalePin(version) => Ok(Response::json(
             409,
-            py::dumps(&json!({ "error": "pin changed since base_version", "version": version }))?,
+            serde_json::to_string(&json!({ "error": "pin changed since base_version", "version": version }))?,
         )),
         Refused::Fault(err) => Err(Failure::Db(err)),
     }
 }
 
 fn api_post(app: &App, data: &Fields) -> Answer {
-    if !data.has("body") {
+    if data.get("body").is_none() {
         return Ok(json_error(400, "need a 'body'")?);
     }
-    let signature = match data.signature() {
-        Ok(signature) => signature,
-        Err(r) => return refused(r),
-    };
+    let signature = data.optional_text("signature")?;
     // only a signed write carries a nonce that means anything
     let nonce = if signature.is_some() { data.nonce()? } else { String::new() };
     let submission = Submission {
@@ -578,16 +575,16 @@ fn api_post(app: &App, data: &Fields) -> Answer {
         nonce: &nonce,
     };
     match submit_post(app, &submission) {
-        Ok(id) => Ok(Response::json(200, py::dumps(&json!({ "id": id }))?)),
+        Ok(id) => Ok(Response::json(200, serde_json::to_string(&json!({ "id": id }))?)),
         Err(r) => refused(r),
     }
 }
 
 fn api_archive(app: &App, data: &Fields) -> Answer {
     let area = data.text("area", "")?;
-    let archived = data.0.get("archived").is_none_or(truthy);
+    let archived = data.flag("archived", true)?;
     match app.board.set_archived(area, archived) {
-        Ok(changed) => Ok(Response::json(200, py::dumps(&json!({ "changed": changed }))?)),
+        Ok(changed) => Ok(Response::json(200, serde_json::to_string(&json!({ "changed": changed }))?)),
         Err(StoreError::NoSuchArea(_)) => Ok(json_error(404, "no such area")?),
         Err(StoreError::Db(err)) => Err(Failure::Db(err)),
         Err(err) => Ok(json_error(400, &err.to_string())?),
@@ -595,13 +592,10 @@ fn api_archive(app: &App, data: &Fields) -> Answer {
 }
 
 fn api_pin(app: &App, data: &Fields) -> Answer {
-    if !data.0.get("area").is_some_and(truthy) || !data.has("body") {
+    if data.optional_text("area")?.is_none() || data.get("body").is_none() {
         return Ok(json_error(400, "need 'area' and 'body'")?);
     }
-    let signature = match data.signature() {
-        Ok(signature) => signature,
-        Err(r) => return refused(r),
-    };
+    let signature = data.optional_text("signature")?;
     let nonce = if signature.is_some() { data.nonce()? } else { String::new() };
     let save = PinSave {
         area: data.text("area", "")?,
@@ -611,23 +605,19 @@ fn api_pin(app: &App, data: &Fields) -> Answer {
         base_version: data.base_version()?,
     };
     match submit_pin(app, &save, signature, &nonce) {
-        Ok(version) => Ok(Response::json(200, py::dumps(&json!({ "version": version }))?)),
+        Ok(version) => Ok(Response::json(200, serde_json::to_string(&json!({ "version": version }))?)),
         Err(r) => refused(r),
     }
 }
 
 fn api_areas(app: &App, data: &Fields) -> Answer {
-    if !data.has("name") {
+    if data.get("name").is_none() {
         return Ok(json_error(400, "need a 'name'")?);
     }
     let name = data.text("name", "")?;
-    let description = match data.0.get("description") {
-        None | Some(Value::Null) => "",
-        Some(Value::String(s)) => s,
-        Some(_) => return Err(Failure::Bad("field 'description' must be a string".to_owned())),
-    };
+    let description = data.text("description", "")?;
     match app.board.create_area(name, description) {
-        Ok(()) => Ok(Response::json(200, py::dumps(&json!({ "ok": true }))?)),
+        Ok(()) => Ok(Response::json(200, serde_json::to_string(&json!({ "ok": true }))?)),
         Err(StoreError::Db(err)) => Err(Failure::Db(err)),
         Err(err) => Ok(json_error(400, &err.to_string())?),
     }
@@ -638,13 +628,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn targets_split_as_urlparse_splits_them() {
+    fn targets_split_into_path_and_query() {
         assert_eq!(split_target("/poll?since=3&area=x"), ("/poll", "since=3&area=x"));
-        assert_eq!(split_target("/healthz;v=1"), ("/healthz", ""));
-        assert_eq!(split_target("/a;b/c"), ("/a;b/c", ""));
         assert_eq!(split_target("http://host:8777/msg/5?x#f"), ("/msg/5", "x"));
-        assert_eq!(split_target("//healthz"), ("", ""));
+        assert_eq!(split_target("http://host:8777?x"), ("/", "x"));
         assert_eq!(split_target("/x#frag?no"), ("/x", ""));
+    }
+
+    #[test]
+    fn queries_decode_the_standard_way() {
+        let q = Params::parse(b"area=a+b%2Fc&topic=&since=7&area=second");
+        assert_eq!(q.get("area"), Some("a b/c"));
+        assert_eq!(q.or("topic", "general"), "general");
+        assert!(matches!(number::<i64>(&q, "since", 0), Ok(7)));
+        assert!(matches!(number::<i64>(&q, "missing", 3), Ok(3)));
+        assert!(matches!(number::<i64>(&Params::parse(b"since=x"), "since", 0), Err(Failure::Bad(_))));
     }
 
     #[test]
@@ -653,15 +651,5 @@ mod tests {
         assert_eq!(summary(""), "");
         let long = "é".repeat(250);
         assert_eq!(summary(&long), format!("{}...", "é".repeat(197)));
-    }
-
-    #[test]
-    fn json_truthiness_is_pythons() {
-        for falsy in [json!(null), json!(false), json!(0), json!(0.0), json!(""), json!([]), json!({})] {
-            assert!(!truthy(&falsy), "{falsy}");
-        }
-        for value in [json!(true), json!(1), json!("0"), json!([0]), json!({"a": 1})] {
-            assert!(truthy(&value), "{value}");
-        }
     }
 }

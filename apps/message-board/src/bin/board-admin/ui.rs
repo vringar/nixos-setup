@@ -132,7 +132,7 @@ fn draw_picker(frame: &mut Frame<'_>, picker: &mut Picker) -> Result<(), TryFrom
 /// screen are cut off rather than drawn outside it.
 fn confirm(frame: &mut Frame<'_>, header: &str, details: &str, question: &str) {
     let mut lines = vec![Line::from(visible(header)), Line::default()];
-    lines.extend(message_board::py::splitlines(details).iter().map(|line| Line::from(visible(line))));
+    lines.extend(details.lines().map(|line| Line::from(visible(line))));
     lines.push(Line::default());
     lines.push(Line::from(Span::styled(question, Style::new().add_modifier(Modifier::BOLD))));
     frame.render_widget(Paragraph::new(lines), frame.area());

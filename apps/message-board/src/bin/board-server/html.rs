@@ -2,12 +2,16 @@
 //!
 //! [`Html`] can only be built from string literals (markup written here)
 //! and from text, which is always escaped, so nothing a message, pin, name
-//! or area brings in can become markup. The pages are the same bytes the
-//! Jinja templates of the Python board rendered, whitespace included:
-//! htmx and board-sign.js depend on their structure.
+//! or area brings in can become markup. htmx and board-sign.js depend on
+//! the pages' structure: the element ids, the classes and the hx-
+//! attributes.
 
-use message_board::py;
 use message_board::store::{Area, Message, Pin};
+
+/// A value as it goes into a URL query: form-urlencoded.
+fn encoded(value: &str) -> String {
+    form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
 
 /// HTML: literal markup and escaped text.
 #[derive(Debug, Default)]
@@ -26,7 +30,7 @@ impl Html {
         self
     }
 
-    /// Text, escaped as Jinja's autoescape (`markupsafe`) escapes it.
+    /// Text, escaped for an element's content or an attribute value.
     pub fn text(&mut self, text: &str) -> &mut Self {
         for c in text.chars() {
             match c {
@@ -135,9 +139,9 @@ fn archive_form(area: &str, archived: bool) -> Html {
 
 /// A nav link to an area or topic, marked when it is the one on show.
 fn nav_link(h: &mut Html, area: &str, topic: Option<&str>, label: &str, current: bool) {
-    h.markup("<a href=\"/?area=").text(&py::quote(area));
+    h.markup("<a href=\"/?area=").text(&encoded(area));
     if let Some(topic) = topic {
-        h.markup("&topic=").text(&py::quote(topic));
+        h.markup("&topic=").text(&encoded(topic));
     }
     h.markup("\"\n    ");
     if current {
@@ -166,7 +170,7 @@ pub fn page(v: &Page<'_>) -> Html {
     if v.show_archived && !v.archived.is_empty() {
         h.markup("<nav class=\"muted\" hx-boost:inherited=\"true\">archived:\n  ");
         for a in v.archived {
-            h.markup("<a href=\"/?area=").text(&py::quote(&a.name)).markup("\">").text(&a.name).markup("</a>");
+            h.markup("<a href=\"/?area=").text(&encoded(&a.name)).markup("\">").text(&a.name).markup("</a>");
         }
         h.markup("</nav>");
     }
@@ -205,9 +209,9 @@ pub fn page(v: &Page<'_>) -> Html {
     h.markup("\n")
         .html(&v.pins)
         .markup("\n<div id=\"messages\" hx-get=\"/ui/messages?area=")
-        .text(&py::quote(v.area))
+        .text(&encoded(v.area))
         .markup("&topic=")
-        .text(&py::quote(v.topic))
+        .text(&encoded(v.topic))
         .markup("\"\n     hx-trigger=\"every 3s\" hx-swap=\"innerHTML\">")
         .html(&v.rows)
         .markup("</div>\n<h3>post a message</h3>\n<form hx-post=\"/ui/post\" hx-target=\"#messages\" hx-swap=\"innerHTML\">\n  <p class=\"error\" hidden></p>\n  <div class=\"row\">\n    <input name=\"area\" placeholder=\"area\" value=\"")
@@ -237,9 +241,9 @@ pub fn rows(messages: &[Message]) -> Html {
         h.markup("<div class=\"msg\">\n<span class=\"meta\">#")
             .text(&m.id.to_string())
             .markup("\n<a href=\"/?area=")
-            .text(&py::quote(&m.area))
+            .text(&encoded(&m.area))
             .markup("&topic=")
-            .text(&py::quote(&m.topic))
+            .text(&encoded(&m.topic))
             .markup("\">[")
             .text(&m.area)
             .markup("/")
@@ -256,7 +260,7 @@ pub fn rows(messages: &[Message]) -> Html {
 /// edit form without knowing what page it sits on. It is text, not
 /// markup: its `&` is escaped like any other.
 fn pin_query(area: &str, topic: &str) -> String {
-    format!("area={}&topic={}", py::quote(area), py::quote(topic))
+    format!("area={}&topic={}", encoded(area), encoded(topic))
 }
 
 /// "area" or "area/topic".
@@ -345,7 +349,7 @@ mod tests {
     #[test]
     fn a_pin_box_escapes_its_own_query() {
         let html = String::from_utf8_lossy(&pin("a b", "t&u", None).into_bytes()).into_owned();
-        assert!(html.contains("hx-get=\"/ui/pin/edit?area=a%20b&amp;topic=t%26u\""), "{html}");
+        assert!(html.contains("hx-get=\"/ui/pin/edit?area=a+b&amp;topic=t%26u\""), "{html}");
         assert!(html.contains("pin a note to a b/t&amp;u"), "{html}");
     }
 }

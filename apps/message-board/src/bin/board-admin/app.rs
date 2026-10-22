@@ -14,7 +14,6 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
-use message_board::py;
 use message_board::store::{Board, Identity, Listed};
 
 use crate::Failure;
@@ -140,7 +139,7 @@ pub struct App {
 
 /// The first line of a message, cut to 80 characters, for a list row.
 fn first_line(body: &str) -> String {
-    py::splitlines(body).into_iter().next().unwrap_or_default().chars().take(80).collect()
+    body.lines().next().unwrap_or_default().chars().take(80).collect()
 }
 
 impl App {

@@ -489,7 +489,7 @@ def test_a_claim_already_released_meanwhile_is_not_an_error(tmp_path):
 def test_release_frees_the_names_around_it_too(tmp_path):
     with running(tmp_path / "board.db", tmp_path / "logs") as b:
         _claim(b, tmp_path, "Stefan")
-        with pytest.raises(Forbidden, match="too close to the claimed name 'Stefan'"):
+        with pytest.raises(Forbidden, match=r"too close to the claimed name \WStefan\W"):
             b.post("proj", "t", "stefan", "a look-alike")
         b.server.stop()
         _release(tmp_path, "Stefan")

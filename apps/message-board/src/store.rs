@@ -42,7 +42,7 @@ use rusqlite::types::Value;
 use rusqlite::{Connection, ErrorCode, OptionalExtension as _, Row, params, params_from_iter};
 use serde::Serialize;
 
-use crate::{py, timefmt};
+use crate::timefmt;
 
 pub const SYSTEM_AREA: &str = "_system";
 /// Where area-wide pin updates are announced.
@@ -173,8 +173,8 @@ pub enum Error {
     /// The pin changed since the editor loaded it.
     #[error("pin changed since base_version")]
     StalePin { version: i64 },
-    /// No area by that name (shown as Python showed a `KeyError`).
-    #[error("{}", py::repr(.0))]
+    /// No area by that name.
+    #[error("no such area {0:?}")]
     NoSuchArea(String),
     #[error("{SYSTEM_AREA} cannot be archived")]
     SystemArea,
@@ -293,6 +293,12 @@ pub struct Scope<'a> {
     pub include_archived: bool,
 }
 
+/// A name in a message: quoted, with anything but printable ASCII escaped,
+/// so that a look-alike letter (a Cyrillic "a") shows as what it is.
+fn quoted(name: &str) -> String {
+    format!("\"{}\"", name.escape_default())
+}
+
 /// Raise [`Error::BadName`] unless `name` may be written as a sender.
 ///
 /// # Errors
@@ -302,7 +308,7 @@ pub fn check_name(name: &str) -> Result<(), Error> {
     if (1..=NAME_MAX).contains(&name.len()) && name.bytes().all(allowed) {
         Ok(())
     } else {
-        Err(Error::BadName(format!("sender name {} is not allowed: names are {NAME_RULE}", py::ascii(name))))
+        Err(Error::BadName(format!("sender name {} is not allowed: names are {NAME_RULE}", quoted(name))))
     }
 }
 
@@ -335,13 +341,13 @@ fn looks_alike(a: &str, b: &str) -> bool {
 /// Raise [`Error::Forbidden`] if `name` is [`SERVER_NAME`] or looks like it.
 fn check_reserved(name: &str) -> Result<(), Error> {
     if name == SERVER_NAME {
-        return Err(Error::Forbidden(format!("name {} is the board itself; write as your own name", py::repr(name))));
+        return Err(Error::Forbidden(format!("name {} is the board itself; write as your own name", quoted(name))));
     }
     if looks_alike(name, SERVER_NAME) {
         return Err(Error::Forbidden(format!(
             "name {} is too close to the reserved name {}; use one at least {MIN_DISTANCE} edits from it",
-            py::repr(name),
-            py::repr(SERVER_NAME)
+            quoted(name),
+            quoted(SERVER_NAME)
         )));
     }
     Ok(())
@@ -441,17 +447,17 @@ fn check_claim(conn: &Connection, sender: &str, signer: Option<&Signer>) -> Resu
         if let Some(near) = near_claims(conn, sender)?.first() {
             return Err(Error::Forbidden(format!(
                 "name {} is too close to the claimed name {}; use one at least {MIN_DISTANCE} edits from every claimed name",
-                py::repr(sender),
-                py::repr(near)
+                quoted(sender),
+                quoted(near)
             )));
         }
         return Ok(signer.is_some());
     };
     match signer {
-        None => Err(Error::Forbidden(format!("name {} is claimed; sign the post", py::repr(sender)))),
+        None => Err(Error::Forbidden(format!("name {} is claimed; sign the post", quoted(sender)))),
         Some(signer) if signer.fingerprint != ident.fingerprint => Err(Error::Forbidden(format!(
             "name {} is claimed by key {}, not {}",
-            py::repr(sender),
+            quoted(sender),
             ident.fingerprint,
             signer.fingerprint
         ))),
@@ -775,7 +781,7 @@ impl Board {
                 claim(conn, now, save.editor, signer)?;
             }
             let fingerprint = signer.map(|s| s.fingerprint.as_str());
-            let (doorbell, saved) = if py::strip(save.body).is_empty() {
+            let (doorbell, saved) = if save.body.trim().is_empty() {
                 conn.execute("DELETE FROM pins WHERE area=? AND topic=?", [save.area, save.topic])?;
                 (format!("pin removed: {place}"), version)
             } else {

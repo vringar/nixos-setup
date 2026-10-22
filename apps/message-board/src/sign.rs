@@ -19,12 +19,9 @@ use std::io;
 use std::path::Path;
 
 use base64::Engine as _;
-use base64::alphabet;
-use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD, STANDARD_NO_PAD};
+use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use ed25519_dalek::{Signature, Signer as _, SigningKey, Verifier as _, VerifyingKey};
 use sha2::{Digest as _, Sha256, Sha512};
-
-use crate::py;
 
 /// What a signature signs: its SSHSIG namespace, and its fields in signing
 /// order. The namespace keeps a message signature from being replayed as a
@@ -48,12 +45,6 @@ const KEY_TYPE: &[u8] = b"ssh-ed25519";
 const PRIVATE_MAGIC: &[u8] = b"openssh-key-v1\0";
 const PEM_BEGIN: &str = "-----BEGIN OPENSSH PRIVATE KEY-----";
 const PEM_END: &str = "-----END OPENSSH PRIVATE KEY-----";
-
-/// Base64 as Python's `b64decode(..., validate=True)` reads it: the
-/// standard alphabet with its padding, but bits past the last full byte are
-/// not checked.
-const DECODER: GeneralPurpose =
-    GeneralPurpose::new(&alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true));
 
 /// A key or signature the board cannot use, and why. The message is what
 /// clients see; the cause, when there is one, stays attached for the log.
@@ -255,8 +246,8 @@ pub struct Verified {
 /// For anything that is not a valid sha512 ed25519 signature over `data`
 /// in `namespace`, saying which way it is not.
 pub fn verify_data(namespace: &str, data: &[u8], signature: &str) -> Result<Verified, SignatureError> {
-    let joined: String = py::split(signature).collect();
-    let blob = DECODER.decode(joined).map_err(|err| SignatureError::caused("signature is not base64", err))?;
+    let joined: String = signature.split_whitespace().collect();
+    let blob = STANDARD.decode(joined).map_err(|err| SignatureError::caused("signature is not base64", err))?;
     let mut r = Reader::new(&blob);
     if r.take(MAGIC.len())? != MAGIC || r.u32()? != 1 {
         return Err(SignatureError::new("not an SSHSIG version 1 signature"));
@@ -271,11 +262,7 @@ pub fn verify_data(namespace: &str, data: &[u8], signature: &str) -> Result<Veri
         return Err(SignatureError::new("trailing bytes after the signature"));
     }
     if signed_namespace != namespace {
-        return Err(SignatureError::new(format!(
-            "signature is for namespace {}, not {}",
-            py::repr(&signed_namespace),
-            py::repr(namespace)
-        )));
+        return Err(SignatureError::new(format!("signature is for namespace {signed_namespace:?}, not {namespace:?}")));
     }
     if hash != HASH {
         return Err(SignatureError::new(format!("signature uses {hash}; only {HASH} is accepted")));
@@ -305,8 +292,8 @@ pub fn verify(kind: &Kind, values: &[&str; 6], signature: &str) -> Result<Verifi
 /// If `text` is not an OpenSSH public key line, or not an ed25519 one.
 pub fn load_public_key(text: &str) -> Result<Verified, SignatureError> {
     let not_a_key = "not an OpenSSH public key line";
-    let encoded = py::split(text).nth(1).ok_or_else(|| SignatureError::new(not_a_key))?;
-    let blob = DECODER.decode(encoded).map_err(|err| SignatureError::caused(not_a_key, err))?;
+    let encoded = text.split_whitespace().nth(1).ok_or_else(|| SignatureError::new(not_a_key))?;
+    let blob = STANDARD.decode(encoded).map_err(|err| SignatureError::caused(not_a_key, err))?;
     ed25519_from_blob(&blob)?;
     Ok(Verified { public_line: public_line(&blob), fingerprint: fingerprint(&blob) })
 }
@@ -322,8 +309,7 @@ pub fn strerror(err: &io::Error) -> String {
     }
 }
 
-/// Why an openssh-key-v1 file did not parse, in the words of the Python
-/// `cryptography` loader the board used before.
+/// Why an openssh-key-v1 file did not parse.
 #[derive(Debug)]
 enum KeyFileError {
     Format(&'static str, Option<SignatureError>),
@@ -345,10 +331,10 @@ fn parse_private(data: &[u8]) -> Result<[u8; 32], KeyFileError> {
     let text = String::from_utf8_lossy(data);
     let (_, after_begin) = text.split_once(PEM_BEGIN).ok_or(KeyFileError::Format(NOT_OPENSSH, None))?;
     let (armored, _) = after_begin.split_once(PEM_END).ok_or(KeyFileError::Format(NOT_OPENSSH, None))?;
-    // Like binascii.a2b_base64, skip whatever is not base64 (the line breaks).
+    // The armored body is base64 broken into lines: skip all that is not base64.
     let armored: String =
         armored.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=')).collect();
-    let raw = DECODER
+    let raw = STANDARD
         .decode(armored)
         .map_err(|err| KeyFileError::Format(NOT_OPENSSH, Some(SignatureError::caused("bad base64", err))))?;
     let rest = raw.strip_prefix(PRIVATE_MAGIC).ok_or(KeyFileError::Format(NOT_OPENSSH, None))?;
@@ -574,7 +560,8 @@ mod tests {
         Ok(())
     }
 
-    /// Signatures the Python verifier refused, refused here with its words.
+    /// Signatures the Python verifier refused are refused here too, for the
+    /// same reason (its texts quoted names in single quotes, these in double).
     #[test]
     fn python_refusals_hold() -> Result<(), Box<dyn Error>> {
         let v = vectors()?;
@@ -583,7 +570,7 @@ mod tests {
             let data = unhex(&refusal.data_hex)?;
             match verify_data(&refusal.namespace, &data, &refusal.signature) {
                 Ok(_) => return Err(format!("accepted: {}", refusal.why).into()),
-                Err(err) => assert_eq!(err.to_string(), refusal.python_error, "{}", refusal.why),
+                Err(err) => assert_eq!(err.to_string(), refusal.python_error.replace('\'', "\""), "{}", refusal.why),
             }
         }
         Ok(())
@@ -625,7 +612,7 @@ mod tests {
         let signature = key.sign_data("board-message", b"data")?;
         assert_eq!(verify_data("board-message", b"data", &signature)?.fingerprint, generated.fingerprint);
         let err = verify_data("board-pin", b"data", &signature).err().ok_or("accepted another namespace")?;
-        assert_eq!(err.to_string(), "signature is for namespace 'board-message', not 'board-pin'");
+        assert_eq!(err.to_string(), "signature is for namespace \"board-message\", not \"board-pin\"");
         Ok(())
     }
 

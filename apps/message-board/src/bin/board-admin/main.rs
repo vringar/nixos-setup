@@ -128,7 +128,7 @@ fn run() -> Result<ExitCode, Failure> {
     };
     let unit = text_var("BOARD_ADMIN_SERVICE")?.unwrap_or_else(|| "message-board".to_owned());
     let service = Service { unit: (!unit.is_empty()).then_some(unit) };
-    // HOME, else the passwd entry's home, as Python's Path.home() looked it up.
+    // HOME, else the passwd entry's home.
     let home = std::env::home_dir();
     let no_home = || Failure::Exit("board-admin: cannot tell where the home directory is".to_owned());
     let db = db_path(nonempty_var("BOARD_DB"), nonempty_var("XDG_STATE_HOME"), home.clone()).ok_or_else(no_home)?;

@@ -7,8 +7,6 @@ use std::io::{self, BufRead as _, BufReader, Read as _, Write};
 use std::net::TcpStream;
 use std::num::ParseIntError;
 
-use message_board::py;
-
 use crate::html::Html;
 
 /// The most a request line and its headers may take.
@@ -25,7 +23,7 @@ const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsa
 
 pub struct Request {
     pub method: String,
-    /// The request target, decoded as ISO-8859-1 as Python's server did.
+    /// The request target, as sent.
     pub target: String,
     pub body: Vec<u8>,
     /// Whether the connection ends after this request's response.
@@ -42,7 +40,7 @@ pub enum ProtocolError {
     HeadTooLarge,
     #[error("malformed request: {0}")]
     Malformed(#[from] httparse::Error),
-    #[error("bad Content-Length {}: {cause}", py::repr(.value))]
+    #[error("bad Content-Length {value:?}: {cause}")]
     BadLength { value: String, cause: ParseIntError },
     #[error("conflicting Content-Length headers")]
     ConflictingLength,
@@ -104,7 +102,7 @@ pub fn read_request(reader: &mut BufReader<TcpStream>) -> Result<Option<Request>
         return Err(ProtocolError::Truncated);
     }
     let method = parsed.method.unwrap_or_default().to_owned();
-    let target = py::latin1(parsed.path.unwrap_or_default().as_bytes());
+    let target = parsed.path.unwrap_or_default().to_owned();
     let http11 = parsed.version.unwrap_or(1) >= 1;
 
     let mut length: Option<u64> = None;
@@ -168,8 +166,7 @@ fn reason(status: u16) -> &'static str {
 
 pub struct Response {
     status: u16,
-    /// Headers before Content-Length, and after it: the order Python's
-    /// server sent them in.
+    /// Headers before Content-Length, and after it.
     head: Vec<(&'static str, String)>,
     tail: Vec<(&'static str, String)>,
     body: Vec<u8>,

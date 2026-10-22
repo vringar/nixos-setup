@@ -83,9 +83,9 @@ fn first_signed_post_claims_and_locks_the_name() -> TestResult {
     let ident = f.board.get_identity("agent")?.ok_or("no claim")?;
     assert_eq!((ident.fingerprint.as_str(), ident.source.as_str()), ("SHA256:a", "tofu"));
     let unsigned = post(&f.board, "x", "t", "agent", "impostor").err().ok_or("accepted")?;
-    assert_eq!(unsigned.to_string(), "name 'agent' is claimed; sign the post");
+    assert_eq!(unsigned.to_string(), "name \"agent\" is claimed; sign the post");
     let other = signed(&f.board, "x", "agent", "impostor", "SHA256:b").err().ok_or("accepted")?;
-    assert_eq!(other.to_string(), "name 'agent' is claimed by key SHA256:a, not SHA256:b");
+    assert_eq!(other.to_string(), "name \"agent\" is claimed by key SHA256:a, not SHA256:b");
     let head = f.board.head_id()?;
     assert!(post(&f.board, "new-area", "t", "agent", "refused").is_err());
     assert_eq!(f.board.head_id()?, head); // a refusal leaves no trace, no new area either
@@ -99,13 +99,13 @@ fn look_alikes_of_claims_and_of_the_board_are_refused() -> TestResult {
     signed(&f.board, "x", "Stefan", "claim", "SHA256:s")?;
     for near in ["stefan", "STEFAN", "Stefan_", "Stefn", "Stephan"] {
         let err = post(&f.board, "x", "t", near, "hi").err().ok_or("accepted")?;
-        assert!(err.to_string().starts_with(&format!("name '{near}' is too close to the claimed name 'Stefan'")));
+        assert!(err.to_string().starts_with(&format!("name \"{near}\" is too close to the claimed name \"Stefan\"")));
     }
     signed(&f.board, "x", "Stefan-db", "three edits away", "SHA256:d")?;
     let err = post(&f.board, "x", "t", "board", "hi").err().ok_or("accepted")?;
-    assert_eq!(err.to_string(), "name 'board' is the board itself; write as your own name");
+    assert_eq!(err.to_string(), "name \"board\" is the board itself; write as your own name");
     let err = pin(&f.board, "x", "", "b0ard", "hi").err().ok_or("accepted")?;
-    assert!(err.to_string().contains("too close to the reserved name 'board'"));
+    assert!(err.to_string().contains("too close to the reserved name \"board\""));
     Ok(())
 }
 
@@ -116,8 +116,14 @@ fn names_follow_the_rule() {
     }
     for bad in ["", "Stefan ", "a.b", "Stef\u{430}n", "st\u{e9}fan", &"x".repeat(65)] {
         let err = check_name(bad).err().map(|e| e.to_string()).unwrap_or_default();
-        assert_eq!(err, format!("sender name {} is not allowed: names are {NAME_RULE}", py::ascii(bad)));
+        assert_eq!(err, format!("sender name {} is not allowed: names are {NAME_RULE}", quoted(bad)));
     }
+}
+
+#[test]
+fn a_look_alike_letter_shows_in_the_refusal() {
+    let err = check_name("Stef\u{430}n").err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(err.starts_with("sender name \"Stef\\u{430}n\" is not allowed"), "{err}");
 }
 
 #[test]
@@ -152,7 +158,7 @@ fn pins_version_announce_and_refuse_stale_edits() -> TestResult {
     let stale = PinSave { area: "rev", topic: "", editor: "s", body: "late", base_version: Some(1) };
     assert!(matches!(f.board.set_pin(&stale, None), Err(Error::StalePin { version: 2 })));
     assert_eq!(pin(&f.board, "rev", "ghidra", "s", "g")?, 1);
-    assert_eq!(pin(&f.board, "rev", "", "s", " \u{1c}\n")?, 2); // blank removes
+    assert_eq!(pin(&f.board, "rev", "", "s", " \u{a0}\t\n")?, 2); // blank removes
     assert!(f.board.get_pin("rev", "")?.is_none());
     let log = f.board.query(&scope("rev", ""), 10)?;
     assert_eq!(
@@ -202,7 +208,7 @@ fn archiving_hides_and_activity_revives() -> TestResult {
     assert_eq!(notes, ["new area: **rev**", "area archived: **rev**", "area unarchived: **rev**"]);
     assert!(matches!(f.board.set_archived(SYSTEM_AREA, true), Err(Error::SystemArea)));
     let missing = f.board.set_archived("nowhere", true).err().ok_or("archived nothing")?;
-    assert_eq!(missing.to_string(), "'nowhere'");
+    assert_eq!(missing.to_string(), "no such area \"nowhere\"");
     Ok(())
 }
 

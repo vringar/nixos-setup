@@ -20,10 +20,9 @@
 //! `BOARD_OWNER_NAME` + `BOARD_OWNER_PUBKEY` (a name and the public key
 //! file it is bound to at startup, overriding any claim).
 //!
-//! One thread per connection, as Python's `ThreadingHTTPServer` had: a long
-//! poll blocks its thread on the store's condition variable for up to five
-//! minutes, which needs no async runtime, and a local board has few
-//! connections.
+//! One thread per connection: a long poll blocks its thread on the store's
+//! condition variable for up to five minutes, which needs no async
+//! runtime, and a local board has few connections.
 
 mod html;
 mod http;
@@ -42,7 +41,7 @@ use std::time::Duration;
 
 use message_board::sign;
 use message_board::store::{self, Board, DbError, MIN_DISTANCE};
-use message_board::{py, timefmt};
+use message_board::timefmt;
 use signal_hook::consts::{SIGINT, SIGTERM};
 
 use crate::http::Response;
@@ -89,9 +88,9 @@ fn run() -> Result<(), StartError> {
     let shutdown = Shutdown::on_signals().map_err(StartError::Signals)?;
     let addr = setting("BOARD_ADDR")?.unwrap_or_else(|| "127.0.0.1".to_owned());
     let port_text = setting("BOARD_PORT")?.unwrap_or_else(|| "8777".to_owned());
-    let port = py::int(&port_text)
-        .and_then(|n| u16::try_from(n).ok())
-        .ok_or_else(|| StartError::Config(format!("BOARD_PORT {} is not a port number", py::repr(&port_text))))?;
+    let port = port_text
+        .parse::<u16>()
+        .map_err(|err| StartError::Config(format!("BOARD_PORT {port_text:?} is not a port number: {err}")))?;
     let db = PathBuf::from(std::env::var_os("BOARD_DB").unwrap_or_else(|| OsString::from("board.db")));
     let static_dir = match std::env::var_os("BOARD_STATIC_DIR") {
         Some(dir) => PathBuf::from(dir),
@@ -180,10 +179,8 @@ fn preseed_owner(board: &Board) -> Result<(), StartError> {
     log::info(&format!("board: owner {name} is {}", key.fingerprint));
     for near in board.near_claims(&name)? {
         log::info(&format!(
-            "board: warning: the claimed name {} is fewer than {MIN_DISTANCE} edits from the owner's {}; \
-             if it is a look-alike, release it with board-admin",
-            py::repr(&near),
-            py::repr(&name)
+            "board: warning: the claimed name {near:?} is fewer than {MIN_DISTANCE} edits from the owner's {name:?}; \
+             if it is a look-alike, release it with board-admin"
         ));
     }
     Ok(())
@@ -290,7 +287,7 @@ fn connection(app: &App, stream: TcpStream, peer: SocketAddr) {
                     return;
                 };
                 log::line(&format!("board: bad request from {peer}: {err}"));
-                let answer = py::dumps(&serde_json::json!({ "error": err.to_string() }))
+                let answer = serde_json::to_string(&serde_json::json!({ "error": err.to_string() }))
                     .map(|body| Response::json(status, body));
                 match answer {
                     Ok(answer) => {

@@ -796,7 +796,7 @@ def test_first_signed_post_claims_the_name_then_locks_it(board, keys):
     board.post("x", "t", "agent", "this claims it", signer=board.signer(keys.a))
     ident = board.get_identity("agent")
     assert (ident["fingerprint"], ident["source"]) == (keys.a.fingerprint, "tofu")
-    with pytest.raises(Forbidden, match="'agent' is claimed; sign the post"):
+    with pytest.raises(Forbidden, match=r"\bagent\b.* is claimed; sign the post"):
         board.post("x", "t", "agent", "impostor, unsigned")
     with pytest.raises(Forbidden, match=re.escape(f"claimed by key {keys.a.fingerprint}")):
         board.post("x", "t", "agent", "impostor, other key", signer=board.signer(keys.b))
@@ -929,23 +929,30 @@ def test_good_names_pass_server_and_client(board, name):
 @pytest.mark.parametrize("name", BAD_NAMES)
 def test_bad_names_fail_server_and_client_alike(board, proxy, name):
     r = request(board.url + "/post", {"area": "x", "topic": "t", "from": name, "body": "hi"})
-    assert (r.status, r.json()["error"]) == (400, f"sender name {ascii(name)} is not allowed: {RULE}")
+    error = r.json()["error"]
+    assert r.status == 400 and error.startswith("sender name ") and error.endswith(f" is not allowed: {RULE}")
+    # the name shows as it is: spaces quoted, anything but printable ASCII
+    # (a look-alike Cyrillic letter, a line break) escaped
+    assert error.isascii() and (name not in error or name.isascii() and name.isprintable())
     run = cli("post", "x", "t", name, "hi")
-    assert (run.code, run.err) == (1, f"board: sender name {ascii(name)} is not allowed: {RULE}\n")
+    assert (run.code, run.err) == (1, f"board: {error}\n")  # the client says what the server says
     assert proxy.seen == []  # refused before anything was sent
 
 
 def test_server_refuses_a_bad_name_on_every_write(board, tmp_path):
     key = Key.make(tmp_path, "agent")
     r = request(board.url + "/post", {"area": "x", "topic": "t", "from": "Stefan ", "body": "hi"})
-    assert (r.status, r.json()["error"]) == (400, f"sender name 'Stefan ' is not allowed: {RULE}")
+    rule_error = r.json()["error"]
+    assert r.status == 400 and RULE in rule_error and '"Stefan "' in rule_error  # the space shows
     r = request(board.url + "/post", board.signed_message(key, **{"from": "agent.x"}))
     assert r.status == 400 and RULE in r.json()["error"]  # signing does not help
     r = request(board.url + "/pin", {"area": "x", "from": "Stefаn", "body": "rules"})
-    assert r.status == 400 and "'Stef\\u0430n' is not allowed" in r.json()["error"]
+    assert r.status == 400 and "Stef\\u{430}n" in r.json()["error"]  # the look-alike shows
     r = request(board.url + "/ui/post", {"area": "x", "topic": "t", "from": "a b", "body": "hi"},
                 form=True)
-    assert (r.status, r.text) == (400, f"sender name 'a b' is not allowed: {RULE}")
+    api = request(board.url + "/post", {"area": "x", "topic": "t", "from": "a b", "body": "hi"})
+    assert (r.status, r.text) == (400, api.json()["error"])  # the web form says what the API says
+    assert RULE in r.text
     r = request(board.url + "/ui/pin", {"area": "x", "topic": "", "from": "a b",
                                         "body": "my rules", "base_version": "0"}, form=True)
     assert r.status == 400 and RULE in html.unescape(r.text) and "my rules" in r.text  # text kept
@@ -983,7 +990,7 @@ def test_the_names_in_use_on_the_board_coexist_as_claims(board, tmp_path):
 @pytest.mark.parametrize("near", ["stefan", "STEFAN", "Stefan_", "Stefn", "Stephan"])
 def test_a_claim_keeps_names_that_look_like_it_out(board, keys, near):
     board.post("x", "t", "Stefan", "the claim", signer=board.signer(keys.owner))
-    refused = re.escape(f"name '{near}' is too close to the claimed name 'Stefan'")
+    refused = rf"name \W{near}\W is too close to the claimed name \WStefan\W"
     with pytest.raises(Forbidden, match=refused):
         board.post("x", "t", near, "claiming a look-alike", signer=board.signer(keys.b))
     with pytest.raises(Forbidden, match=refused):
@@ -996,7 +1003,7 @@ def test_a_claim_keeps_names_that_look_like_it_out(board, keys, near):
 
 def test_the_claimed_name_itself_follows_the_claim_rule(board, keys):
     board.post("x", "t", "Stefan", "the claim", signer=board.signer(keys.owner))
-    with pytest.raises(Forbidden, match="'Stefan' is claimed; sign the post"):
+    with pytest.raises(Forbidden, match=r"\bStefan\b.* is claimed; sign the post"):
         board.post("x", "t", "Stefan", "unsigned")
     with pytest.raises(Forbidden, match=re.escape(f"claimed by key {keys.owner.fingerprint}")):
         board.post("x", "t", "Stefan", "another key", signer=board.signer(keys.b))
@@ -1006,7 +1013,7 @@ def test_the_claimed_name_itself_follows_the_claim_rule(board, keys):
 @pytest.mark.parametrize("name", ["board", "Board", "BOARD", "boards", "boar", "b0ard"])
 def test_nobody_writes_as_the_board_itself(board, keys, name):
     reason = ("is the board itself" if name == "board"
-              else "is too close to the reserved name 'board'")
+              else "is too close to the reserved name")
     for key in (None, keys.a):
         with pytest.raises(Forbidden, match=reason):
             board.post("x", "t", name, "pretending to be the server",
@@ -1015,7 +1022,7 @@ def test_nobody_writes_as_the_board_itself(board, keys, name):
             board.set_pin("x", "", name, "a pin as the server", signer=key and board.signer(key))
     board.restart(**_owner(keys, name))
     [line] = [l for l in board.server.out().splitlines() if "BOARD_OWNER_NAME" in l]
-    assert line.startswith(f"board: BOARD_OWNER_NAME: name {name!r} {reason}")
+    assert line.startswith("board: BOARD_OWNER_NAME: name ") and f"{name}" in line and reason in line
     assert line.endswith("; no owner is preseeded")
     assert board.list_identities() == [] and board.head_id() == 0
 
@@ -1039,7 +1046,7 @@ def test_http_writes_as_the_board_itself_get_403(board, tmp_path):
         assert r.status == 403 and "board" in r.json()["error"]
     r = request(board.url + "/ui/post", {"area": "x", "topic": "t", "from": "board", "body": "hi"},
                 form=True)
-    assert (r.status, r.text) == (403, "name 'board' is the board itself; write as your own name")
+    assert r.status == 403 and r.text.endswith("is the board itself; write as your own name")
     r = request(board.url + "/ui/pin", {"area": "x", "topic": "", "from": "Board",
                                         "body": "rules", "base_version": "0"}, form=True)
     assert r.status == 403 and "too close to the reserved name" in r.text
@@ -1049,8 +1056,8 @@ def test_http_writes_as_the_board_itself_get_403(board, tmp_path):
 def test_http_unsigned_post_as_a_near_name_is_refused(board, keys):
     board.post("x", "t", "Stefan", "the claim", signer=board.signer(keys.owner))
     r = request(board.url + "/post", {"area": "x", "topic": "t", "from": "stefan", "body": "hi"})
-    assert r.status == 403 and r.json()["error"].startswith(
-        "name 'stefan' is too close to the claimed name 'Stefan'")
+    assert r.status == 403 and re.match(r"name \Wstefan\W is too close to the claimed name \WStefan\W",
+                                        r.json()["error"])
 
 
 # --- nonces: a signature is good for one write --------------------------------
@@ -1111,12 +1118,12 @@ def test_http_signed_post_claims_and_is_verified(board, tmp_path):
     assert [m["verified"] for m in board.get("/poll?area=x&timeout=0").json()] == [True]
     # a resend of the same post is the same post; reusing its key is not
     again = request(board.url + "/post", board.signed_message(key))
-    assert (again.status, again.text) == (200, json.dumps({"id": mid}))
+    assert (again.status, again.json()) == (200, {"id": mid})
     assert request(board.url + "/post", board.signed_message(key, body="changed")).status == 409
     # the name is claimed now
     r = request(board.url + "/post", {"area": "x", "topic": "t", "from": "agent",
                                       "body": "unsigned", "key": "k9"})
-    assert (r.status, r.json()["error"]) == (403, "name 'agent' is claimed; sign the post")
+    assert r.status == 403 and re.search(r"\bagent\b.* is claimed; sign the post$", r.json()["error"])
     assert request(board.url + "/post", board.signed_message(other, key="k2")).status == 403
     # a signature only covers what it signed
     tampered = {**board.signed_message(key, key="k3"), "body": "not what was signed"}
@@ -1151,7 +1158,7 @@ def test_web_post_form_signed_like_the_browser_and_refused_unsigned(board, tmp_p
     r = request(board.url + "/ui/post", raw=b"area=web&topic=t&from=agent&body=unsigned")
     assert r.status == 403
     assert r.headers["content-type"].startswith("text/plain")
-    assert r.text == "name 'agent' is claimed; sign the post"
+    assert re.search(r"\bagent\b.* is claimed; sign the post$", r.text)
 
 
 def test_web_page_has_a_csp_and_no_inline_script(board):
@@ -1196,18 +1203,20 @@ def test_owner_preseed_keeps_look_alike_claims_but_warns(board, keys):
     board.post("x", "t", "Stefan-db", "three edits away", signer=board.signer(keys.b))
     board.restart(**env)
     out = board.server.out()
-    assert ("board: warning: the claimed name 'stefan' is fewer than 3 edits from the"
-            " owner's 'Stefan'") in out
+    assert re.search(r"board: warning: the claimed name \Wstefan\W is fewer than 3 edits from the"
+                     r" owner's \WStefan\W", out)
     assert "Stefan-db" not in out
     assert board.get_identity("Stefan")["source"] == "owner"
     board.post("x", "t", "stefan", "the look-alike keeps its claim", signer=board.signer(keys.a))
     board.restart(**{**env, "BOARD_OWNER_NAME": "Stefan Z"})
-    assert (f"board: BOARD_OWNER_NAME: sender name 'Stefan Z' is not allowed: {RULE};"
-            " no owner is preseeded") in board.server.out().splitlines()
+    assert any(line.startswith("board: BOARD_OWNER_NAME: sender name ") and "Stefan Z" in line
+               and line.endswith(f"is not allowed: {RULE}; no owner is preseeded")
+               for line in board.server.out().splitlines())
     assert board.get_identity("Stefan Z") is None
     board.restart(**{**env, "BOARD_OWNER_NAME": "board"})
-    assert ("board: BOARD_OWNER_NAME: name 'board' is the board itself; write as your own"
-            " name; no owner is preseeded") in board.server.out().splitlines()
+    assert any(re.fullmatch(r"board: BOARD_OWNER_NAME: name \Wboard\W is the board itself; write as your"
+                            r" own name; no owner is preseeded", line)
+               for line in board.server.out().splitlines())
     assert board.get_identity("board") is None
 
 
@@ -1289,7 +1298,7 @@ def test_cli_signs_with_the_nearest_key_and_marks_verified(board, tmp_path, monk
     assert lines.split("\t", 1)[1] == "[rev/t] agent ✓: signed post\n"
     monkeypatch.chdir(tmp_path)  # no key up here: unsigned, and the name is taken
     r = cli("post", "rev", "t", "agent", "impostor")
-    assert (r.code, r.err) == (1, "board: 403: name 'agent' is claimed; sign the post\n")
+    assert r.code == 1 and re.fullmatch(r"board: 403: name \Wagent\W is claimed; sign the post\n", r.err)
     monkeypatch.setenv("BOARD_KEY", str(repo / "scratch" / "board_ed25519"))
     assert cli("post", "rev", "t", "agent", "via BOARD_KEY").code == 0
     monkeypatch.setenv("BOARD_KEY", str(tmp_path / "nope"))

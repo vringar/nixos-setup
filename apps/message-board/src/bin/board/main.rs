@@ -52,7 +52,6 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use signal_hook::consts::SIGINT;
 
-use message_board::py;
 use message_board::sign::{self, Kind, MESSAGE, PIN, PrivateKey, SignatureError};
 use message_board::store::check_name;
 
@@ -88,11 +87,7 @@ fn since_arg(value: &str) -> Result<Since, String> {
     if value == "head" {
         return Ok(Since::Head);
     }
-    py::int(value).map(Since::Id).ok_or_else(|| "expected a message id or 'head'".to_owned())
-}
-
-fn int_arg(value: &str) -> Result<i64, String> {
-    py::int(value).ok_or_else(|| format!("invalid int value: {}", py::repr(value)))
+    value.parse().map(Since::Id).map_err(|err| format!("expected a message id or 'head' ({err})"))
 }
 
 // The help texts are attributes rather than doc comments, so that --help
@@ -127,7 +122,7 @@ enum Command {
             help = "start after this message id, or 'head' for only new messages"
         )]
         since: Option<Since>,
-        #[arg(long, default_value = "50", value_parser = int_arg, allow_negative_numbers = true)]
+        #[arg(long, default_value = "50", allow_negative_numbers = true)]
         timeout: i64,
     },
     #[command(about = "print the full backlog of an area/topic and exit")]
@@ -200,7 +195,7 @@ fn io_failure(what: impl Into<String>) -> impl FnOnce(io::Error) -> Failure {
 }
 
 fn main() -> ExitCode {
-    // Ctrl-C ends a command with 130, as it did the Python one; nothing
+    // Ctrl-C ends a command with 130, the shell's code for it; nothing
     // needs cleaning up first.
     if let Err(err) = signal_hook::flag::register_conditional_shutdown(SIGINT, 130, Arc::new(AtomicBool::new(true))) {
         return report(&Failure::Io { what: "cannot handle Ctrl-C".to_owned(), cause: err });
@@ -249,8 +244,8 @@ fn base_url() -> Result<String, Failure> {
         return Ok(url);
     }
     let port = setting("BOARD_PORT")?.unwrap_or_else(|| "8777".to_owned());
-    let port =
-        py::int(&port).ok_or_else(|| Failure::Exit(format!("board: BOARD_PORT {} is not a port", py::repr(&port))))?;
+    let port: u16 =
+        port.parse().map_err(|err| Failure::Exit(format!("board: BOARD_PORT {port:?} is not a port number: {err}")))?;
     Ok(format!("http://127.0.0.1:{port}"))
 }
 
@@ -267,7 +262,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
                     Some(value) => since_arg(&value).map_err(|why| {
                         Failure::Usage(Cli::command().error(
                             ClapErrorKind::ValueValidation,
-                            format!("invalid value {} for '--since <ID|head>': {why}", py::repr(&value)),
+                            format!("invalid value {value:?} for '--since <ID|head>': {why}"),
                         ))
                     })?,
                     None => Since::Id(0),
@@ -480,7 +475,7 @@ fn send_once(
     client.post(path, &Value::Object(data), timeout).map_err(Attempt::Http)
 }
 
-/// A fresh random key for a post, formatted as Python's `uuid4().hex`.
+/// A fresh random key for a post: a version-4 UUID, as 32 hex digits.
 fn post_key() -> Result<String, Failure> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes)
@@ -585,7 +580,7 @@ fn pin_header(p: &WirePin) -> String {
 }
 
 fn show_pin(client: &Client, area: &str, topic: &str) -> Result<(), Failure> {
-    let path = format!("/pin?{}", py::urlencode(&[("area", area), ("topic", topic)]));
+    let path = format!("/pin?{}", query(&[("area", area), ("topic", topic)]));
     let text = match client.get(&path, TIMEOUT) {
         Ok(text) => text,
         Err(HttpError::Status { status: 404, .. }) => {
@@ -596,7 +591,7 @@ fn show_pin(client: &Client, area: &str, topic: &str) -> Result<(), Failure> {
     };
     let pin: WirePin = parse("/pin", &text)?;
     out(&pin_header(&pin))?;
-    out(py::rstrip(&pin.body))
+    out(pin.body.trim_end())
 }
 
 #[derive(Deserialize)]
@@ -616,7 +611,7 @@ fn set_pin(client: &Client, area: &str, topic: &str, sender: &str) -> Result<(),
         unsent: &["base_version"],
     };
     let saved: Saved = parse("/pin", &submit(client, "/pin", &payload, false)?)?;
-    if py::strip(&body).is_empty() {
+    if body.trim().is_empty() {
         note("board: pin removed") // the board removes a pin saved empty
     } else {
         note(&format!("board: pin saved as v{}", saved.version))
@@ -644,6 +639,11 @@ struct WireArea {
     archived_ts: Option<String>,
 }
 
+/// A query string: the pairs form-urlencoded.
+fn query(pairs: &[(&str, &str)]) -> String {
+    form_urlencoded::Serializer::new(String::new()).extend_pairs(pairs).finish()
+}
+
 fn archived_param(archived: bool) -> &'static str {
     if archived { "1" } else { "" }
 }
@@ -654,7 +654,7 @@ fn read_all(client: &Client, since: i64, area: &str, topic: &str, archived: bool
     let mut since = since;
     loop {
         let since_text = since.to_string();
-        let params = py::urlencode(&[
+        let params = query(&[
             ("since", &since_text),
             ("area", area),
             ("topic", topic),
@@ -704,13 +704,13 @@ fn read(client: &Client, area: &str, topic: &str, since: Since, as_json: bool, a
         Since::Head => head,
         Since::Id(id) => id,
     };
-    let scope = py::urlencode(&[("area", area), ("topic", topic), ("archived", archived_param(archived))]);
+    let scope = query(&[("area", area), ("topic", topic), ("archived", archived_param(archived))]);
     let pins: Vec<Value> = get_json(client, &format!("/pins?{scope}"))?;
     let messages = read_all(client, since, area, topic, archived)?;
     let cursor = messages.iter().filter_map(|m| m.get("id").and_then(Value::as_i64)).fold(head, i64::max);
     if as_json {
         let both = json!({ "pins": pins, "messages": messages });
-        let text = py::dumps_indented(&both)
+        let text = serde_json::to_string_pretty(&both)
             .map_err(|err| Failure::BadAnswer { what: "/poll".to_owned(), cause: err.to_string() })?;
         out(&text)?;
     } else {
@@ -719,14 +719,14 @@ fn read(client: &Client, area: &str, topic: &str, since: Since, as_json: bool, a
             let pin: WirePin = serde_json::from_value(value)
                 .map_err(|err| Failure::BadAnswer { what: "/pins".to_owned(), cause: err.to_string() })?;
             out(&pin_header(&pin))?;
-            out(py::rstrip(&pin.body))?;
+            out(pin.body.trim_end())?;
             out("")?;
         }
         for value in messages {
             let m: WireMessage = serde_json::from_value(value)
                 .map_err(|err| Failure::BadAnswer { what: "/poll".to_owned(), cause: err.to_string() })?;
             out(&format!("#{}  {}  [{}/{}] {}", m.id, m.ts, m.area, m.topic, who(&m.sender, m.verified)))?;
-            out(py::rstrip(&m.body))?;
+            out(m.body.trim_end())?;
             out("")?;
         }
     }
@@ -789,7 +789,7 @@ fn watch(client: &Client, area: &str, topic: &str, since: Since, timeout: i64) -
     loop {
         let since_text = since.to_string();
         let timeout_text = timeout.to_string();
-        let params = py::urlencode(&[
+        let params = query(&[
             ("since", &since_text),
             ("area", area),
             ("topic", topic),
@@ -812,10 +812,10 @@ fn watch(client: &Client, area: &str, topic: &str, since: Since, timeout: i64) -
             out(line)?;
         }
         if let Some(last) = lines.last() {
-            let id = last.split('\t').next().and_then(py::int);
+            let id = last.split('\t').next().and_then(|id| id.parse().ok());
             since = id.ok_or_else(|| Failure::BadAnswer {
                 what: "/poll".to_owned(),
-                cause: format!("a watch line without an id: {}", py::repr(last)),
+                cause: format!("a watch line without an id: {last:?}"),
             })?;
         }
     }
@@ -828,9 +828,9 @@ mod tests {
     #[test]
     fn since_is_an_id_or_head() {
         assert!(matches!(since_arg("head"), Ok(Since::Head)));
-        assert!(matches!(since_arg(" 4_2 "), Ok(Since::Id(42))));
+        assert!(matches!(since_arg("42"), Ok(Since::Id(42))));
         assert!(matches!(since_arg("-1"), Ok(Since::Id(-1))));
-        assert_eq!(since_arg("banana").err().as_deref(), Some("expected a message id or 'head'"));
+        assert!(since_arg("banana").err().is_some_and(|why| why.starts_with("expected a message id or 'head'")));
     }
 
     #[test]
