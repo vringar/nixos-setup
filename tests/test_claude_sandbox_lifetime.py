@@ -790,3 +790,153 @@ def test_finding_the_crossbridge_slug_records_nothing_in_the_project(tmp_path, m
 
     assert sandbox.crossbridge_own_slug(str(project)) == "foo-repo"
     assert jj("op", "log", "--no-graph", "--ignore-working-copy", "-T", "id ++ \"\\n\"") == operations
+
+
+# --- what the host later runs is read-only ------------------------------------
+
+# Run in the sandbox: tries to change each path given, a file by appending to
+# it or renaming another over it, a directory by creating a file in it or
+# renaming it, and prints which paths it could change.
+WRITE_PROBE = textwrap.dedent("""\
+    import json, os, sys
+    changed = {}
+    for path in json.loads(sys.argv[1]):
+        attempts = []
+        if os.path.isdir(path):
+            attempts.append(lambda: open(os.path.join(path, "planted"), "x").close())
+            attempts.append(lambda: os.rename(path, path + ".moved"))
+        else:
+            attempts.append(lambda: open(path, "a").write("planted\\\\n"))
+            def replace():
+                other = path + ".planted"
+                open(other, "w").close()
+                os.replace(other, path)
+            attempts.append(replace)
+        changed[path] = False
+        for attempt in attempts:
+            try:
+                attempt()
+                changed[path] = True
+            except OSError:
+                pass
+    print(json.dumps(changed))
+""")
+
+
+def changeable_inside(launcher, *paths):
+    result = launcher.run(sys.executable, "-c", WRITE_PROBE, json.dumps([str(p) for p in paths]))
+    assert result.returncode == 0, result.stderr
+    return {Path(p): changed for p, changed in json.loads(result.stdout).items()}
+
+
+def git_repo(path, hooks=True):
+    (path / ".git").mkdir(parents=True)
+    (path / ".git" / "config").write_text("[core]\n\tbare = false\n")
+    if hooks:
+        (path / ".git" / "hooks").mkdir()
+    return path / ".git"
+
+
+@needs_bwrap
+@pytest.mark.parametrize("hooks", [True, False])
+def test_the_projects_git_config_and_hooks_are_read_only(tmp_path, hooks):
+    launcher = Launcher(tmp_path)
+    git_dir = git_repo(launcher.project, hooks=hooks)
+    other = git_dir / "description"
+    other.write_text("unnamed\n")
+
+    changed = changeable_inside(launcher, git_dir / "config", git_dir / "hooks", other)
+    assert changed == {git_dir / "config": False, git_dir / "hooks": False, other: True}
+    assert (git_dir / "config").read_text() == "[core]\n\tbare = false\n"
+    assert list((git_dir / "hooks").iterdir()) == []
+
+
+@needs_bwrap
+def test_a_linked_worktrees_git_config_and_hooks_are_read_only(tmp_path):
+    """.git is a file there, naming a git dir whose commondir is the main
+    repository's; config and hooks are the main repository's."""
+    launcher = Launcher(tmp_path)
+    main = tmp_path / "main"
+    common = git_repo(main)
+    own = common / "worktrees" / "wt"
+    own.mkdir(parents=True)
+    (own / "commondir").write_text("../..\n")
+    (own / "config.worktree").write_text("")
+    launcher.project = main / ".worktrees" / "wt"
+    launcher.project.mkdir(parents=True)
+    (launcher.project / ".git").write_text("gitdir: ../../.git/worktrees/wt\n")
+
+    changed = changeable_inside(
+        launcher, common / "config", common / "hooks", own / "config.worktree", own / "HEAD"
+    )
+    assert changed == {
+        common / "config": False,
+        common / "hooks": False,
+        own / "config.worktree": False,
+        own / "HEAD": True,
+    }
+
+
+@needs_bwrap
+def test_the_parent_repositorys_git_config_and_hooks_are_read_only_from_a_workspace(tmp_path):
+    launcher = Launcher(tmp_path)
+    main = tmp_path / "main"
+    git_dir = git_repo(main)
+    (main / ".jj").mkdir()
+    launcher.project = main / ".workspace" / "ws"
+    launcher.project.mkdir(parents=True)
+
+    changed = changeable_inside(launcher, git_dir / "config", git_dir / "hooks", git_dir / "index")
+    assert changed == {git_dir / "config": False, git_dir / "hooks": False, git_dir / "index": True}
+
+
+@needs_bwrap
+def test_claude_settings_and_hooks_are_read_only(tmp_path):
+    launcher = Launcher(tmp_path)
+    config_dir = launcher.home / ".config" / "claude"
+    dot_dir = launcher.home / ".claude"
+    paths = []
+    for claude_dir in (config_dir, dot_dir):
+        (claude_dir / "hooks").mkdir(parents=True)
+        (claude_dir / "hooks" / "hook.sh").write_text("#!/bin/sh\n")
+        (claude_dir / "settings.json").write_text("{}\n")
+        paths += [claude_dir / "settings.json", claude_dir / "hooks", claude_dir / "hooks" / "hook.sh"]
+    # The rest stays writable: Claude Code keeps its state there.
+    state = config_dir / ".claude.json"
+    state.write_text("{}\n")
+
+    changed = changeable_inside(launcher, *paths, state)
+    assert changed == {**{path: False for path in paths}, state: True}
+
+
+@needs_bwrap
+def test_gh_config_is_read_only(tmp_path):
+    launcher = Launcher(tmp_path)
+    gh_config = launcher.home / ".config" / "gh"
+    gh_config.mkdir(parents=True)
+    (gh_config / "config.yml").write_text("aliases: {}\n")
+
+    changed = changeable_inside(launcher, gh_config, gh_config / "config.yml")
+    assert changed == {gh_config: False, gh_config / "config.yml": False}
+
+
+@needs_bwrap
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not on PATH")
+def test_git_still_commits_with_its_config_read_only(tmp_path):
+    launcher = Launcher(tmp_path)
+    git = os.path.realpath(shutil.which("git"))  # a store path, which the sandbox sees
+    # Launcher.env has no GIT_* of the caller's, which would aim git elsewhere.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    subprocess.run([git, "init", "-q", str(launcher.project)], check=True, env=env)
+    launcher.env.update(
+        GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+        GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
+        GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com",
+    )
+    result = launcher.run(shutil.which("sh"), "-c", f"""
+        {git} commit -q --allow-empty -m inside && echo committed
+        {git} config --local x.y z 2>/dev/null || echo config refused
+    """)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "committed\nconfig refused\n"
+    assert "x.y" not in (launcher.project / ".git" / "config").read_text()

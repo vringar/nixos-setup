@@ -625,6 +625,29 @@ def ssh_agent_setup(home_dir, sandbox_tmp, env=None, exists=os.path.exists, star
     return ["--unsetenv", "SSH_AUTH_SOCK"], None, warning
 
 
+def git_dirs(worktree):
+    """The git dirs a work tree uses: its own, which .git is or (a file, as in
+    a linked worktree or a submodule) names, and the common dir it shares
+    with the main worktree, if it names one."""
+    dot_git = os.path.join(worktree, ".git")
+    if os.path.isdir(dot_git):
+        git_dir = dot_git
+    elif os.path.isfile(dot_git):
+        with open(dot_git) as f:
+            line = f.readline().strip()
+        if not line.startswith("gitdir:"):
+            return []
+        git_dir = os.path.normpath(os.path.join(worktree, line[len("gitdir:"):].strip()))
+    else:
+        return []
+    dirs = [git_dir]
+    commondir = os.path.join(git_dir, "commondir")
+    if os.path.isfile(commondir):
+        with open(commondir) as f:
+            dirs.append(os.path.normpath(os.path.join(git_dir, f.read().strip())))
+    return dirs
+
+
 def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     claude_config_dir = os.environ.get(
         "CLAUDE_CONFIG_DIR",
@@ -640,6 +663,7 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     # .jj and .git so that worktree gitlinks (and jj workspace pointers) can
     # be followed inside the sandbox.
     parent_dir = os.path.dirname(project_dir)
+    repo_root = None
     if os.path.basename(parent_dir) in (".workspace", ".worktrees"):
         repo_root = os.path.dirname(parent_dir)
         jj_dir = os.path.join(repo_root, ".jj")
@@ -766,10 +790,12 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     if os.path.isfile(c8ctl_profiles_json):
         args += ["--ro-bind", c8ctl_profiles_json, c8ctl_profiles_json]
 
-    # GitHub CLI config (read-write, gh updates it); its token is GH_TOKEN
+    # GitHub CLI config (read-only: its token comes in as GH_TOKEN, so gh has
+    # nothing to write, and the config names commands gh runs, pager,
+    # editor and browser among them)
     gh_config = os.path.join(home_dir, ".config", "gh")
     if os.path.isdir(gh_config):
-        args += ["--bind", gh_config, gh_config]
+        args += ["--ro-bind", gh_config, gh_config]
 
     # SSH config (read-only, no private keys)
     ssh_known_hosts = os.path.join(home_dir, ".ssh", "known_hosts")
@@ -795,6 +821,34 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     m2_settings = os.path.join(home_dir, ".m2", "settings.xml")
     if os.path.isfile(m2_settings):
         args += ["--ro-bind", m2_settings, m2_settings]
+
+    # Read-only over the read-write binds above: what git and Claude Code run
+    # on the host later, with no review step, so the sandbox cannot plant
+    # code there. A git config can name commands (core.fsmonitor,
+    # core.hooksPath, core.pager, aliases, filters) and hooks are commands;
+    # Claude Code's settings.json defines its hooks, which run the scripts
+    # in hooks/. A hooks dir that does not exist is created first, since the
+    # sandbox could otherwise create it with hooks of its own in it.
+    protected = []
+    for worktree in [project_dir] + ([repo_root] if repo_root else []):
+        dirs = git_dirs(worktree)
+        if not dirs:
+            continue
+        # A linked worktree keeps only config.worktree in its own git dir;
+        # config and hooks are the common dir's.
+        own, common = dirs[0], dirs[-1]
+        if os.path.isdir(common):
+            os.makedirs(os.path.join(common, "hooks"), exist_ok=True)
+        protected += [
+            os.path.join(own, "config.worktree"),
+            os.path.join(common, "config"),
+            os.path.join(common, "hooks"),
+        ]
+    for claude_dir in (claude_config_dir, claude_dot_dir):
+        protected += [os.path.join(claude_dir, "settings.json"), os.path.join(claude_dir, "hooks")]
+    for path in dict.fromkeys(protected):
+        if os.path.exists(path):
+            args += ["--ro-bind", path, path]
 
     return args
 

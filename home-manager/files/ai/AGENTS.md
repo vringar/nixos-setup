@@ -101,6 +101,7 @@ When running inside `claude-sandbox`, the environment is a bubblewrap-isolated c
 - `TESTCONTAINERS_RYUK_DISABLED=true` is always set (Ryuk requires a privileged container, which rootless Podman doesn't allow)
 - Containers see only what the sandbox sees: the Podman service runs in the sandbox's own view of the filesystem, so a bind mount (`-v`) of the project or of `/tmp/...` mounts what you see at that path, and one of anything outside the sandbox (e.g. `~/.ssh`) fails
 - Containers, images and volumes go away with the sandbox
+- Read-only, because the host runs what they name without review: the repository's `.git/config` and `.git/hooks` (the parent repository's for a workspace), Claude's `settings.json` and `hooks/`, and `~/.config/gh`. So `git config --local`, `git remote add`, recording an upstream (`git push -u`), `gh repo set-default`, `pre-commit install`, `gh auth login` / `gh config set` / `gh alias set`, and settings changes in Claude fail; ask the user to make them outside. gh is logged in through `GH_TOKEN`
 
 ## Language Specific
 - Prefer idiomatic solutions - Use language-native features over external dependencies
