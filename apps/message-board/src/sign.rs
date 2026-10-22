@@ -20,7 +20,7 @@ use std::path::Path;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
-use ed25519_dalek::{Signature, Signer as _, SigningKey, Verifier as _, VerifyingKey};
+use ed25519_dalek::{Signature, Signer as _, SigningKey, VerifyingKey};
 use sha2::{Digest as _, Sha256, Sha512};
 
 /// What a signature signs: its SSHSIG namespace, and its fields in signing
@@ -137,7 +137,9 @@ impl<'a> Reader<'a> {
 }
 
 /// The 32 raw key bytes of an `ssh-ed25519` public key blob.
-fn ed25519_from_blob(blob: &[u8]) -> Result<[u8; 32], SignatureError> {
+/// The ed25519 key in an OpenSSH public key blob. A key of low order is
+/// refused: with it, a signature verifies for almost any data.
+fn ed25519_from_blob(blob: &[u8]) -> Result<VerifyingKey, SignatureError> {
     let mut r = Reader::new(blob);
     let kind = r.string()?;
     if kind != KEY_TYPE {
@@ -150,7 +152,13 @@ fn ed25519_from_blob(blob: &[u8]) -> Result<[u8; 32], SignatureError> {
     if !r.is_empty() {
         return Err(SignatureError::new("malformed ed25519 public key"));
     }
-    raw.try_into().map_err(|err| SignatureError::caused("malformed ed25519 public key", err))
+    let raw: [u8; 32] = raw.try_into().map_err(|err| SignatureError::caused("malformed ed25519 public key", err))?;
+    let key =
+        VerifyingKey::from_bytes(&raw).map_err(|err| SignatureError::caused("malformed ed25519 public key", err))?;
+    if key.is_weak() {
+        return Err(SignatureError::new("weak ed25519 public key (of low order): it would verify any signature"));
+    }
+    Ok(key)
 }
 
 fn public_blob(raw: &[u8; 32]) -> Result<Vec<u8>, SignatureError> {
@@ -210,16 +218,7 @@ impl PrivateKey {
             .key
             .try_sign(&signed_data(namespace, data)?)
             .map_err(|err| SignatureError::caused("signing failed", err))?;
-        let mut inner = string(KEY_TYPE)?;
-        put_string(&mut inner, &signature.to_bytes())?;
-        let mut blob = MAGIC.to_vec();
-        blob.extend_from_slice(&1_u32.to_be_bytes());
-        put_string(&mut blob, &self.blob)?;
-        put_string(&mut blob, namespace.as_bytes())?;
-        put_string(&mut blob, b"")?;
-        put_string(&mut blob, HASH.as_bytes())?;
-        put_string(&mut blob, &inner)?;
-        Ok(STANDARD.encode(blob))
+        armored(&self.blob, namespace, &signature.to_bytes())
     }
 
     /// Sign `values` as a message or pin save of `kind`.
@@ -229,6 +228,20 @@ impl PrivateKey {
     pub fn sign(&self, kind: &Kind, values: &[&str; 6]) -> Result<String, SignatureError> {
         self.sign_data(kind.namespace, &canonical(kind, values))
     }
+}
+
+/// An SSHSIG by the key in `key_blob`, as single-line base64.
+fn armored(key_blob: &[u8], namespace: &str, signature: &[u8; 64]) -> Result<String, SignatureError> {
+    let mut inner = string(KEY_TYPE)?;
+    put_string(&mut inner, signature)?;
+    let mut blob = MAGIC.to_vec();
+    blob.extend_from_slice(&1_u32.to_be_bytes());
+    put_string(&mut blob, key_blob)?;
+    put_string(&mut blob, namespace.as_bytes())?;
+    put_string(&mut blob, b"")?;
+    put_string(&mut blob, HASH.as_bytes())?;
+    put_string(&mut blob, &inner)?;
+    Ok(STANDARD.encode(blob))
 }
 
 /// Who signed: the key as a public key line, and its fingerprint.
@@ -253,7 +266,7 @@ pub fn verify_data(namespace: &str, data: &[u8], signature: &str) -> Result<Veri
         return Err(SignatureError::new("not an SSHSIG version 1 signature"));
     }
     let key_blob = r.string()?;
-    let raw_key = ed25519_from_blob(key_blob)?;
+    let key = ed25519_from_blob(key_blob)?;
     let signed_namespace = String::from_utf8_lossy(r.string()?).into_owned();
     r.string()?; // reserved; ignored, as ssh-keygen does
     let hash = String::from_utf8_lossy(r.string()?).into_owned();
@@ -272,9 +285,10 @@ pub fn verify_data(namespace: &str, data: &[u8], signature: &str) -> Result<Veri
     }
     let raw_signature = sig.string()?;
     let mismatch = "signature does not match the signed fields";
-    let key = VerifyingKey::from_bytes(&raw_key).map_err(|err| SignatureError::caused(mismatch, err))?;
     let signature = Signature::from_slice(raw_signature).map_err(|err| SignatureError::caused(mismatch, err))?;
-    key.verify(&signed_data(namespace, data)?, &signature).map_err(|err| SignatureError::caused(mismatch, err))?;
+    // Strict: also refuses a signature whose R is of low order.
+    key.verify_strict(&signed_data(namespace, data)?, &signature)
+        .map_err(|err| SignatureError::caused(mismatch, err))?;
     Ok(Verified { public_line: public_line(key_blob), fingerprint: fingerprint(key_blob) })
 }
 
@@ -629,6 +643,25 @@ mod tests {
             err.to_string(),
             format!("{} is not an OpenSSH private key: Not OpenSSH private key format", junk.display())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_key_of_low_order_signs_nothing() -> Result<(), Box<dyn std::error::Error>> {
+        // The identity point as the key, and R = identity, S = 0 as the
+        // signature: the plain ed25519 equation holds for any data.
+        let mut identity = [0_u8; 32];
+        identity[0] = 1;
+        let weak = public_blob(&identity)?;
+        let mut forged = [0_u8; 64];
+        forged[0] = 1;
+        let signature = armored(&weak, MESSAGE.namespace, &forged)?;
+        for data in [b"deploy main now".as_slice(), b"anything else"] {
+            let err = verify_data(MESSAGE.namespace, data, &signature).err().ok_or("a weak key signed")?;
+            assert!(err.to_string().contains("weak"), "{err}");
+        }
+        let err = load_public_key(&public_line(&weak)).err().ok_or("a weak key loaded")?;
+        assert!(err.to_string().contains("weak"), "{err}");
         Ok(())
     }
 }
