@@ -964,6 +964,24 @@ def test_the_parent_repositorys_jj_config_id_is_read_only_from_a_workspace(tmp_p
 
 
 @needs_bwrap
+def test_a_jj_repositorys_own_git_config_and_hooks_are_read_only(tmp_path):
+    """Not colocated, jj keeps its git repository in .jj/repo/store/git, and
+    runs git on it to fetch and push: its core.sshCommand, for one, runs
+    on the host's next jj git fetch."""
+    launcher = Launcher(tmp_path)
+    repo = jj_repo(launcher.project)
+    (repo / "store").mkdir()
+    (repo / "store" / "git_target").write_text("git")
+    git_dir = repo / "store" / "git"
+    git_dir.mkdir()
+    (git_dir / "config").write_text("[core]\n\tbare = true\n")
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n")
+
+    changed = changeable_inside(launcher, git_dir / "config", git_dir / "hooks", git_dir / "HEAD")
+    assert changed == {git_dir / "config": False, git_dir / "hooks": False, git_dir / "HEAD": True}
+
+
+@needs_bwrap
 def test_claude_settings_and_hooks_are_read_only(tmp_path):
     launcher = Launcher(tmp_path)
     config_dir = launcher.home / ".config" / "claude"

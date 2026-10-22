@@ -877,7 +877,17 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     # what points jj at it is .jj/repo/config-id (see pin_jj_repo_config). A
     # config.toml that is still a file of its own, from before jj moved repo
     # config out, is the config itself.
+    #
+    # jj fetches and pushes by running git on its backing git repository:
+    # the colocated .git, or one inside .jj/repo/store, whose config and
+    # hooks git runs the same way.
     protected = []
+
+    def protect_git_dir(git_dir):
+        if os.path.isdir(git_dir):
+            os.makedirs(os.path.join(git_dir, "hooks"), exist_ok=True)
+        protected.extend([os.path.join(git_dir, "config"), os.path.join(git_dir, "hooks")])
+
     for worktree in [project_dir] + ([repo_root] if repo_root else []):
         jj_repo = jj_repo_dir(worktree)
         if jj_repo:
@@ -887,19 +897,19 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
             protected.append(os.path.join(jj_repo, "config-id"))
             if not os.path.islink(os.path.join(jj_repo, "config.toml")):
                 protected.append(os.path.join(jj_repo, "config.toml"))
+            git_target = os.path.join(jj_repo, "store", "git_target")
+            if os.path.isfile(git_target):
+                with open(git_target) as f:
+                    protect_git_dir(os.path.normpath(
+                        os.path.join(jj_repo, "store", f.read().strip())
+                    ))
         dirs = git_dirs(worktree)
         if not dirs:
             continue
         # A linked worktree keeps only config.worktree in its own git dir;
         # config and hooks are the common dir's.
-        own, common = dirs[0], dirs[-1]
-        if os.path.isdir(common):
-            os.makedirs(os.path.join(common, "hooks"), exist_ok=True)
-        protected += [
-            os.path.join(own, "config.worktree"),
-            os.path.join(common, "config"),
-            os.path.join(common, "hooks"),
-        ]
+        protected.append(os.path.join(dirs[0], "config.worktree"))
+        protect_git_dir(dirs[-1])
     for claude_dir in (claude_config_dir, claude_dot_dir):
         protected += [os.path.join(claude_dir, "settings.json"), os.path.join(claude_dir, "hooks")]
     for path in dict.fromkeys(protected):
