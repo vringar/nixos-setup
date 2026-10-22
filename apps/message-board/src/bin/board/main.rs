@@ -54,7 +54,7 @@ use signal_hook::consts::SIGINT;
 
 use message_board::sign::{self, Kind, MESSAGE, PIN, PrivateKey, SignatureError};
 use message_board::store::{check_name, check_place};
-use message_board::text::one_line;
+use message_board::text::{body_line, one_line};
 
 use crate::client::{Client, HttpError};
 
@@ -123,7 +123,9 @@ enum Command {
             help = "start after this message id, or 'head' for only new messages"
         )]
         since: Option<Since>,
-        #[arg(long, default_value = "50", allow_negative_numbers = true)]
+        // At least 1: with 0 the board answers at once, and the watch
+        // would poll it in a tight loop.
+        #[arg(long, default_value = "50", allow_negative_numbers = true, value_parser = clap::value_parser!(i64).range(1..))]
         timeout: i64,
     },
     #[command(about = "print the full backlog of an area/topic and exit")]
@@ -242,7 +244,8 @@ fn setting(name: &str) -> Result<Option<String>, Failure> {
 
 fn base_url() -> Result<String, Failure> {
     if let Some(url) = setting("BOARD_URL")? {
-        return Ok(url);
+        // Paths are appended to it: "http://host:8777/" would ask for //poll.
+        return Ok(url.trim_end_matches('/').to_owned());
     }
     let port = setting("BOARD_PORT")?.unwrap_or_else(|| "8777".to_owned());
     let port: u16 =
@@ -581,6 +584,18 @@ struct WirePin {
     verified: bool,
 }
 
+/// A body as `read` and `pin` print it: each line indented two spaces,
+/// control characters escaped. Only the board's own header lines start in
+/// the first column, so no body can forge one -- a "#12 ... Stefan ✓" line
+/// of its own -- or move the terminal's cursor.
+fn indented(body: &str) -> String {
+    let lines = body
+        .trim_end()
+        .lines()
+        .map(|line| if line.is_empty() { String::new() } else { format!("  {}", body_line(line)) });
+    lines.collect::<Vec<_>>().join("\n")
+}
+
 fn pin_header(p: &WirePin) -> String {
     let place = if p.topic.is_empty() { p.area.clone() } else { format!("{}/{}", p.area, p.topic) };
     let editor = who(&one_line(&p.editor), p.verified);
@@ -599,7 +614,7 @@ fn show_pin(client: &Client, area: &str, topic: &str) -> Result<(), Failure> {
     };
     let pin: WirePin = parse("/pin", &text)?;
     out(&pin_header(&pin))?;
-    out(pin.body.trim_end())
+    out(&indented(&pin.body))
 }
 
 #[derive(Deserialize)]
@@ -734,7 +749,7 @@ fn read(client: &Client, area: &str, topic: &str, since: Since, as_json: bool, a
             let pin: WirePin = serde_json::from_value(value)
                 .map_err(|err| Failure::BadAnswer { what: "/pins".to_owned(), cause: err.to_string() })?;
             out(&pin_header(&pin))?;
-            out(pin.body.trim_end())?;
+            out(&indented(&pin.body))?;
             out("")?;
         }
         for value in messages {
@@ -742,7 +757,7 @@ fn read(client: &Client, area: &str, topic: &str, since: Since, as_json: bool, a
                 .map_err(|err| Failure::BadAnswer { what: "/poll".to_owned(), cause: err.to_string() })?;
             let (area, topic, sender) = (one_line(&m.area), one_line(&m.topic), one_line(&m.sender));
             out(&format!("#{}  {}  [{area}/{topic}] {}", m.id, one_line(&m.ts), who(&sender, m.verified)))?;
-            out(m.body.trim_end())?;
+            out(&indented(&m.body))?;
             out("")?;
         }
     }
@@ -864,6 +879,12 @@ mod tests {
         assert!(key.get(16..17).is_some_and(|variant| "89ab".contains(variant)));
         assert_ne!(post_key()?, key);
         Ok(())
+    }
+
+    #[test]
+    fn bodies_are_indented_and_escaped() {
+        let body = "hi\r\n#9  2026-10-22T00:00:00Z  [x/t] Stefan ✓\n\n\tcode\u{1b}[2J\rback\n\n";
+        assert_eq!(indented(body), "  hi\n  #9  2026-10-22T00:00:00Z  [x/t] Stefan ✓\n\n  \tcode\\u{1b}[2J\\rback");
     }
 
     #[test]

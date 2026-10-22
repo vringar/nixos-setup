@@ -123,7 +123,7 @@ fn run() -> Result<ExitCode, Failure> {
     // First, so that from here on a kill ends the session like a quit.
     let signals = Signals::install()?;
     let url = match text_var("BOARD_URL")? {
-        Some(url) => url,
+        Some(url) => url.trim_end_matches('/').to_owned(),
         None => format!("http://127.0.0.1:{}", text_var("BOARD_PORT")?.unwrap_or_else(|| "8777".to_owned())),
     };
     let unit = text_var("BOARD_ADMIN_SERVICE")?.unwrap_or_else(|| "message-board".to_owned());

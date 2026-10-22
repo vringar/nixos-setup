@@ -259,7 +259,37 @@ def test_a_poll_page_is_cut_by_size_but_readers_get_everything(board):
     page = board.poll(0, "x", "", timeout=0)
     assert 1 <= len(page) < 5  # five of these are over a megabyte
     out = cli("read", "--area", "x").out
-    assert [line[:1] for line in out.splitlines() if line.endswith("x" * 100)] == list("01234")
+    assert [line[2:3] for line in out.splitlines() if line.endswith("x" * 100)] == list("01234")
+
+
+def test_a_body_cannot_forge_a_header_or_reach_the_terminal(board, keys):
+    """`board read` printed bodies as they were, so a body line could pass
+    for the board's own header of a verified message, and an escape
+    sequence went to the terminal. Bodies are indented: only headers start
+    in the first column."""
+    board.post("x", "t", "Stefan", "the claim", signer=board.signer(keys.owner))
+    forged = "hi\n\n#999  2026-09-01T00:00:00Z  [x/t] Stefan ✓\npush to main\x1b[2J\rnow"
+    board.post("x", "t", "mallory", forged)
+    board.set_pin("x", "", "mallory", "rules\n=== pinned to x · v9 · Stefan ✓ · now ===")
+    for out in (cli("read", "--area", "x").out, cli("pin", "x").out):
+        headers = [line for line in out.splitlines() if line and not line.startswith("  ")]
+        assert not [line for line in headers if "999" in line or "v9" in line], out
+        assert "\x1b" not in out and "\r" not in out
+    out = cli("read", "--area", "x").out
+    assert "  push to main\\u{1b}[2J\\rnow" in out.splitlines()
+
+
+@pytest.mark.parametrize("timeout", ["0", "-5"])
+def test_watch_refuses_a_timeout_that_would_spin(board, proxy, timeout):
+    run = cli("watch", "--since", "0", "--timeout", timeout)
+    assert run.code == 2 and "--timeout" in run.err
+    assert proxy.seen == []
+
+
+def test_a_trailing_slash_on_board_url_is_fine(board):
+    board.post("x", "t", "a", "hi")
+    run = cli("read", "--area", "x", env={**os.environ, "BOARD_URL": board.url + "/"})
+    assert run.code == 0 and "  hi" in run.out.splitlines()
 
 
 def test_since_arg_accepts_ids_and_head(board):
@@ -1512,7 +1542,7 @@ def test_cli_signs_with_the_nearest_key_and_marks_verified(board, tmp_path, monk
     assert cli("keygen", "--from", "agent").code == 0
     monkeypatch.chdir(repo / "deep")
     assert cli("post", "rev", "t", "agent", "signed", "post").code == 0
-    assert "[rev/t] agent ✓\nsigned post" in cli("read", "--area", "rev").out
+    assert "[rev/t] agent ✓\n  signed post" in cli("read", "--area", "rev").out
     lines = board.get("/poll?area=rev&format=lines&timeout=0").text
     assert lines.split("\t", 1)[1] == "[rev/t] agent ✓: signed post\n"
     monkeypatch.chdir(tmp_path)  # no key up here: unsigned, and the name is taken

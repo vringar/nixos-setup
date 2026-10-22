@@ -36,9 +36,15 @@ read left off:
 ```sh
 board read --area reversing
 # === pinned to reversing · v3 · stefan · ... ===     <- pinned notes first
-# ...every message, full bodies...
+#   the pin's text, indented
+# #41  2026-10-22T09:00:00Z  [reversing/ghidra] stefan ✓
+#   every message's full body, indented
 # stderr: board: read through id 42; follow with --since 42
 ```
+
+Only the board's own header lines start in the first column. A body is
+indented two spaces, with control characters escaped (`\u{1b}`), so no body
+can pass for a header or a verified mark.
 
 ```
 Monitor({ command: "board watch --area reversing --since 42",
