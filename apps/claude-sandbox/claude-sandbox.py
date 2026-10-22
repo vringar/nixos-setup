@@ -182,27 +182,34 @@ def start_podman_service(sandbox_tmp, podman=None):
     os.makedirs(run_root)
     os.makedirs(storage_root)
 
-    proc = subprocess.Popen(
-        [podman, "--root", storage_root, "--runroot", run_root,
-         "system", "service", "--time=0", f"unix://{socket_path}"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        preexec_fn=die_with_launcher(signal.SIGTERM),
-    )
+    # Its log goes to a file rather than the terminal, and says why when the
+    # service does not come up.
+    log_path = os.path.join(podman_dir, "service.log")
+    with open(log_path, "w") as log:
+        proc = subprocess.Popen(
+            [podman, "--root", storage_root, "--runroot", run_root,
+             "system", "service", "--time=0", f"unix://{socket_path}"],
+            stdout=subprocess.DEVNULL,
+            stderr=log,
+            preexec_fn=die_with_launcher(signal.SIGTERM),
+        )
 
     deadline = time.monotonic() + 10
     while not os.path.exists(socket_path):
         if time.monotonic() > deadline:
             proc.terminate()
             proc.wait()
-            print("Warning: Podman service did not start in time; containers unavailable",
-                  file=sys.stderr)
-            return None, None
-        if proc.poll() is not None:
-            print("Warning: Podman service exited early; containers unavailable",
-                  file=sys.stderr)
-            return None, None
-        time.sleep(0.05)
+            failure = "did not start in time"
+        elif proc.poll() is not None:
+            failure = f"exited with status {proc.returncode}"
+        else:
+            time.sleep(0.05)
+            continue
+        with open(log_path) as log:
+            last = [line for line in log.read().splitlines() if line.strip()][-1:]
+        print(f"claude-sandbox: the Podman service {failure} ({' '.join(last) or 'no output'}); "
+              "containers are unavailable.", file=sys.stderr)
+        return None, None
 
     open(os.path.join(podman_dir, PODMAN_SERVED), "x").close()
     return proc, socket_path

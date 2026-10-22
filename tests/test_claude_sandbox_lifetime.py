@@ -409,6 +409,22 @@ def test_a_failed_start_still_cleans_up(tmp_path):
     assert launcher.leftovers() == []
 
 
+def test_a_podman_service_that_fails_says_why(tmp_path, capsys):
+    podman = tmp_path / "podman"
+    podman.write_text(textwrap.dedent(f"""\
+        #!{sys.executable}
+        import sys
+        print("Error: no such file or directory", file=sys.stderr)
+        sys.exit(125)
+    """))
+    podman.chmod(0o755)
+    sandbox_tmp = tmp_path / "sandbox"
+    sandbox_tmp.mkdir()
+
+    assert sandbox.start_podman_service(str(sandbox_tmp), podman=str(podman)) == (None, None)
+    assert "exited with status 125 (Error: no such file or directory)" in capsys.readouterr().err
+
+
 # --- the temp dir -------------------------------------------------------------
 
 
