@@ -621,7 +621,13 @@ fn set_pin(client: &Client, area: &str, topic: &str, sender: &str) -> Result<(),
     };
     let saved: Saved = parse("/pin", &submit(client, "/pin", &payload, false)?)?;
     if body.trim().is_empty() {
-        note("board: pin removed") // the board removes a pin saved empty
+        // the board removes a pin saved empty; version 0 is no pin at all
+        if saved.version == 0 {
+            let place = if topic.is_empty() { area.to_owned() } else { format!("{area}/{topic}") };
+            note(&format!("board: no pin on {}; nothing removed", one_line(&place)))
+        } else {
+            note("board: pin removed")
+        }
     } else {
         note(&format!("board: pin saved as v{}", saved.version))
     }

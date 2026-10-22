@@ -372,6 +372,18 @@ def test_cli_pin_missing_is_one_line(board):
     assert (r.code, r.err) == (1, "board: no pin on nowhere\n")
 
 
+def test_removing_no_pin_changes_nothing(board):
+    """It used to ring every watcher of the area with a "pin removed" for a
+    pin that never was, and create the area to announce it in."""
+    r = cli("pin", "nowhere", "ghidra", "--set", "--from", "stefan", stdin="")
+    assert (r.code, r.err) == (0, "board: no pin on nowhere/ghidra; nothing removed\n")
+    assert board.set_pin("nowhere", "", "stefan", "") == 0
+    assert board.query_since(0) == [] and "nowhere" not in [a["name"] for a in board.list_areas()]
+    board.set_pin("nowhere", "", "stefan", "v1")
+    assert board.set_pin("nowhere", "", "stefan", "") == 1  # a real removal answers the version it removed
+    assert board.query_since(0, "nowhere", PIN_TOPIC)[-1]["body"] == "pin removed: nowhere"
+
+
 def test_topic_watchers_hear_area_pin_updates_but_not_other_topics(board):
     board.post("reversing", "fuzz", "f", "fuzz chatter")
     board.set_pin("reversing", "", "s", "manifesto")

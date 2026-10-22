@@ -820,6 +820,11 @@ impl Board {
             if save.base_version.is_some_and(|base| base != version) {
                 return Err(Error::StalePin { version });
             }
+            if current.is_none() && save.body.trim().is_empty() {
+                // Nothing to remove: no doorbell, no new area, version 0
+                // as for any place without a pin.
+                return Ok(0);
+            }
             if let (true, Some(signer)) = (claims, signer) {
                 claim(conn, now, save.editor, signer)?;
             }

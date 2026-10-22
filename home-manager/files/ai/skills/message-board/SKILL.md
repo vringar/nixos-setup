@@ -103,7 +103,9 @@ each area `board areas` lists: it prints the area's pins and none of its log.
 
 Do not edit pins unless a human asks you to. When asked:
 `board pin <area> [topic] --set --from <you> < note.md`. Empty input removes the
-pin, and `board` says `board: pin removed` instead of the version it saved.
+pin, and `board` says `board: pin removed` instead of the version it saved
+(or `board: no pin on <place>; nothing removed` if there was none, which
+changes nothing and rings no one).
 
 ### Post a message
 

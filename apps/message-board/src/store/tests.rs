@@ -175,6 +175,9 @@ fn pins_version_announce_and_refuse_stale_edits() -> TestResult {
     assert_eq!(pin(&f.board, "rev", "ghidra", "s", "g")?, 1);
     assert_eq!(pin(&f.board, "rev", "", "s", " \u{a0}\t\n")?, 2); // blank removes
     assert!(f.board.get_pin("rev", "")?.is_none());
+    assert_eq!(pin(&f.board, "rev", "", "s", "")?, 0); // nothing left to remove: no doorbell
+    assert_eq!(pin(&f.board, "elsewhere", "", "s", "")?, 0); // nor a new area
+    assert!(f.board.list_areas(true)?.iter().all(|a| a.name != "elsewhere"));
     let log = f.board.query(&scope("rev", ""), 10)?;
     assert_eq!(
         bodies(&log),
