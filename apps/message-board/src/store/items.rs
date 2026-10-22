@@ -1,0 +1,382 @@
+//! Queue items: filed by anyone trusted, resolved by the queue's owner
+//! (answer, decline), the owner key (decline) or the asker (cancel). Each
+//! item is open until one of those, and then stays as it ended.
+
+use std::fmt;
+use std::str::FromStr;
+
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension as _, Row, params, params_from_iter};
+use serde::{Deserialize, Serialize};
+
+use super::actions::{File, Filed, Resolve, Resolved, Signed, Stamp};
+use super::events::{self, EVENT_FIELDS, EVENT_FROM, Event, EventType, NewEvent, event_row, parsed};
+use super::keys::{self, Author};
+use super::nodes::{self, NodeKind};
+use super::{Board, DbError, Error, REGISTER_QUEUE, opt_text, text};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ItemState {
+    Open,
+    Answered,
+    Declined,
+    Cancelled,
+    /// Phase 2: moved to another queue as a new item.
+    Reassigned,
+}
+
+impl ItemState {
+    pub const ALL: [Self; 5] = [Self::Open, Self::Answered, Self::Declined, Self::Cancelled, Self::Reassigned];
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Answered => "answered",
+            Self::Declined => "declined",
+            Self::Cancelled => "cancelled",
+            Self::Reassigned => "reassigned",
+        }
+    }
+
+    /// The event that moves an item into this state.
+    const fn event(self) -> EventType {
+        match self {
+            Self::Open => EventType::ItemFiled,
+            Self::Answered => EventType::ItemAnswered,
+            Self::Declined => EventType::ItemDeclined,
+            Self::Cancelled => EventType::ItemCancelled,
+            Self::Reassigned => EventType::ItemReassigned,
+        }
+    }
+
+    /// The state an item event leaves its item in.
+    fn after(event: EventType) -> Option<Self> {
+        Self::ALL.into_iter().find(|state| state.event() == event)
+    }
+}
+
+impl fmt::Display for ItemState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for ItemState {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        Self::ALL.into_iter().find(|state| state.as_str() == s).ok_or_else(|| format!("no item state {s:?}"))
+    }
+}
+
+/// Which items a listing shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StateFilter {
+    #[default]
+    Open,
+    All,
+}
+
+/// An item, as it was filed and as it stands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Item {
+    /// Its `item_filed` event.
+    pub id: i64,
+    pub ts: String,
+    /// The queue.
+    pub path: String,
+    /// The queue's owner.
+    pub owner: String,
+    /// `None` for a registration: its key has no name yet.
+    pub asker: Option<String>,
+    pub state: ItemState,
+    pub body: String,
+    /// The event that resolved it, once one has.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<ItemResolution>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ItemResolution {
+    pub id: i64,
+    pub event: EventType,
+    pub from: Option<String>,
+    pub body: String,
+    /// An answer's message.
+    #[serde(rename = "ref")]
+    pub reference: Option<i64>,
+}
+
+/// An item and every event about it, oldest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ItemDetail {
+    pub item: Item,
+    pub events: Vec<Event>,
+}
+
+/// Items across queues.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ItemQuery<'a> {
+    /// Only in queues this name owns.
+    pub owner: Option<&'a str>,
+    /// Only those this name asked.
+    pub asker: Option<&'a str>,
+    pub state: StateFilter,
+}
+
+const ITEM_SELECT: &str = "SELECT i.id, f.ts, n.path, n.owner, i.asker, i.state, f.body,
+            r.id, r.type, r.actor, r.body, r.ref
+       FROM items i JOIN events f ON f.id = i.id JOIN nodes n ON n.id = i.queue
+       LEFT JOIN events r ON r.id = i.resolved";
+
+fn item_row(r: &Row<'_>) -> rusqlite::Result<Item> {
+    let resolution = match r.get::<_, Option<i64>>(7)? {
+        None => None,
+        Some(id) => Some(ItemResolution {
+            id,
+            event: parsed(r, 8)?,
+            from: opt_text(r, 9)?,
+            body: text(r, 10)?,
+            reference: r.get(11)?,
+        }),
+    };
+    Ok(Item {
+        id: r.get(0)?,
+        ts: text(r, 1)?,
+        path: text(r, 2)?,
+        owner: text(r, 3)?,
+        asker: opt_text(r, 4)?,
+        state: parsed(r, 5)?,
+        body: text(r, 6)?,
+        resolution,
+    })
+}
+
+pub(super) fn get(conn: &Connection, id: i64) -> rusqlite::Result<Option<Item>> {
+    conn.query_row(&format!("{ITEM_SELECT} WHERE i.id=?"), [id], item_row).optional()
+}
+
+/// Items matching `query`, oldest first; `queue` narrows them to one.
+pub(super) fn list(conn: &Connection, query: &ItemQuery<'_>, queue: Option<i64>) -> rusqlite::Result<Vec<Item>> {
+    let mut sql = format!("{ITEM_SELECT} WHERE 1");
+    let mut args = Vec::new();
+    if let Some(queue) = queue {
+        sql.push_str(" AND i.queue=?");
+        args.push(Value::Integer(queue));
+    }
+    if let Some(owner) = query.owner {
+        sql.push_str(" AND n.owner=?");
+        args.push(Value::Text(owner.to_owned()));
+    }
+    if let Some(asker) = query.asker {
+        sql.push_str(" AND i.asker=?");
+        args.push(Value::Text(asker.to_owned()));
+    }
+    if query.state == StateFilter::Open {
+        sql.push_str(" AND i.state='open'");
+    }
+    sql.push_str(" ORDER BY i.id");
+    conn.prepare(&sql)?.query_map(params_from_iter(args), item_row)?.collect()
+}
+
+/// File an item in queue `queue`; returns its id, which is its
+/// `item_filed` event's.
+pub(super) fn insert(
+    conn: &Connection,
+    stamp: &Stamp<'_>,
+    queue: i64,
+    body: &str,
+    asker: Option<&str>,
+) -> rusqlite::Result<i64> {
+    // The event names its item and the item is its event's id: the event
+    // goes first, and names the item once that exists.
+    let id = events::insert(conn, stamp, &NewEvent::new(EventType::ItemFiled, queue, body))?;
+    conn.execute(
+        "INSERT INTO items(id, queue, asker, asker_fp, state) VALUES(?,?,?,?,'open')",
+        params![id, queue, asker, stamp.actor_fp],
+    )?;
+    conn.execute("UPDATE events SET item=?1 WHERE id=?1", [id])?;
+    Ok(id)
+}
+
+/// Move open item `item` (in queue `queue`) to `state` by a new event;
+/// returns the event's id.
+pub(super) fn close(
+    conn: &Connection,
+    stamp: &Stamp<'_>,
+    item: &Item,
+    queue: i64,
+    state: ItemState,
+    body: &str,
+    reference: Option<i64>,
+) -> rusqlite::Result<i64> {
+    let event = NewEvent { item: Some(item.id), reference, ..NewEvent::new(state.event(), queue, body) };
+    let id = events::insert(conn, stamp, &event)?;
+    conn.execute("UPDATE items SET state=?, resolved=? WHERE id=?", params![state.as_str(), id, item.id])?;
+    Ok(id)
+}
+
+/// Refuse `state` for an item that is not open.
+pub(super) fn check_open(item: &Item) -> Result<(), Error> {
+    if item.state != ItemState::Open {
+        return Err(Error::ItemNotOpen {
+            item: item.id,
+            state: item.state,
+            resolved: item.resolution.as_ref().map(|r| r.id),
+        });
+    }
+    Ok(())
+}
+
+/// Refuse `author` resolving `item` as `state`: the queue's owner answers,
+/// the owner or the owner key declines, the asker cancels.
+fn check_resolver(item: &Item, state: ItemState, author: &Author) -> Result<(), Error> {
+    let allowed = match state {
+        ItemState::Answered => item.owner == author.name,
+        ItemState::Declined => item.owner == author.name || author.human,
+        ItemState::Cancelled => item.asker.as_deref() == Some(author.name.as_str()),
+        ItemState::Open | ItemState::Reassigned => {
+            return Err(Error::BadRequest(format!(
+                "an item is resolved as answered, declined or cancelled, not {state}"
+            )));
+        }
+    };
+    if !allowed {
+        let who = match state {
+            ItemState::Answered => format!("{}, the queue's owner, answers", item.owner),
+            ItemState::Declined => format!("{}, the queue's owner, or the board's owner declines", item.owner),
+            _ => match &item.asker {
+                Some(asker) => format!("{asker}, who asked, cancels"),
+                None => "a registration is not cancelled".to_owned(),
+            },
+        };
+        return Err(Error::Forbidden(format!("#{}: only {who}", item.id)));
+    }
+    Ok(())
+}
+
+impl Board {
+    /// The items of the queue at `path`, oldest first.
+    ///
+    /// # Errors
+    /// As [`Board::node`], and [`Error::BadRequest`] for another kind.
+    pub fn queue(&self, path: &str, state: StateFilter) -> Result<Vec<Item>, Error> {
+        self.read(|conn| {
+            let queue = nodes::require_kind(conn, path, NodeKind::Queue)?;
+            Ok(list(conn, &ItemQuery { state, ..ItemQuery::default() }, Some(queue.id))?)
+        })
+    }
+
+    /// One item and its events.
+    ///
+    /// # Errors
+    /// On a database fault.
+    pub fn item(&self, id: i64) -> Result<Option<ItemDetail>, DbError> {
+        self.read_db(|conn| {
+            let Some(item) = get(conn, id)? else {
+                return Ok(None);
+            };
+            let events = conn
+                .prepare_cached(&format!("SELECT {EVENT_FIELDS} FROM {EVENT_FROM} WHERE e.item=? ORDER BY e.id"))?
+                .query_map([id], event_row)?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(Some(ItemDetail { item, events }))
+        })
+    }
+
+    /// Items across every queue, oldest first.
+    ///
+    /// # Errors
+    /// On a database fault.
+    pub fn items(&self, query: &ItemQuery<'_>) -> Result<Vec<Item>, DbError> {
+        self.read_db(|conn| list(conn, query, None))
+    }
+
+    /// File an item in the queue at `path`.
+    ///
+    /// # Errors
+    /// A refusal of the signature or key; [`Error::BadRequest`] for an
+    /// empty body or a node that is not a queue; [`Error::NotFound`];
+    /// [`Error::Forbidden`] for the register queue, which only `register`
+    /// files into.
+    pub fn file(&self, signed: &Signed<'_, File<'_>>) -> Result<Filed, Error> {
+        let file = &signed.action;
+        if file.body.trim().is_empty() {
+            return Err(Error::BadRequest("an item needs a body".to_owned()));
+        }
+        self.signed(
+            signed,
+            keys::admit,
+            |conn, stamp, author| {
+                let queue = nodes::require_kind(conn, file.path, NodeKind::Queue)?;
+                nodes::check_writable(&queue)?;
+                let id = insert(conn, stamp, queue.id, file.body, Some(&author.name))?;
+                events::record_mentions(conn, id, file.body)?;
+                Ok(id)
+            },
+            |conn, id| Ok(Filed { item: id, path: nodes::event_of(conn, id)?.path }),
+        )
+    }
+
+    /// Answer, decline or cancel an open item. A registration is declined
+    /// here (its key is declined with it) but approved by
+    /// [`Board::approve`].
+    ///
+    /// # Errors
+    /// A refusal of the signature or key; [`Error::NotFound`];
+    /// [`Error::Forbidden`] as [`ItemState`]'s rules say;
+    /// [`Error::ItemNotOpen`]; [`Error::BadRequest`] for another state, a
+    /// missing body, or a `ref` that is not a message or not on an answer.
+    pub fn resolve(&self, signed: &Signed<'_, Resolve<'_>>) -> Result<Resolved, Error> {
+        let resolve = &signed.action;
+        if resolve.state != ItemState::Cancelled && resolve.body.trim().is_empty() {
+            return Err(Error::BadRequest(format!("to resolve an item as {}, say why", resolve.state)));
+        }
+        if resolve.reference.is_some() && resolve.state != ItemState::Answered {
+            return Err(Error::BadRequest("only an answer refers to a message".to_owned()));
+        }
+        self.signed(
+            signed,
+            keys::admit,
+            |conn, stamp, author| {
+                let item =
+                    get(conn, resolve.item)?.ok_or_else(|| Error::NotFound(format!("no item #{}", resolve.item)))?;
+                check_resolver(&item, resolve.state, author)?;
+                check_open(&item)?;
+                let registration = item.path == REGISTER_QUEUE;
+                if registration && resolve.state == ItemState::Answered {
+                    return Err(Error::BadRequest(format!(
+                        "#{} is a registration: approve it (board approve), which binds its name to its key",
+                        item.id
+                    )));
+                }
+                if let Some(reference) = resolve.reference
+                    && events::type_of(conn, reference)? != Some(EventType::Message)
+                {
+                    return Err(Error::BadRequest(format!("ref #{reference} is not a message")));
+                }
+                let queue = nodes::require(conn, &item.path)?;
+                let id = close(conn, stamp, &item, queue.id, resolve.state, resolve.body, resolve.reference)?;
+                if registration {
+                    keys::decline_registration(conn, item.id)?;
+                } else {
+                    // The register queue's bodies carry what an unknown key
+                    // wrote; nothing in it wakes anyone by name.
+                    events::record_mentions(conn, id, resolve.body)?;
+                }
+                Ok(id)
+            },
+            resolved,
+        )
+    }
+}
+
+/// The outcome of an item event.
+pub(super) fn resolved(conn: &Connection, id: i64) -> Result<Resolved, Error> {
+    let event = nodes::event_of(conn, id)?;
+    let (Some(item), Some(state)) = (event.item, ItemState::after(event.event)) else {
+        return Err(Error::NotFound(format!("event #{id} is no item's")));
+    };
+    Ok(Resolved { item, state, id })
+}
