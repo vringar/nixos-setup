@@ -948,6 +948,19 @@ impl Board {
     pub fn set_owner(&self, name: &str, pubkey: &str, fingerprint: &str) -> Result<(), Error> {
         check_name(name)?;
         check_reserved(name)?;
+        // At every start but the first it is so already: nothing to write,
+        // and a read-only database still starts.
+        let bound = self.read(|conn| {
+            let others: i64 =
+                conn.query_row("SELECT count(*) FROM identities WHERE source='owner' AND name<>?", [name], |r| {
+                    r.get(0)
+                })?;
+            let current = get_identity(conn, name)?;
+            Ok(others == 0 && current.is_some_and(|i| i.source == "owner" && i.fingerprint == fingerprint))
+        })?;
+        if bound {
+            return Ok(());
+        }
         self.write(|conn, now| {
             conn.execute("UPDATE identities SET source='tofu' WHERE source='owner' AND name<>?", [name])?;
             let current = get_identity(conn, name)?;

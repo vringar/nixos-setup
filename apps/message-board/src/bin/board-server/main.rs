@@ -89,7 +89,8 @@ fn run() -> Result<(), StartError> {
     // First of all: as PID 1, a SIGTERM that comes before there is a handler
     // is dropped, and opening the database can take a while.
     let shutdown = Shutdown::on_signals().map_err(StartError::Signals)?;
-    let addr = setting("BOARD_ADDR")?.unwrap_or_else(|| "127.0.0.1".to_owned());
+    // Empty is unset: an empty BOARD_ADDR= must not mean every interface.
+    let addr = setting("BOARD_ADDR")?.filter(|a| !a.is_empty()).unwrap_or_else(|| "127.0.0.1".to_owned());
     let port_text = setting("BOARD_PORT")?.unwrap_or_else(|| "8777".to_owned());
     let port = port_text
         .parse::<u16>()
@@ -109,6 +110,9 @@ fn run() -> Result<(), StartError> {
     }
     preseed_owner(&opened.board)?;
     let listener = listen(&addr, port)?;
+    // The port bound, which BOARD_PORT=0 leaves to the system.
+    let port =
+        listener.local_addr().map_err(|source| StartError::Listen { addr: format!("{addr}:{port}"), source })?.port();
     let head = opened.board.head_id()?;
     let app = Arc::new(App { board: opened.board, static_dir });
     shutdown.serving(&app);
@@ -130,11 +134,9 @@ fn installed_static_dir() -> Result<PathBuf, StartError> {
 
 fn listen(addr: &str, port: u16) -> Result<TcpListener, StartError> {
     let failed = |source| StartError::Listen { addr: format!("{addr}:{port}"), source };
-    // An empty address is every interface, as Python's bind(("", port)) took it.
-    let host = if addr.is_empty() { "0.0.0.0" } else { addr };
-    let target = match host.parse::<IpAddr>() {
+    let target = match addr.parse::<IpAddr>() {
         Ok(ip) => SocketAddr::new(ip, port),
-        Err(_not_a_literal) => (host, port)
+        Err(_not_a_literal) => (addr, port)
             .to_socket_addrs()
             .map_err(failed)?
             .next()

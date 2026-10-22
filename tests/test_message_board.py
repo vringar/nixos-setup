@@ -22,7 +22,7 @@ import pytest
 from board_harness import (
     DROP, HANG_TIMEOUT, MESSAGE, PIN, PIN_TOPIC, RULE, SYSTEM_AREA, BadRequest, Board,
     Conflict, Forbidden, Key, NotFound, Proxy, Server, StaleNonce, StalePin, Watch,
-    canonical, cli, distance, fingerprint_of, free_port, isolate, make_db, request, running,
+    canonical, cli, distance, fingerprint_of, free_port, isolate, make_db, program, request, running,
     sql_many, ssh_keygen, ssh_verify, wait_until,
 )
 
@@ -1633,6 +1633,61 @@ def test_a_lock_held_too_long_is_a_503_that_writes_nothing(board):
     assert board.head_id() == head and board.get_pin("x") is None  # nothing was written
     assert "database is locked" in board.server.err()
     assert board.post("x", "t", "a", "late") > head  # the lock gone, the same write goes through
+
+
+def _listening(port):
+    """The addresses something listens on for this TCP port, from the
+    kernel's own table."""
+    found = set()
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            rows = Path(table).read_text().splitlines()[1:]
+        except FileNotFoundError:
+            continue
+        for row in rows:
+            local, state = row.split()[1], row.split()[3]
+            address, hex_port = local.rsplit(":", 1)
+            if state == "0A" and int(hex_port, 16) == port:  # 0A: LISTEN
+                found.add(address)
+    return found
+
+
+def test_an_empty_board_addr_is_the_default_not_every_interface(board):
+    board.restart(BOARD_ADDR="")
+    assert f"board on http://127.0.0.1:{board.server.port}" in board.server.out()
+    assert _listening(board.server.port) == {"0100007F"}  # 127.0.0.1, not 0.0.0.0
+
+
+def test_port_zero_logs_the_port_the_system_chose(tmp_path):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("BOARD_")}
+    env.update(BOARD_DB=str(tmp_path / "board.db"), BOARD_PORT="0")
+    proc = subprocess.Popen([program("board-server")], env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
+    try:
+        line = proc.stdout.readline().decode()
+        port = int(re.match(r"board on http://127\.0\.0\.1:(\d+) ", line).group(1))
+        assert port != 0
+        assert request(f"http://127.0.0.1:{port}/healthz").json() == {"head": 0}
+    finally:
+        proc.terminate()
+        proc.wait(HANG_TIMEOUT)
+
+
+def test_a_read_only_database_starts_with_its_owner_bound_already(board, keys):
+    """The owner is bound at every start, and the unit always configures
+    one. Once bound there is nothing to write, so a read-only database must
+    not keep the board from starting and serving reads: it used to exit
+    with "preseeding the owner: attempt to write a readonly database"."""
+    board.restart(**_owner(keys))
+    board.post("x", "t", "a", "before")
+    board.server.stop()
+    os.chmod(board.db, 0o444)
+    try:
+        board.server.start(**_owner(keys))
+        assert [m["body"] for m in board.query_since(0, "x", "t")] == ["before"]
+        assert f"board: owner Stefan is {keys.owner.fingerprint}" in board.server.out().splitlines()
+    finally:
+        os.chmod(board.db, 0o644)
 
 
 def test_a_read_only_database_refuses_writes_with_a_500_and_keeps_serving_reads(board):
