@@ -393,6 +393,49 @@ def test_resolve_since_head_retries_while_board_is_down(board, proxy):
     assert proxy.routes()[:4] == ["/healthz"] * 3 + ["/poll"]
 
 
+def test_watch_skips_the_watchers_own_messages(board, proxy):
+    """An agent's watch is not woken by its own posts (or its own pin saves'
+    doorbells); the cursor moves past them all the same, so a page of only
+    its own messages prints nothing and is not asked for again."""
+    board.post("x", "t", "me", "mine, before")
+    board.post("x", "t", "other", "theirs")
+    watch = Watch("--area", "x", "--since", "0", "--timeout", "1",
+                  "--not-from", "me", "--not-from", "my-helper")
+    try:
+        assert bell(watch.event()) == ("x", "t", "other", "theirs")
+        board.post("x", "t", "me", "only mine")
+        board.post("x", "t", "my-helper", "my helper's")
+        board.set_pin("x", "", "me", "rules")  # its doorbell is from me too
+        last = board.head_id()
+        wait_until(lambda: [ex for ex in proxy.seen
+                            if ex.route == "/poll" and ex.query["since"] == str(last)],
+                   "the cursor to move past the skipped messages")
+        board.post("x", "t", "other", "after")
+        assert bell(watch.event()) == ("x", "t", "other", "after")  # nothing in between
+    finally:
+        watch.stop()
+
+
+def test_watch_refuses_a_not_from_that_is_no_name(board, proxy):
+    run = cli("watch", "--not-from", "my agent")
+    assert run.code == 1 and run.err.startswith('board: sender name "my agent" is not allowed')
+    assert proxy.seen == []
+
+
+def test_show_prints_one_message_with_its_full_body(board, keys):
+    mid = board.post("x", "t", "Stefan", FORGED, signer=board.signer(keys.owner))
+    r = cli("show", str(mid))
+    assert (r.code, r.err) == (0, "")
+    assert r.result == messages(cli("read", "--area", "x"))[0]
+    assert {k: r.result[k] for k in ("type", "id", "from", "verified", "signed_by", "body")} == \
+        {"type": "message", "id": mid, "from": "Stefan", "verified": True,
+         "signed_by": keys.owner.fingerprint, "body": FORGED}
+    assert "summary" not in r.result
+    r = cli("show", "999")
+    assert (r.code, r.out, r.err) == (1, "", "board: no message 999\n")
+    assert cli("show", "banana").code == 2
+
+
 def test_read_all_pages_past_the_poll_cap(board, proxy):
     board.post("bulk", "t", "b", "m0")  # creates the area; the rest go straight in
     sql_many(board.db, "INSERT INTO messages(ts, area, topic, sender, body)"

@@ -5,6 +5,8 @@
 //! board post <area> <topic> <from> <body>  post a markdown message
 //! board watch [--area A] [--topic T]       long-poll -> one line per message
 //!             [--since ID|head]            'head' = only messages from now on
+//!             [--not-from NAME]            skip NAME's own messages
+//! board show <id>                          one message, its full body
 //! board read --area A [--topic T]          one-shot: pins + full backlog, then exit
 //! board pin <area> [topic] [--set]         show a pinned note, or replace it from stdin
 //! board areas [--archived]                 list areas
@@ -136,7 +138,15 @@ enum Command {
         // would poll it in a tight loop.
         #[arg(long, default_value = "50", allow_negative_numbers = true, value_parser = clap::value_parser!(i64).range(1..))]
         timeout: i64,
+        #[arg(
+            long = "not-from",
+            value_name = "NAME",
+            help = "skip messages from NAME (your own name, so your posts do not wake you); repeatable"
+        )]
+        not_from: Vec<String>,
     },
+    #[command(about = "print one message, with its full body")]
+    Show { id: i64 },
     #[command(about = "print the full backlog of an area/topic and exit")]
     Read {
         #[arg(long)]
@@ -265,7 +275,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
     match cli.command {
         Command::Keygen { sender } => keygen(&sender),
         Command::Post { area, topic, sender, body } => post(&client, &area, &topic, &sender, &body.join(" ")),
-        Command::Watch { area, topic, since, timeout } => {
+        Command::Watch { area, topic, since, timeout, not_from } => {
             let since = match since {
                 Some(since) => since,
                 None => match setting("BOARD_SINCE")? {
@@ -281,8 +291,12 @@ fn run(cli: Cli) -> Result<(), Failure> {
             };
             let area = area.map_or_else(|| setting("BOARD_AREA"), |a| Ok(Some(a)))?.unwrap_or_default();
             let topic = topic.map_or_else(|| setting("BOARD_TOPIC"), |t| Ok(Some(t)))?.unwrap_or_default();
-            watch(&client, &area, &topic, since, timeout)
+            for name in &not_from {
+                checked_name(name)?;
+            }
+            watch(&client, &area, &topic, since, timeout, &not_from)
         }
+        Command::Show { id } => show(&client, id),
         Command::Read { area, topic, since, archived } => {
             let area = area.map_or_else(|| setting("BOARD_AREA"), |a| Ok(Some(a)))?.unwrap_or_default();
             let topic = topic.map_or_else(|| setting("BOARD_TOPIC"), |t| Ok(Some(t)))?.unwrap_or_default();
@@ -311,8 +325,8 @@ fn run(cli: Cli) -> Result<(), Failure> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Line<'a> {
-    /// A message: from `read` with its `body`, from `watch` with its
-    /// `summary`, the first line of the body (a doorbell).
+    /// A message: from `read` and `show` with its `body`, from `watch`
+    /// with its `summary`, the first line of the body (a doorbell).
     Message {
         id: i64,
         ts: &'a str,
@@ -705,6 +719,17 @@ impl WirePin {
     }
 }
 
+/// One message by id, with its full body: what a watch line rings for.
+fn show(client: &Client, id: i64) -> Result<(), Failure> {
+    let text = match client.get(&format!("/msg/{id}"), TIMEOUT) {
+        Ok(text) => text,
+        Err(HttpError::Status { status: 404, .. }) => return Err(Failure::Exit(format!("board: no message {id}"))),
+        Err(err) => return Err(failure(client, err)),
+    };
+    let message: WireMessage = parse("/msg", &text)?;
+    emit(&message.line(true))
+}
+
 fn show_pin(client: &Client, area: &str, topic: &str) -> Result<(), Failure> {
     let path = format!("/pin?{}", query(&[("area", area), ("topic", topic)]));
     let text = match client.get(&path, TIMEOUT) {
@@ -905,8 +930,16 @@ fn archive(client: &Client, area: &str, archived: bool) -> Result<(), Failure> {
 }
 
 /// Long-poll and print one line per new message (its first line only: a
-/// doorbell), or per failed poll: a Monitor event stream.
-fn watch(client: &Client, area: &str, topic: &str, since: Since, timeout: i64) -> Result<(), Failure> {
+/// doorbell), or per failed poll: a Monitor event stream. Never ends on its
+/// own: `timeout` is the length of one poll.
+fn watch(
+    client: &Client,
+    area: &str,
+    topic: &str,
+    since: Since,
+    timeout: i64,
+    not_from: &[String],
+) -> Result<(), Failure> {
     let mut since = match since {
         Since::Id(id) => id,
         // Retry rather than fail: a persistent watcher is routinely started
@@ -937,8 +970,9 @@ fn watch(client: &Client, area: &str, topic: &str, since: Since, timeout: i64) -
             }
         };
         let page: Vec<WireMessage> = parse("/poll", &text)?;
-        // one line per message -> one event each
-        for message in &page {
+        // one line per message -> one event each, but none for the
+        // watcher's own; the cursor moves past those all the same
+        for message in page.iter().filter(|m| !not_from.contains(&m.from)) {
             emit(&message.line(false))?;
         }
         if let Some(last) = page.last() {
