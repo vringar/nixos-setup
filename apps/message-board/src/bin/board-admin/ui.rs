@@ -6,21 +6,30 @@
 //! screen into a fresh buffer (the `Frame`), and the terminal backend then
 //! writes out only the cells that differ from the previous frame. So a
 //! draw function simply describes the screen as it should look now.
+//!
+//! What goes on the screen is *text*: a `Paragraph` or a `List` takes
+//! `Line`s, each made of `Span`s, and every span has one `Style` (bold,
+//! dim, reversed). A plain `String` converts into a line of one unstyled
+//! span.
 
 use std::array::TryFromSliceError;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{List, Paragraph};
+use ratatui::text::Line;
+use ratatui::widgets::{List, Paragraph, Wrap};
 
-use crate::app::{Picker, Screen};
+use message_board::store::Message;
 
-/// A message body is untrusted text. Control characters in it would reach
-/// the terminal as escape sequences, and ratatui drops them instead; show
-/// them the way curses did, as `^X`, so the operator sees what is there.
-/// Tabs are expanded to the next multiple of eight columns.
+use crate::pager::Pager;
+use crate::picker::Picker;
+use crate::screens::Screen;
+
+/// A body is untrusted text. Control characters in it would reach the
+/// terminal as escape sequences, and ratatui drops them instead; show them
+/// the way curses did, as `^X`, so the operator sees what is there. Tabs
+/// are expanded to the next multiple of eight columns.
 fn visible(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut column = 0_usize;
@@ -45,97 +54,143 @@ fn visible(line: &str) -> String {
     out
 }
 
-/// The first three rows of a screen. `Layout` splits an area by
-/// *constraints*: `Length(1)` is exactly one row, `Fill(1)` takes whatever
-/// is left.
-fn three_rows(area: Rect) -> Result<[Rect; 3], TryFromSliceError> {
-    let [first, second, third, _rest] =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1)])
-            .try_areas(area)?;
-    Ok([first, second, third])
+fn bold() -> Style {
+    Style::new().add_modifier(Modifier::BOLD)
 }
 
-/// Everything the screen shows now.
+fn dim() -> Style {
+    Style::new().add_modifier(Modifier::DIM)
+}
+
+/// The parts of a list or text screen, top to bottom: a title row, the
+/// list or text, a row for the notice, and a row of key hints.
+///
+/// `Layout` splits an area by *constraints*: `Length(1)` is exactly one
+/// row, `Fill(1)` takes whatever the others leave. `try_areas` returns
+/// them as an array to destructure (it fails only if the array's length
+/// is not the number of constraints, which here it always is).
+fn chrome(area: Rect) -> Result<[Rect; 4], TryFromSliceError> {
+    Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1)])
+        .try_areas(area)
+}
+
+/// Everything the screen shows now, and `notice` under it.
 ///
 /// It takes the screen mutably for one reason: a list's `ListState`
 /// (selection and scroll offset) is updated by the widget while it renders.
-pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen) -> Result<(), TryFromSliceError> {
+pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, notice: Option<&str>) -> Result<(), TryFromSliceError> {
     match screen {
-        Screen::Areas { picker, .. }
-        | Screen::Topics { picker, .. }
-        | Screen::Messages { picker, .. }
-        | Screen::Claims { picker, .. } => draw_picker(frame, picker),
-        Screen::NoMessages { area } => {
-            let [message, _, hint] = three_rows(frame.area())?;
-            frame.render_widget(Paragraph::new(format!("{}: no messages.", visible(area))), message);
-            frame.render_widget(Paragraph::new("press any key").style(Style::new().add_modifier(Modifier::DIM)), hint);
-            Ok(())
+        Screen::Tree { picker, .. } => draw_picker(frame, picker, notice),
+        Screen::Thread { picker, .. } => draw_picker(frame, picker, notice),
+        Screen::Queue { picker, .. } => draw_picker(frame, picker, notice),
+        Screen::Note { pager, .. } | Screen::Message { pager, .. } | Screen::Item { pager, .. } => {
+            draw_pager(frame, pager, notice)
         }
-        Screen::TopicAction { area, topic, count } => {
-            let text =
-                format!("{}/{}: (b)rowse messages or (d)elete all {count}, (q) back", visible(area), visible(topic));
-            frame.render_widget(Paragraph::new(text), frame.area());
-            Ok(())
-        }
-        Screen::ConfirmTopic { area, topic, count, typed } => {
-            let required = format!("{area}/{topic}");
-            let [prompt, explain, input] = three_rows(frame.area())?;
-            let warning = format!("Delete ALL {count} messages in {}. This cannot be undone.", visible(&required));
-            frame.render_widget(Paragraph::new(warning).style(Style::new().add_modifier(Modifier::BOLD)), prompt);
-            frame.render_widget(
-                Paragraph::new(format!("Type '{}' to confirm, anything else cancels:", visible(&required))),
-                explain,
-            );
-            let shown = format!("> {}", visible(typed));
-            // A frame hides the cursor unless told where it goes: here, after
-            // what has been typed, like a shell prompt.
-            let column = u16::try_from(shown.chars().count()).unwrap_or(u16::MAX).min(input.width.saturating_sub(1));
-            frame.render_widget(Paragraph::new(shown), input);
-            frame.set_cursor_position(Position { x: input.x.saturating_add(column), y: input.y });
-            Ok(())
-        }
-        Screen::ConfirmMessage { message, .. } => {
-            let header = format!("#{}  {}  {}", message.id, message.ts, visible(&message.sender));
-            confirm(frame, &header, &message.body, "Delete permanently? [y/N] ");
-            Ok(())
-        }
-        Screen::ConfirmRelease { identity } => {
-            let again = if identity.source == "owner" {
-                "board-server binds it to the owner key again at its next start"
-            } else {
-                "the next signed post as it claims it again"
-            };
-            let header = format!("{}  [{}]  {}", identity.name, identity.source, identity.fingerprint);
-            confirm(frame, &header, &format!("Releasing frees the name; {again}."), "Release this claim? [y/N] ");
-            Ok(())
-        }
+        Screen::ConfirmBranch { path, nodes, typed } => confirm_branch(frame, path, nodes, typed),
+        Screen::ConfirmMessage { message } => confirm_message(frame, message),
     }
 }
 
-/// A list screen: its title on the first row, the list, and a hint on the
-/// last row.
-fn draw_picker(frame: &mut Frame<'_>, picker: &mut Picker) -> Result<(), TryFromSliceError> {
-    let [title, list, _, footer] =
-        Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1)])
-            .try_areas(frame.area())?;
-    frame.render_widget(Paragraph::new(picker.title.as_str()).style(Style::new().add_modifier(Modifier::BOLD)), title);
-    let items: Vec<String> = picker.items.iter().map(|item| visible(item)).collect();
+/// The title, the notice and the key hints around a list or a text.
+fn draw_chrome(
+    frame: &mut Frame<'_>,
+    [title, _, notice_row, footer]: [Rect; 4],
+    heading: &str,
+    notice: Option<&str>,
+    hints: &str,
+) {
+    frame.render_widget(Paragraph::new(visible(heading)).style(bold()), title);
+    if let Some(notice) = notice {
+        frame.render_widget(Paragraph::new(visible(notice)).style(bold()), notice_row);
+    }
+    frame.render_widget(Paragraph::new(hints.to_owned()).style(dim()), footer);
+}
+
+fn draw_picker<T>(
+    frame: &mut Frame<'_>,
+    picker: &mut Picker<T>,
+    notice: Option<&str>,
+) -> Result<(), TryFromSliceError> {
+    let parts = chrome(frame.area())?;
+    draw_chrome(frame, parts, &picker.title, notice, picker.footer);
+    let [_, list, _, _] = parts;
+    if picker.labels.is_empty() {
+        frame.render_widget(Paragraph::new("(nothing here)").style(dim()), list);
+        return Ok(());
+    }
+    let rows: Vec<String> = picker.labels.iter().map(|label| visible(label)).collect();
     // A stateful widget renders with its state: the `List` draws the rows
     // that fit, scrolled so the selected one shows, and reverses it.
-    let widget = List::new(items).highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+    let widget = List::new(rows).highlight_style(Style::new().add_modifier(Modifier::REVERSED));
     frame.render_stateful_widget(widget, list, &mut picker.state);
-    frame.render_widget(Paragraph::new(picker.footer).style(Style::new().add_modifier(Modifier::DIM)), footer);
     Ok(())
 }
 
-/// A y/N question under what it is about. Lines past the bottom of the
-/// screen are cut off rather than drawn outside it.
-fn confirm(frame: &mut Frame<'_>, header: &str, details: &str, question: &str) {
-    let mut lines = vec![Line::from(visible(header)), Line::default()];
-    lines.extend(details.lines().map(|line| Line::from(visible(line))));
-    lines.push(Line::default());
-    lines.push(Line::from(Span::styled(question, Style::new().add_modifier(Modifier::BOLD))));
-    frame.render_widget(Paragraph::new(lines), frame.area());
+fn draw_pager(frame: &mut Frame<'_>, pager: &Pager, notice: Option<&str>) -> Result<(), TryFromSliceError> {
+    let parts = chrome(frame.area())?;
+    let total = pager.lines.len();
+    let hints = format!("{}    line {} of {total}", pager.footer, pager.top.saturating_add(1).min(total));
+    draw_chrome(frame, parts, &pager.title, notice, &hints);
+    let [_, text, _, _] = parts;
+    // From the top line on, as many lines as could show: each takes a row
+    // at least. `Wrap` breaks a line too long for the width onto the next
+    // rows (at word boundaries, `trim: false` keeping its indentation);
+    // what does not fit at the bottom is cut off.
+    let lines: Vec<Line> = pager
+        .lines
+        .iter()
+        .skip(pager.top)
+        .take(usize::from(text.height))
+        .map(|line| Line::from(visible(line)))
+        .collect();
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), text);
+    Ok(())
+}
+
+/// Deleting a branch: what goes, and the path to type out. The question
+/// sits at the bottom, so that it shows however long the list above it.
+fn confirm_branch(frame: &mut Frame<'_>, path: &str, nodes: &[String], typed: &str) -> Result<(), TryFromSliceError> {
+    let [warning, _, list, _, prompt, input] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Fill(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .try_areas(frame.area())?;
+    let count = if nodes.len() == 1 { "1 node".to_owned() } else { format!("{} nodes", nodes.len()) };
+    let path = visible(path);
+    let text = format!("Delete {path} and everything in it ({count}). This cannot be undone.");
+    frame.render_widget(Paragraph::new(text).style(bold()), warning);
+    let lines: Vec<Line> = nodes.iter().map(|node| Line::from(visible(node))).collect();
+    frame.render_widget(Paragraph::new(lines), list);
+    frame.render_widget(Paragraph::new(format!("Type '{path}' to confirm, anything else cancels:")), prompt);
+    let shown = format!("> {}", visible(typed));
+    // A frame hides the cursor unless told where it goes: here, after what
+    // has been typed, like a shell prompt.
+    let column = u16::try_from(shown.chars().count()).unwrap_or(u16::MAX).min(input.width.saturating_sub(1));
+    frame.render_widget(Paragraph::new(shown), input);
+    frame.set_cursor_position(Position { x: input.x.saturating_add(column), y: input.y });
+    Ok(())
+}
+
+/// Deleting one message: the whole of it, and a y/N question under it.
+fn confirm_message(frame: &mut Frame<'_>, message: &Message) -> Result<(), TryFromSliceError> {
+    let [warning, _, body, _, question] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Fill(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .try_areas(frame.area())?;
+    let header = format!("#{}  {}  {}  in {}", message.id, message.ts, message.from, message.path);
+    frame.render_widget(Paragraph::new(visible(&header)).style(bold()), warning);
+    let lines: Vec<Line> = message.body.lines().map(|line| Line::from(visible(line))).collect();
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body);
+    frame.render_widget(Paragraph::new("Delete permanently? [y/N] ").style(bold()), question);
+    Ok(())
 }
 
 #[cfg(test)]

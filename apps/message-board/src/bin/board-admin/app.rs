@@ -1,126 +1,32 @@
 //! The TUI's state and what keys do to it.
 //!
-//! This is the "model" and "update" of the Elm-style structure the ratatui
-//! documentation recommends: [`App`] holds everything the screen shows,
-//! [`App::update`] turns one key press into the next state, and drawing
-//! (in `ui.rs`) only reads the state. Nothing here touches the terminal,
-//! so the whole flow is plain data plus the database.
+//! The program follows the Elm-style structure the ratatui documentation
+//! recommends, in three parts:
 //!
-//! One screen is up at a time. Each time a list is shown it is read fresh
-//! from the database and its selection starts on the first row, which is
-//! what an operator (and the tests driving this through a terminal) rely
-//! on.
+//! - the *model*: [`App`] holds everything the screen shows, and the
+//!   screens themselves are in `screens.rs`;
+//! - the *update*: [`App::update`] turns one key press into the next
+//!   state;
+//! - the *view*: drawing (in `ui.rs`) only reads the state.
+//!
+//! Nothing here touches the terminal, so the whole flow is plain data plus
+//! the database, and the tests below drive it without one.
+//!
+//! Deletions happen here, each written to the audit log as it happens. The
+//! store refuses some (the board's own nodes; a message a note summarizes
+//! up to, or an answer points to; a branch something outside it points
+//! into): a refusal is shown and the session goes on, while a fault in the
+//! database ends it.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::widgets::ListState;
 
-use message_board::store::{Board, Identity, Listed};
+use message_board::store::{self, Board, Deleted, Message};
 
 use crate::Failure;
 use crate::audit::Audit;
-
-/// A list to pick from: what the picker screens have in common.
-pub struct Picker {
-    pub title: String,
-    pub items: Vec<String>,
-    pub footer: &'static str,
-    /// The selection and scroll offset. A `ListState` is the state of a
-    /// *stateful widget*: the program decides what is selected, and the
-    /// `List` widget, when it renders, moves the offset so the selection
-    /// stays in view. It lives here, with the rest of the state, because
-    /// it has to outlast each frame.
-    pub state: ListState,
-}
-
-impl Picker {
-    fn new(title: String, items: Vec<String>, footer: &'static str) -> Self {
-        Self { title, items, footer, state: ListState::default().with_selected(Some(0)) }
-    }
-
-    fn up(&mut self) {
-        let current = self.state.selected().unwrap_or(0);
-        self.state.select(Some(current.saturating_sub(1)));
-    }
-
-    fn down(&mut self) {
-        let last = self.items.len().saturating_sub(1);
-        let current = self.state.selected().unwrap_or(0);
-        self.state.select(Some(current.saturating_add(1).min(last)));
-    }
-
-    /// The selected row, or `None` if the list is empty.
-    fn chosen(&self) -> Option<usize> {
-        self.state.selected().filter(|&i| i < self.items.len())
-    }
-}
-
-/// What a picker does with a key.
-enum Pick {
-    Chosen(usize),
-    Back,
-    Stay,
-}
-
-fn pick(picker: &mut Picker, key: KeyCode) -> Pick {
-    match key {
-        KeyCode::Up | KeyCode::Char('k') => picker.up(),
-        KeyCode::Down | KeyCode::Char('j') => picker.down(),
-        // Enter on an empty list goes back, as there is nothing to choose.
-        KeyCode::Enter => return picker.chosen().map_or(Pick::Back, Pick::Chosen),
-        KeyCode::Esc | KeyCode::Char('q') => return Pick::Back,
-        _ => {}
-    }
-    Pick::Stay
-}
-
-/// The screens, one at a time.
-pub enum Screen {
-    /// Every area, then the way into the name claims.
-    Areas {
-        picker: Picker,
-        areas: Vec<String>,
-    },
-    /// An area with nothing left in it: any key goes back.
-    NoMessages {
-        area: String,
-    },
-    Topics {
-        area: String,
-        picker: Picker,
-        topics: Vec<(String, i64)>,
-    },
-    /// Browse a topic, or delete all of it.
-    TopicAction {
-        area: String,
-        topic: String,
-        count: i64,
-    },
-    /// Deleting a whole topic needs its name typed out, not just a y.
-    ConfirmTopic {
-        area: String,
-        topic: String,
-        count: i64,
-        typed: String,
-    },
-    Messages {
-        area: String,
-        topic: String,
-        picker: Picker,
-        messages: Vec<Listed>,
-    },
-    ConfirmMessage {
-        area: String,
-        topic: String,
-        message: Listed,
-    },
-    Claims {
-        picker: Picker,
-        claims: Vec<Identity>,
-    },
-    ConfirmRelease {
-        identity: Identity,
-    },
-}
+use crate::pager::Read;
+use crate::picker::Pick;
+use crate::screens::{self, Screen, parent};
 
 /// What the event loop does after a key.
 #[derive(Debug, PartialEq, Eq)]
@@ -131,115 +37,99 @@ pub enum Flow {
     Interrupted,
 }
 
-pub struct App {
-    board: Board,
+pub struct App<'a> {
+    board: &'a Board,
     audit: Audit,
     pub screen: Screen,
+    /// What the last action did, or why it did not: shown under the screen
+    /// until the next key.
+    pub notice: Option<String>,
 }
 
-/// The first line of a message, cut to 80 characters, for a list row.
-fn first_line(body: &str) -> String {
-    body.lines().next().unwrap_or_default().chars().take(80).collect()
-}
-
-impl App {
-    /// Start on the list of areas.
-    pub fn new(board: Board, audit: Audit) -> Result<Self, Failure> {
-        let screen = areas_screen(&board)?;
-        Ok(Self { board, audit, screen })
+impl<'a> App<'a> {
+    /// Start on the top level of the board.
+    ///
+    /// # Errors
+    /// If the board cannot be read.
+    pub fn new(board: &'a Board, audit: Audit) -> Result<Self, Failure> {
+        let screen = screens::tree(board, "", None)?;
+        Ok(Self { board, audit, screen, notice: None })
     }
 
-    /// Turn one key press into the next state. Deletions happen here, and
-    /// each is written to the audit log as it happens.
+    /// Turn one key press into the next state.
+    ///
+    /// # Errors
+    /// On a fault in the database or the audit log.
     pub fn update(&mut self, key: KeyEvent) -> Result<Flow, Failure> {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Ok(Flow::Interrupted);
         }
+        self.notice = None;
+        let board = self.board;
         let next = match &mut self.screen {
-            Screen::Areas { picker, areas } => match pick(picker, key.code) {
-                Pick::Chosen(i) => match areas.get(i) {
-                    Some(area) => topics_screen(&self.board, area)?,
-                    None => claims_screen(&self.board)?, // the entry after the areas
-                },
-                Pick::Back => return Ok(Flow::Quit),
-                Pick::Stay => return Ok(Flow::Continue),
-            },
-            Screen::NoMessages { .. } => areas_screen(&self.board)?,
-            Screen::Topics { area, picker, topics } => match pick(picker, key.code) {
-                Pick::Chosen(i) => match topics.get(i) {
-                    Some((topic, count)) => {
-                        Screen::TopicAction { area: area.clone(), topic: topic.clone(), count: *count }
-                    }
+            Screen::Tree { path, picker } => match picker.key(key.code) {
+                Pick::Open(child) => screens::open(board, child)?,
+                Pick::Back if path.is_empty() => return Ok(Flow::Quit),
+                Pick::Back => screens::tree(board, parent(path), Some(path))?,
+                Pick::Other(KeyCode::Char('d')) => match picker.selected() {
+                    Some(child) => screens::confirm_branch(board, child)?,
                     None => return Ok(Flow::Continue),
                 },
-                Pick::Back => areas_screen(&self.board)?,
-                Pick::Stay => return Ok(Flow::Continue),
+                Pick::Stay | Pick::Other(_) => return Ok(Flow::Continue),
             },
-            Screen::TopicAction { area, topic, count } => match key.code {
-                KeyCode::Esc | KeyCode::Char('q') => topics_screen(&self.board, area)?,
-                KeyCode::Char('d') => Screen::ConfirmTopic {
-                    area: area.clone(),
-                    topic: topic.clone(),
-                    count: *count,
-                    typed: String::new(),
-                },
-                // any other key browses
-                _ => messages_screen(&self.board, area, topic)?,
+            Screen::Note { path, pager } => match pager.key(key.code) {
+                Read::Back => screens::tree(board, parent(path), Some(path))?,
+                Read::Stay | Read::Other(_) => return Ok(Flow::Continue),
             },
-            Screen::ConfirmTopic { area, topic, typed, .. } => match key.code {
-                KeyCode::Enter => {
-                    if *typed == format!("{area}/{topic}") {
-                        let deleted = self.board.delete_topic(area, topic)?;
-                        self.audit.record("delete_topic", &format!("{area}/{topic} ({deleted} messages)"))?;
-                    }
-                    topics_screen(&self.board, area)?
+            Screen::Thread { path, picker } => match picker.key(key.code) {
+                Pick::Open(message) => screens::message(message.clone()),
+                Pick::Back => screens::tree(board, parent(path), Some(path))?,
+                Pick::Stay | Pick::Other(_) => return Ok(Flow::Continue),
+            },
+            Screen::Message { message, pager } => match pager.key(key.code) {
+                Read::Other(KeyCode::Char('d')) => Screen::ConfirmMessage { message: message.clone() },
+                Read::Back => screens::thread(board, &message.path, Some(message.id))?,
+                Read::Stay | Read::Other(_) => return Ok(Flow::Continue),
+            },
+            Screen::Queue { path, picker } => match picker.key(key.code) {
+                Pick::Open(item) => screens::item(board, path, item.id)?,
+                Pick::Back => screens::tree(board, parent(path), Some(path))?,
+                Pick::Stay | Pick::Other(_) => return Ok(Flow::Continue),
+            },
+            Screen::Item { path, id, pager } => match pager.key(key.code) {
+                Read::Back => screens::queue(board, path, Some(*id))?,
+                Read::Stay | Read::Other(_) => return Ok(Flow::Continue),
+            },
+            // Deleting a whole branch needs its path typed out, not just a y.
+            Screen::ConfirmBranch { path, typed, .. } => match key.code {
+                KeyCode::Enter if typed == path => {
+                    let (screen, notice) = delete_branch(board, &self.audit, path)?;
+                    self.notice = Some(notice);
+                    screen
+                }
+                KeyCode::Enter | KeyCode::Esc => {
+                    self.notice = Some("cancelled: nothing deleted".to_owned());
+                    screens::tree(board, parent(path), Some(path))?
                 }
                 KeyCode::Backspace => {
                     typed.pop();
                     return Ok(Flow::Continue);
                 }
-                KeyCode::Esc => topics_screen(&self.board, area)?,
                 KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                     typed.push(c);
                     return Ok(Flow::Continue);
                 }
                 _ => return Ok(Flow::Continue),
             },
-            Screen::Messages { area, topic, picker, messages } => match pick(picker, key.code) {
-                Pick::Chosen(i) => match messages.get(i) {
-                    Some(message) => {
-                        Screen::ConfirmMessage { area: area.clone(), topic: topic.clone(), message: message.clone() }
-                    }
-                    None => return Ok(Flow::Continue),
-                },
-                Pick::Back => topics_screen(&self.board, area)?,
-                Pick::Stay => return Ok(Flow::Continue),
-            },
-            Screen::ConfirmMessage { area, topic, message } => {
-                // Gone already (someone else deleted it) is not an error: there is
-                // just nothing to record.
-                if matches!(key.code, KeyCode::Char('y' | 'Y')) && self.board.delete_message(message.id)? {
-                    self.audit
-                        .record("delete_message", &format!("#{} {area}/{topic} from={}", message.id, message.sender))?;
+            Screen::ConfirmMessage { message } => {
+                if matches!(key.code, KeyCode::Char('y' | 'Y')) {
+                    let (screen, notice) = delete_message(board, &self.audit, message)?;
+                    self.notice = Some(notice);
+                    screen
+                } else {
+                    self.notice = Some("cancelled: nothing deleted".to_owned());
+                    screens::message(message.clone())
                 }
-                messages_screen(&self.board, area, topic)?
-            }
-            Screen::Claims { picker, claims } => match pick(picker, key.code) {
-                Pick::Chosen(i) => match claims.get(i) {
-                    Some(identity) => Screen::ConfirmRelease { identity: identity.clone() },
-                    None => return Ok(Flow::Continue),
-                },
-                Pick::Back => areas_screen(&self.board)?,
-                Pick::Stay => return Ok(Flow::Continue),
-            },
-            Screen::ConfirmRelease { identity } => {
-                if matches!(key.code, KeyCode::Char('y' | 'Y')) && self.board.delete_identity(&identity.name)? {
-                    self.audit.record(
-                        "release_claim",
-                        &format!("{} {} ({})", identity.name, identity.fingerprint, identity.source),
-                    )?;
-                }
-                claims_screen(&self.board)?
             }
         };
         self.screen = next;
@@ -247,60 +137,39 @@ impl App {
     }
 }
 
-fn areas_screen(board: &Board) -> Result<Screen, Failure> {
-    let counts = board.area_counts()?;
-    let claims = board.list_identities()?.len();
-    let mut items: Vec<String> = counts
-        .iter()
-        .map(|(area, archived, n)| format!("{area}  [{}]  ({n} messages)", if *archived { "archived" } else { "live" }))
-        .collect();
-    items.push(format!("-- name claims ({claims})"));
-    let picker = Picker::new(
-        "board-admin -- select an area (q to quit)".to_owned(),
-        items,
-        "up/down j/k move, enter select, q quit",
-    );
-    Ok(Screen::Areas { picker, areas: counts.into_iter().map(|(area, _, _)| area).collect() })
-}
-
-fn topics_screen(board: &Board, area: &str) -> Result<Screen, Failure> {
-    let topics = board.topic_counts(area)?;
-    if topics.is_empty() {
-        return Ok(Screen::NoMessages { area: area.to_owned() });
+/// Why the store refused, to show; or, for a fault in the database rather
+/// than a refusal, the error that ends the session.
+fn refusal(err: store::Error) -> Result<String, Failure> {
+    match err {
+        store::Error::Db(fault) => Err(fault.into()),
+        refused => Ok(refused.to_string()),
     }
-    let items = topics.iter().map(|(topic, n)| format!("{topic}  ({n} messages)")).collect();
-    let picker = Picker::new(
-        format!("board-admin -- {area} -- select a topic (q back)"),
-        items,
-        "enter: select topic    q: back",
-    );
-    Ok(Screen::Topics { area: area.to_owned(), picker, topics })
 }
 
-fn messages_screen(board: &Board, area: &str, topic: &str) -> Result<Screen, Failure> {
-    let messages = board.messages_in(area, topic)?;
-    if messages.is_empty() {
-        return topics_screen(board, area);
-    }
-    let items =
-        messages.iter().map(|m| format!("#{}  {}  {}: {}", m.id, m.ts, m.sender, first_line(&m.body))).collect();
-    let picker = Picker::new(
-        format!("board-admin -- {area}/{topic} (q back)"),
-        items,
-        "enter: view/delete one message    q: back",
-    );
-    Ok(Screen::Messages { area: area.to_owned(), topic: topic.to_owned(), picker, messages })
+/// Delete the node at `path` with everything in it, record that, and go
+/// back to the listing it was in, saying what happened.
+fn delete_branch(board: &Board, audit: &Audit, path: &str) -> Result<(Screen, String), Failure> {
+    let notice = match board.delete_branch(path) {
+        Ok(Deleted { nodes, events }) => {
+            audit.record("delete_branch", &format!("{path} ({nodes} nodes, {events} events)"))?;
+            format!("deleted {path}: {nodes} nodes, {events} events")
+        }
+        Err(err) => format!("not deleted: {}", refusal(err)?),
+    };
+    Ok((screens::tree(board, parent(path), Some(path))?, notice))
 }
 
-fn claims_screen(board: &Board) -> Result<Screen, Failure> {
-    let claims = board.list_identities()?;
-    let items = claims
-        .iter()
-        .map(|c| format!("{}  [{}]  {}  (since {})", c.name, c.source, c.fingerprint, c.registered_ts))
-        .collect();
-    let picker =
-        Picker::new("board-admin -- name claims (q back)".to_owned(), items, "enter: release a claim    q: back");
-    Ok(Screen::Claims { picker, claims })
+/// Delete `message`, record that, and go back to its thread, saying what
+/// happened.
+fn delete_message(board: &Board, audit: &Audit, message: &Message) -> Result<(Screen, String), Failure> {
+    let notice = match board.delete_message(message.id) {
+        Ok(()) => {
+            audit.record("delete_message", &format!("#{} {} from={}", message.id, message.path, message.from))?;
+            format!("deleted #{} from {}", message.id, message.path)
+        }
+        Err(err) => format!("not deleted: {}", refusal(err)?),
+    };
+    Ok((screens::thread(board, &message.path, Some(message.id))?, notice))
 }
 
 #[cfg(test)]
@@ -311,19 +180,56 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    use message_board::store::NewPost;
+    use message_board::store::Range;
 
     use super::*;
+    use crate::fixture::Fixture;
     use crate::ui;
 
-    fn press(app: &mut App, code: KeyCode) -> Result<Flow, Failure> {
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    fn press(app: &mut App<'_>, code: KeyCode) -> Result<Flow, Failure> {
         app.update(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
+    fn typing(app: &mut App<'_>, text: &str) -> Result<(), Failure> {
+        text.chars().try_for_each(|c| press(app, KeyCode::Char(c)).map(drop))
+    }
+
+    /// Move down to the row whose text starts with `label`, from the first
+    /// row, and press Enter on it (or `then`, if given).
+    fn pick(app: &mut App<'_>, label: &str, then: KeyCode) -> TestResult {
+        press(app, KeyCode::Home)?;
+        let labels = match &app.screen {
+            Screen::Tree { picker, .. } => picker.labels.clone(),
+            Screen::Thread { picker, .. } => picker.labels.clone(),
+            Screen::Queue { picker, .. } => picker.labels.clone(),
+            _ => return Err("not a list".into()),
+        };
+        let row =
+            labels.iter().position(|text| text.starts_with(label)).ok_or(format!("no {label:?} in {labels:?}"))?;
+        for _ in 0..row {
+            press(app, KeyCode::Down)?;
+        }
+        press(app, then)?;
+        Ok(())
+    }
+
+    /// The selected row's text, on a list screen.
+    fn selected(app: &App<'_>) -> Option<String> {
+        let (labels, state) = match &app.screen {
+            Screen::Tree { picker, .. } => (&picker.labels, &picker.state),
+            Screen::Thread { picker, .. } => (&picker.labels, &picker.state),
+            Screen::Queue { picker, .. } => (&picker.labels, &picker.state),
+            _ => return None,
+        };
+        state.selected().and_then(|i| labels.get(i)).cloned()
+    }
+
     /// Draw the current screen into the test backend's buffer.
-    fn render(terminal: &mut Terminal<TestBackend>, app: &mut App) -> Result<(), Box<dyn Error>> {
+    fn render(terminal: &mut Terminal<TestBackend>, app: &mut App<'_>) -> Result<(), Box<dyn Error>> {
         let mut drawn = Ok(());
-        terminal.draw(|frame| drawn = ui::draw(frame, &mut app.screen))?;
+        terminal.draw(|frame| drawn = ui::draw(frame, &mut app.screen, app.notice.as_deref()))?;
         Ok(drawn?)
     }
 
@@ -333,35 +239,198 @@ mod tests {
         (0..buffer.area.width).filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol().to_owned())).collect()
     }
 
+    fn screen_text(terminal: &Terminal<TestBackend>) -> String {
+        (0..terminal.backend().buffer().area.height).map(|y| row(terminal, y)).collect::<Vec<_>>().join("\n")
+    }
+
     /// The state changes without a terminal, and drawing goes into ratatui's
     /// in-memory test backend: the Elm-style split is what makes both
     /// testable on their own.
     #[test]
-    fn keys_move_through_the_screens_and_the_screens_draw() -> Result<(), Box<dyn Error>> {
-        let dir = tempfile::tempdir()?;
-        let board = Board::open(&dir.path().join("board.db"))?.board;
-        board.post(&NewPost { area: "proj", topic: "design", sender: "alice", body: "one", key: None }, None)?;
-        let mut app = App::new(board, Audit { path: dir.path().join("audit.log") })?;
-        let mut terminal = Terminal::new(TestBackend::new(60, 8))?;
+    fn keys_move_through_the_tree_and_the_screens_draw() -> TestResult {
+        let f = Fixture::populated()?;
+        let mut app = App::new(&f.board, f.audit())?;
+        let mut terminal = Terminal::new(TestBackend::new(100, 12))?;
 
         render(&mut terminal, &mut app)?;
-        assert!(row(&terminal, 0).starts_with("board-admin -- select an area"));
-        let areas: Vec<String> = (1..4).map(|y| row(&terminal, y)).collect();
-        let proj = areas.iter().position(|line| line.starts_with("proj  [live]  (1 messages)")).ok_or("no proj")?;
-        assert!(row(&terminal, 7).starts_with("up/down j/k move"));
+        assert_eq!(row(&terminal, 0).trim_end(), "board-admin -- the board");
+        assert!(row(&terminal, 1).starts_with("_board  container  2 children  -- the board's own"));
+        assert!(row(&terminal, 2).starts_with("rev     container  4 children"));
+        assert!(row(&terminal, 11).starts_with("enter: open"));
 
-        for _ in 0..proj {
-            assert_eq!(press(&mut app, KeyCode::Char('j'))?, Flow::Continue);
-        }
+        pick(&mut app, "rev ", KeyCode::Enter)?;
+        render(&mut terminal, &mut app)?;
+        assert_eq!(row(&terminal, 0).trim_end(), "board-admin -- rev");
+        let listing = screen_text(&terminal);
+        assert!(listing.contains("rev/asks   queue      stefan's, none open"), "{listing}");
+        assert!(listing.contains("rev/empty  container  0 children"), "{listing}");
+        assert!(listing.contains(&format!("rev/log    thread     3 messages, the last #{}", f.ids.third)), "{listing}");
+        assert!(listing.contains("rev/state  note       v1 by stefan at"), "{listing}");
+        assert!(listing.contains(&format!(", through #{}, 1 behind", f.ids.second)), "{listing}");
+
+        // a thread, a message in it, and back the way we came
+        pick(&mut app, "rev/log ", KeyCode::Enter)?;
+        pick(&mut app, &format!("#{}", f.ids.second), KeyCode::Enter)?;
+        render(&mut terminal, &mut app)?;
+        assert_eq!(row(&terminal, 0).trim_end(), format!("board-admin -- rev/log #{}", f.ids.second));
+        assert_eq!(row(&terminal, 3).trim_end(), "second");
+        press(&mut app, KeyCode::Char('q'))?;
+        assert!(selected(&app).is_some_and(|text| text.starts_with(&format!("#{}", f.ids.second))));
+        press(&mut app, KeyCode::Char('q'))?;
+        assert!(selected(&app).is_some_and(|text| text.starts_with("rev/log ")));
+
+        // a note
+        pick(&mut app, "rev/state ", KeyCode::Enter)?;
+        render(&mut terminal, &mut app)?;
+        assert_eq!(row(&terminal, 0).trim_end(), "board-admin -- rev/state (note)");
+        assert!(screen_text(&terminal).contains("the state of things"));
+        press(&mut app, KeyCode::Esc)?;
+
+        // a queue and its item
+        pick(&mut app, "rev/asks ", KeyCode::Enter)?;
+        render(&mut terminal, &mut app)?;
+        assert!(row(&terminal, 1).contains("answered    stefan: please look"), "{}", row(&terminal, 1));
         press(&mut app, KeyCode::Enter)?;
         render(&mut terminal, &mut app)?;
-        assert!(row(&terminal, 0).starts_with("board-admin -- proj -- select a topic"));
-        assert!(row(&terminal, 1).starts_with("design  (1 messages)"));
+        let item = screen_text(&terminal);
+        assert!(item.contains(&format!("item_answered by stefan, ref #{}", f.ids.third)), "{item}");
+        press(&mut app, KeyCode::Char('q'))?;
+        assert!(matches!(app.screen, Screen::Queue { .. }));
 
-        assert_eq!(press(&mut app, KeyCode::Char('q'))?, Flow::Continue); // back to the areas
+        press(&mut app, KeyCode::Char('q'))?; // to rev
+        assert_eq!(press(&mut app, KeyCode::Char('q'))?, Flow::Continue); // to the top
+        assert!(selected(&app).is_some_and(|text| text.starts_with("rev ")));
         assert_eq!(press(&mut app, KeyCode::Char('q'))?, Flow::Quit);
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(app.update(ctrl_c)?, Flow::Interrupted);
+        Ok(())
+    }
+
+    #[test]
+    fn a_message_is_deleted_after_a_y_and_recorded() -> TestResult {
+        let f = Fixture::populated()?;
+        let mut app = App::new(&f.board, f.audit())?;
+        pick(&mut app, "rev ", KeyCode::Enter)?;
+        pick(&mut app, "rev/log ", KeyCode::Enter)?;
+
+        // anything but y cancels
+        pick(&mut app, &format!("#{}", f.ids.first), KeyCode::Enter)?;
+        press(&mut app, KeyCode::Char('d'))?;
+        assert!(matches!(app.screen, Screen::ConfirmMessage { .. }));
+        press(&mut app, KeyCode::Char('n'))?;
+        assert!(matches!(app.screen, Screen::Message { .. }));
+        assert_eq!(app.notice.as_deref(), Some("cancelled: nothing deleted"));
+        assert_eq!(f.board.thread("rev/log", Range::All)?.messages.len(), 3);
+
+        press(&mut app, KeyCode::Char('d'))?;
+        press(&mut app, KeyCode::Char('y'))?;
+        assert_eq!(app.notice, Some(format!("deleted #{} from rev/log", f.ids.first)));
+        let left: Vec<i64> = f.board.thread("rev/log", Range::All)?.messages.iter().map(|m| m.id).collect();
+        assert_eq!(left, [f.ids.second, f.ids.third]);
+        // back on the thread, on the message after the one that went
+        assert!(selected(&app).is_some_and(|text| text.starts_with(&format!("#{}", f.ids.second))));
+        assert!(f.audit_log()?.ends_with(&format!(" delete_message #{} rev/log from=stefan\n", f.ids.first)));
+        Ok(())
+    }
+
+    #[test]
+    fn a_message_something_points_to_stays() -> TestResult {
+        let f = Fixture::populated()?;
+        let mut app = App::new(&f.board, f.audit())?;
+        pick(&mut app, "rev ", KeyCode::Enter)?;
+        pick(&mut app, "rev/log ", KeyCode::Enter)?;
+        // the note summarizes up to the second, the answer refers to the third
+        for (id, by) in
+            [(f.ids.second, "note_version on \"rev/state\""), (f.ids.third, "item_answered on \"rev/asks\"")]
+        {
+            pick(&mut app, &format!("#{id}"), KeyCode::Enter)?;
+            press(&mut app, KeyCode::Char('d'))?;
+            press(&mut app, KeyCode::Char('y'))?;
+            let notice = app.notice.clone().unwrap_or_default();
+            assert!(notice.starts_with("not deleted: #") && notice.contains(by), "{notice}");
+        }
+        assert_eq!(f.board.thread("rev/log", Range::All)?.messages.len(), 3);
+        assert_eq!(f.audit_log()?, "");
+        Ok(())
+    }
+
+    #[test]
+    fn a_branch_goes_only_once_its_path_is_typed_out() -> TestResult {
+        let f = Fixture::populated()?;
+        let mut app = App::new(&f.board, f.audit())?;
+        let mut terminal = Terminal::new(TestBackend::new(80, 14))?;
+
+        // what will go is listed, every node and what it holds
+        pick(&mut app, "rev ", KeyCode::Char('d'))?;
+        render(&mut terminal, &mut app)?;
+        assert_eq!(row(&terminal, 0).trim_end(), "Delete rev and everything in it (5 nodes). This cannot be undone.");
+        let question = screen_text(&terminal);
+        for line in [
+            "rev        container  4 children",
+            "rev/asks   queue      1 item, 0 open",
+            "rev/empty  container  0 children",
+            "rev/log    thread     3 messages",
+            "rev/state  note       1 version",
+            "Type 'rev' to confirm, anything else cancels:",
+            "> ",
+        ] {
+            assert!(question.contains(line), "no {line:?} in\n{question}");
+        }
+
+        // a typo cancels
+        typing(&mut app, "re")?;
+        press(&mut app, KeyCode::Enter)?;
+        assert!(app.notice.as_deref().is_some_and(|notice| notice.starts_with("cancelled")));
+        assert!(f.board.node("rev").is_ok());
+
+        // the note in rev/state points into rev/log: deleting the thread alone is refused
+        pick(&mut app, "rev ", KeyCode::Enter)?;
+        pick(&mut app, "rev/log ", KeyCode::Char('d'))?;
+        typing(&mut app, "rev/lgo")?;
+        press(&mut app, KeyCode::Backspace)?;
+        press(&mut app, KeyCode::Backspace)?;
+        typing(&mut app, "og")?;
+        press(&mut app, KeyCode::Enter)?;
+        let notice = app.notice.clone().unwrap_or_default();
+        assert!(notice.starts_with("not deleted: #") && notice.contains("points into \"rev/log\""), "{notice}");
+        assert!(f.board.node("rev/log").is_ok());
+
+        // the board's own nodes are refused too
+        press(&mut app, KeyCode::Char('q'))?;
+        pick(&mut app, "_board ", KeyCode::Char('d'))?;
+        typing(&mut app, "_board")?;
+        press(&mut app, KeyCode::Enter)?;
+        assert!(app.notice.as_deref().is_some_and(|notice| notice.contains("the board's own")), "{:?}", app.notice);
+        assert_eq!(f.audit_log()?, "");
+
+        // the whole of rev, pointers and all, goes
+        pick(&mut app, "rev ", KeyCode::Char('d'))?;
+        typing(&mut app, "rev")?;
+        press(&mut app, KeyCode::Enter)?;
+        assert!(app.notice.as_deref().is_some_and(|notice| notice.starts_with("deleted rev: 5 nodes, ")));
+        assert!(matches!(f.board.node("rev"), Err(store::Error::NotFound(_))));
+        assert!(matches!(f.board.node("rev/log"), Err(store::Error::NotFound(_))));
+        let log = f.audit_log()?;
+        assert_eq!(log.lines().count(), 1);
+        assert!(log.contains(" delete_branch rev (5 nodes, "), "{log}");
+        // back on the top level, on the row after the one that went (none:
+        // the last row)
+        assert!(selected(&app).is_some_and(|text| text.starts_with("_board ")));
+        Ok(())
+    }
+
+    #[test]
+    fn the_notice_shows_until_the_next_key() -> TestResult {
+        let f = Fixture::populated()?;
+        let mut app = App::new(&f.board, f.audit())?;
+        let mut terminal = Terminal::new(TestBackend::new(80, 8))?;
+        pick(&mut app, "rev ", KeyCode::Char('d'))?;
+        press(&mut app, KeyCode::Esc)?;
+        render(&mut terminal, &mut app)?;
+        assert!(row(&terminal, 6).starts_with("cancelled: nothing deleted"));
+        press(&mut app, KeyCode::Down)?;
+        render(&mut terminal, &mut app)?;
+        assert_eq!(row(&terminal, 6).trim_end(), "");
         Ok(())
     }
 }

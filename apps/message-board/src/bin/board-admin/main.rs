@@ -1,5 +1,6 @@
-//! board-admin: the TUI that permanently deletes board threads and
-//! releases name claims.
+//! board-admin: the TUI that browses the board's tree and permanently
+//! deletes from it: a node with everything in it (a branch), or one thread
+//! message.
 //!
 //! This is deliberately not part of `board` (no shared subcommand, no
 //! mention in its help) and deliberately not an HTTP endpoint. It opens the
@@ -15,14 +16,20 @@
 //! and write SQL. What this buys is "not reachable through any normal
 //! path", not "impossible".
 //!
-//! The same goes for releasing a name claim (the identity a sender name
-//! was bound to by its first signed post): the one way to free a name whose
-//! key was lost or that the wrong key claimed. The next signed post as that
-//! name claims it again.
+//! What is never deleted is what something else points to: a message a
+//! note summarizes up to (its `through`) or an answer refers to (its
+//! `ref`), and a branch such a pointer from outside it leads into. The
+//! store refuses those, as it does the board's own nodes (`_board`). Keys
+//! are not this tool's business: names are bound and revoked by the
+//! owner's signed actions in the web view.
 //!
-//! Every deletion and release is appended to a local audit log (not the
-//! board: this never touches the board's own API), so there is a record of
-//! what was removed and when, since unlike archive this cannot be undone.
+//! Every deletion is appended to a local audit log (not the board: this
+//! never touches the board's own API), so there is a record of what was
+//! removed and when, since unlike archive this cannot be undone.
+//!
+//! The file is checked before anything else is done with it: a database
+//! that is not a v2 board (the v1 board's above all, kept as an archive)
+//! is refused, read-only, before the service is touched.
 //!
 //! It stops the message-board systemd user service for the session (only
 //! if it was running, and only through systemctl: a board-server it did
@@ -33,16 +40,36 @@
 //! `BOARD_URL` (checked, not written to); `BOARD_ADMIN_SERVICE` (the unit,
 //! default message-board; empty for none) and `BOARD_ADMIN_LOG` (the audit
 //! log).
+//!
+//! # Reading the code
+//!
+//! As a ratatui program, in the order it runs:
+//!
+//! - `main.rs` (here): finding the database, the service, and the order
+//!   things are done and undone in;
+//! - `tui.rs`: the terminal (raw mode, the alternate screen, giving it
+//!   back) and the event loop;
+//! - `app.rs`: the update, what each key does, and the deletions;
+//! - `screens.rs`: the model, each screen as data read from the board,
+//!   with `picker.rs` (a list's selection) and `pager.rs` (a text's
+//!   scrolling) as the state screens share;
+//! - `ui.rs`: the view, drawing a screen.
 
 mod app;
 mod audit;
+#[cfg(test)]
+mod fixture;
+mod pager;
+mod picker;
+mod screens;
 mod service;
 mod tui;
 mod ui;
 
 use std::ffi::OsString;
+use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::thread;
 use std::time::{Duration, SystemTimeError};
@@ -100,16 +127,16 @@ fn nonempty_var(name: &str) -> Option<OsString> {
 }
 
 /// The file `board-server` opens under systemd (`BOARD_DB` in the unit is
-/// %S/message-board/board.db). Unlike board-server's own default, a bare
-/// ./board.db, which is right for a development run and wrong here: run
-/// from the wrong directory, this would open (and create) an empty
-/// database and show a board with nothing on it.
+/// %S/message-board/board-v2.db). Unlike board-server's own default, a
+/// bare ./board-v2.db, which is right for a development run and wrong
+/// here: run from the wrong directory, this would look for a database
+/// that is not there.
 fn db_path(board_db: Option<OsString>, state_home: Option<OsString>, home: Option<PathBuf>) -> Option<PathBuf> {
     if let Some(explicit) = board_db {
         return Some(PathBuf::from(explicit));
     }
     let state = state_home.map(PathBuf::from).or_else(|| home.map(|h| h.join(".local/state")))?;
-    Some(state.join("message-board").join("board.db"))
+    Some(state.join("message-board").join("board-v2.db"))
 }
 
 /// The audit log: `BOARD_ADMIN_LOG`, else beside the service's state.
@@ -134,15 +161,33 @@ fn run() -> Result<ExitCode, Failure> {
     let db = db_path(nonempty_var("BOARD_DB"), nonempty_var("XDG_STATE_HOME"), home.clone()).ok_or_else(no_home)?;
     let audit = Audit { path: audit_path(home).ok_or_else(no_home)? };
 
-    let exists =
-        db.try_exists().map_err(|cause| Failure::Io { what: format!("cannot look for {}", db.display()), cause })?;
-    if !exists {
-        // Opening it would create it; an admin tool must not.
-        return Err(Failure::Exit(format!("no database at {} (set BOARD_DB to point elsewhere).", db.display())));
+    let size = match fs::metadata(&db) {
+        Ok(metadata) => metadata.len(),
+        Err(cause) if cause.kind() == io::ErrorKind::NotFound => {
+            // Opening it would create it; an admin tool must not.
+            return Err(Failure::Exit(format!("no database at {} (set BOARD_DB to point elsewhere).", db.display())));
+        }
+        Err(cause) => return Err(Failure::Io { what: format!("cannot look at {}", db.display()), cause }),
+    };
+    if size == 0 {
+        // Board::open would make a fresh board of it, as of a missing file.
+        return Err(Failure::Exit(format!(
+            "{} is empty, not a board (set BOARD_DB to point elsewhere).",
+            db.display()
+        )));
     }
+    // Board::open looks at the file read-only first and refuses one that
+    // is not a v2 board with nothing written to it. That is done before
+    // the service is touched: a wrong BOARD_DB bounces nothing. Opening a
+    // board the server has open too is safe; SQLite has two programs share
+    // a file. It is only written to once the server is gone.
+    let board = Board::open(&db)?.board;
 
     let mut stopped = false;
-    let session = administer(&service, &url, &db, audit, &signals, &mut stopped);
+    let session = administer(&service, &url, &board, audit, &signals, &mut stopped);
+    // Closed before the service comes back, so that the server is the only
+    // program with the file open again; closing also checkpoints the WAL.
+    let closed = board.close().map_err(Failure::from);
     // Everything after the stop is inside `administer`, so any way out of
     // it -- refusal, error, Ctrl-C, a kill, a quit -- brings the board back.
     if stopped {
@@ -154,19 +199,29 @@ fn run() -> Result<ExitCode, Failure> {
             ))?;
         }
     }
-    match session? {
+    match with_cleanup(session, closed)? {
         Ending::Quit => Ok(ExitCode::SUCCESS),
         Ending::Interrupted => Ok(ExitCode::from(130)),
         Ending::Signalled(signal) => Ok(ExitCode::from(u8::try_from(128 + signal).unwrap_or(1))),
     }
 }
 
-/// Take the service down if it runs, make sure nothing else holds the
+/// The outcome of a step and of the cleanup that ran after it whatever the
+/// step did: the step's error first, and a failed cleanup never dropped.
+fn with_cleanup<T>(step: Result<T, Failure>, cleanup: Result<(), Failure>) -> Result<T, Failure> {
+    match (step, cleanup) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(err), Ok(())) | (Ok(_), Err(err)) => Err(err),
+        (Err(err), Err(cleaning)) => Err(Failure::Both(Box::new(err), Box::new(cleaning))),
+    }
+}
+
+/// Take the service down if it runs, make sure nothing else serves the
 /// database, then run the TUI on it.
 fn administer(
     service: &Service,
     url: &str,
-    db: &Path,
+    board: &Board,
     audit: Audit,
     signals: &Signals,
     stopped: &mut bool,
@@ -209,8 +264,7 @@ fn administer(
     if let Some(signal) = signals.received() {
         return Ok(Ending::Signalled(signal));
     }
-    let opened = Board::open(db)?;
-    let mut app = App::new(opened.board, audit)?;
+    let mut app = App::new(board, audit)?;
     tui::session(&mut app, signals)
 }
 
@@ -222,12 +276,12 @@ mod tests {
     fn the_database_is_where_the_service_keeps_it() {
         let os = |s: &str| Some(OsString::from(s));
         assert_eq!(db_path(os("/x/y.db"), os("/st"), None), Some(PathBuf::from("/x/y.db")));
-        assert_eq!(db_path(None, os("/st"), None), Some(PathBuf::from("/st/message-board/board.db")));
+        assert_eq!(db_path(None, os("/st"), None), Some(PathBuf::from("/st/message-board/board-v2.db")));
         // without XDG_STATE_HOME, under the home directory -- HOME's, or the
         // passwd entry's when HOME is unset (std::env::home_dir looks it up)
         assert_eq!(
             db_path(None, None, Some(PathBuf::from("/home/u"))),
-            Some(PathBuf::from("/home/u/.local/state/message-board/board.db"))
+            Some(PathBuf::from("/home/u/.local/state/message-board/board-v2.db"))
         );
         assert_eq!(db_path(None, None, None), None);
     }

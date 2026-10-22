@@ -14,9 +14,9 @@ use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 
-use crate::Failure;
 use crate::app::{App, Flow};
 use crate::ui;
+use crate::{Failure, with_cleanup};
 
 /// How often the loop looks for a signal while no key comes.
 const TICK: Duration = Duration::from_millis(250);
@@ -79,23 +79,24 @@ fn leave(terminal: &mut DefaultTerminal) -> Result<(), Failure> {
 }
 
 /// Run the session to its end, and give the terminal back however it ends.
-pub fn session(app: &mut App, signals: &Signals) -> Result<Ending, Failure> {
+pub fn session(app: &mut App<'_>, signals: &Signals) -> Result<Ending, Failure> {
     let mut terminal = enter()?;
     let ended = event_loop(&mut terminal, app, signals);
     let left = leave(&mut terminal);
-    match (ended, left) {
-        (Ok(ending), Ok(())) => Ok(ending),
-        (Err(err), Ok(())) | (Ok(_), Err(err)) => Err(err),
-        (Err(err), Err(restoring)) => Err(Failure::Both(Box::new(err), Box::new(restoring))),
-    }
+    with_cleanup(ended, left)
 }
 
-fn event_loop(terminal: &mut DefaultTerminal, app: &mut App, signals: &Signals) -> Result<Ending, Failure> {
+/// The event loop: draw, wait for a key, let the app update, draw again.
+/// Drawing happens only when something changed (a key, a resize): with
+/// immediate mode a draw is the whole screen, cheap but not free.
+fn event_loop(terminal: &mut DefaultTerminal, app: &mut App<'_>, signals: &Signals) -> Result<Ending, Failure> {
     let mut dirty = true;
     loop {
         if dirty {
             terminal
-                .try_draw(|frame| ui::draw(frame, &mut app.screen).map_err(std::io::Error::other))
+                .try_draw(|frame| {
+                    ui::draw(frame, &mut app.screen, app.notice.as_deref()).map_err(std::io::Error::other)
+                })
                 .map_err(|cause| Failure::Io { what: "cannot draw".to_owned(), cause })?;
             dirty = false;
         }

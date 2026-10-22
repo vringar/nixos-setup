@@ -1,6 +1,6 @@
-//! The audit log: one line per deletion or released claim, kept outside
-//! the board (whose own API this tool never touches), since unlike an
-//! archive none of it can be undone.
+//! The audit log: one line per deletion, kept outside the board (whose own
+//! API this tool never touches), since unlike an archive none of it can be
+//! undone.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
@@ -43,10 +43,10 @@ mod tests {
     fn an_entry_is_one_line_whatever_the_names_hold() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let audit = Audit { path: dir.path().join("audit.log") };
-        audit.record("delete_topic", "x\n2026-10-22T00:00:00Z delete_topic forged/one (0 messages)")?;
+        audit.record("delete_branch", "x\n2026-10-22T00:00:00Z delete_branch forged (1 nodes, 1 events)")?;
         let log = fs::read_to_string(&audit.path)?;
         assert_eq!(log.lines().count(), 1, "{log}");
-        assert!(log.ends_with(" delete_topic x\\n2026-10-22T00:00:00Z delete_topic forged/one (0 messages)\n"));
+        assert!(log.ends_with(" delete_branch x\\n2026-10-22T00:00:00Z delete_branch forged (1 nodes, 1 events)\n"));
         Ok(())
     }
 
