@@ -1,0 +1,38 @@
+[package]
+name = "message-board"
+version = "0.2.0"
+edition = "2024"
+publish = false
+description = "Local long-poll message board (area/topic) for agent coordination"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+base64 = "0.23"
+ed25519-dalek = "3"
+getrandom = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.11"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+indexing_slicing = "deny"
+let_underscore_must_use = "deny"
+unused_result_ok = "deny"
+map_err_ignore = "deny"
+# println!/eprintln! panic when the stream is gone; write to locked handles instead
+print_stdout = "deny"
+print_stderr = "deny"

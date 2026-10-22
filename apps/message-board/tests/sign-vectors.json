@@ -1,0 +1,231 @@
+{
+  "_about": "Made by board_sign.py and static/board-sign.js (which agree on every case) with a throwaway key from ssh-keygen; it signs nothing else. The refusals are signatures board_sign.verify_data refused, with its error text.",
+  "key": {
+    "private": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACBSCjohI/YY1x6TcHpeMJCkhUaas0Y9Rnm1jYoxzSdsqgAAAJj/H4sl/x+L\nJQAAAAtzc2gtZWQyNTUxOQAAACBSCjohI/YY1x6TcHpeMJCkhUaas0Y9Rnm1jYoxzSdsqg\nAAAEDY7lcMKm5M87XdrzyjPR33Z4poTfLOLRcGzr3kSfiqoFIKOiEj9hjXHpNwel4wkKSF\nRpqzRj1GebWNijHNJ2yqAAAAFWJvYXJkIHRlc3QgdmVjdG9yIGtleQ==\n-----END OPENSSH PRIVATE KEY-----\n",
+    "public": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFIKOiEj9hjXHpNwel4wkKSFRpqzRj1GebWNijHNJ2yq board test vector key",
+    "fingerprint": "SHA256:bkAKvEpsC35bXyEi1hTCV9Cd/77+M3t17LPDuSLMwCg"
+  },
+  "cases": [
+    {
+      "kind": "message",
+      "values": [
+        "x",
+        "t",
+        "c",
+        "a\nfrom=b",
+        "k",
+        "7"
+      ],
+      "canonical_hex": "617265613a313a780a746f7069633a313a740a66726f6d3a313a630a626f64793a383a610a66726f6d3d620a6b65793a313a6b0a6e6f6e63653a313a370a",
+      "python": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEBwn1pmqQW3w+lY6HrS6PGcjMoC4kv0bRuuQt7zEml2WmNqJghwcrQPL0TeAR5PQ/ngQUXtteuwv4WsBvyKo54L",
+      "js": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEBwn1pmqQW3w+lY6HrS6PGcjMoC4kv0bRuuQt7zEml2WmNqJghwcrQPL0TeAR5PQ/ngQUXtteuwv4WsBvyKo54L"
+    },
+    {
+      "kind": "message",
+      "values": [
+        "rev",
+        "t",
+        "Stefan",
+        "line one\nfrom=evil ü🙂",
+        "0f3c",
+        "41"
+      ],
+      "canonical_hex": "617265613a333a7265760a746f7069633a313a740a66726f6d3a363a53746566616e0a626f64793a32353a6c696e65206f6e650a66726f6d3d6576696c20c3bcf09f99820a6b65793a343a306633630a6e6f6e63653a323a34310a",
+      "python": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEDmT5l2ORcOtCSKnMESi0rE6DQiOOBE78RRU7694VQDLU2i7n29MkUR89Icieuhi+tMkfxb0DKDeisGme4P7/QM",
+      "js": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEDmT5l2ORcOtCSKnMESi0rE6DQiOOBE78RRU7694VQDLU2i7n29MkUR89Icieuhi+tMkfxb0DKDeisGme4P7/QM"
+    },
+    {
+      "kind": "message",
+      "values": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "canonical_hex": "617265613a303a0a746f7069633a303a0a66726f6d3a303a0a626f64793a303a0a6b65793a303a0a6e6f6e63653a303a0a",
+      "python": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEDrSW5qk3i/70/sMPMch3+UE1+HKNhHhd68391JzXqBV1irZtJoJfReDEm2hnMGjfEXwQGWerYh/8sG7W6X/ggN",
+      "js": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEDrSW5qk3i/70/sMPMch3+UE1+HKNhHhd68391JzXqBV1irZtJoJfReDEm2hnMGjfEXwQGWerYh/8sG7W6X/ggN"
+    },
+    {
+      "kind": "message",
+      "values": [
+        "area with space/and/slash",
+        "tö pic",
+        "agent-1",
+        "long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body long body ",
+        "0123456789abcdef0123456789abcdef",
+        "1073"
+      ],
+      "canonical_hex": "617265613a32353a6172656120776974682073706163652f616e642f736c6173680a746f7069633a373a74c3b6207069630a66726f6d3a373a6167656e742d310a626f64793a333030303a6c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479206c6f6e6720626f6479200a6b65793a33323a30313233343536373839616263646566303132333435363738396162636465660a6e6f6e63653a343a313037330a",
+      "python": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEA+0ARjEdfqjWVfXeP1kfvgm1xJonYDaynyJILB3zWx81ceXNigTFdo8JSipzNmy5kgDaKJdBkVq7yVmjKqbncA",
+      "js": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEA+0ARjEdfqjWVfXeP1kfvgm1xJonYDaynyJILB3zWx81ceXNigTFdo8JSipzNmy5kgDaKJdBkVq7yVmjKqbncA"
+    },
+    {
+      "kind": "message",
+      "values": [
+        "a",
+        "t",
+        "x",
+        "\u0000\u001f \r\n\t end",
+        "k",
+        "0"
+      ],
+      "canonical_hex": "617265613a313a610a746f7069633a313a740a66726f6d3a313a780a626f64793a31333a001f7fe280a80d0a0920656e640a6b65793a313a6b0a6e6f6e63653a313a300a",
+      "python": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEC+qHDItEW9DI/FJQQSlbW93EUtDQjOB2mh4gz8HT8aW5nbkQhOYURwlRLI9HyjIX9b9ED8U1PQPfhcaBueUi0N",
+      "js": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEC+qHDItEW9DI/FJQQSlbW93EUtDQjOB2mh4gz8HT8aW5nbkQhOYURwlRLI9HyjIX9b9ED8U1PQPfhcaBueUi0N"
+    },
+    {
+      "kind": "pin",
+      "values": [
+        "rev",
+        "",
+        "Stefan",
+        "# rules",
+        "3",
+        "41"
+      ],
+      "canonical_hex": "617265613a333a7265760a746f7069633a303a0a66726f6d3a363a53746566616e0a626f64793a373a232072756c65730a626173655f76657273696f6e3a313a330a6e6f6e63653a323a34310a",
+      "python": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAAJYm9hcmQtcGluAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQCq7rAZm39BDxPXSLmpih2eEsd2BrwyRBuS7ueiDSgV9P8EeWGuFfDQotzz1sNupa8HMAVgjyHzA73iTPJOHTww=",
+      "js": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAAJYm9hcmQtcGluAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQCq7rAZm39BDxPXSLmpih2eEsd2BrwyRBuS7ueiDSgV9P8EeWGuFfDQotzz1sNupa8HMAVgjyHzA73iTPJOHTww="
+    },
+    {
+      "kind": "pin",
+      "values": [
+        "rev",
+        "ghidra",
+        "agent",
+        "",
+        "",
+        "0"
+      ],
+      "canonical_hex": "617265613a333a7265760a746f7069633a363a6768696472610a66726f6d3a353a6167656e740a626f64793a303a0a626173655f76657273696f6e3a303a0a6e6f6e63653a313a300a",
+      "python": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAAJYm9hcmQtcGluAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQDcKwUpIv/ph6U6EMiEQY+4UekMaExDn4BXBUYDZHVkFyj5zuLYwDvWVqBffGWQCKmGe80lblj7m0he1+FRMqA0=",
+      "js": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAAJYm9hcmQtcGluAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQDcKwUpIv/ph6U6EMiEQY+4UekMaExDn4BXBUYDZHVkFyj5zuLYwDvWVqBffGWQCKmGe80lblj7m0he1+FRMqA0="
+    },
+    {
+      "kind": "pin",
+      "values": [
+        "a",
+        "b",
+        "c",
+        "multi\nline\n\n",
+        "10",
+        "999999"
+      ],
+      "canonical_hex": "617265613a313a610a746f7069633a313a620a66726f6d3a313a630a626f64793a31323a6d756c74690a6c696e650a0a0a626173655f76657273696f6e3a323a31300a6e6f6e63653a363a3939393939390a",
+      "python": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAAJYm9hcmQtcGluAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQK2TDo2+vnwF/cSRGmrrH9UKKP/n5R7S7n297xW8nKV3PQpbsi47bwTprufwqioO3rpKGsCV2DoPx1bR7pnD0Aw=",
+      "js": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAAJYm9hcmQtcGluAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQK2TDo2+vnwF/cSRGmrrH9UKKP/n5R7S7n297xW8nKV3PQpbsi47bwTprufwqioO3rpKGsCV2DoPx1bR7pnD0Aw="
+    }
+  ],
+  "refusals": [
+    {
+      "why": "not base64",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "!!!",
+      "python_error": "signature is not base64"
+    },
+    {
+      "why": "missing padding",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEAwqCb+sANREEnV6Dm3b0gwiIB9bzAAfxImA/NXahp3bIF+SraP1jKOf38ID8PcyY9T+SgNhyHks9quVpd+CA4AAA",
+      "python_error": "signature is not base64"
+    },
+    {
+      "why": "truncated",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "U1NI",
+      "python_error": "truncated key or signature"
+    },
+    {
+      "why": "wrong magic",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "WFhYWFhYAAAAAQ==",
+      "python_error": "not an SSHSIG version 1 signature"
+    },
+    {
+      "why": "version 2",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "U1NIU0lHAAAAAgAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "python_error": "not an SSHSIG version 1 signature"
+    },
+    {
+      "why": "tampered data",
+      "namespace": "board-message",
+      "data_hex": "64617478",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEAwqCb+sANREEnV6Dm3b0gwiIB9bzAAfxImA/NXahp3bIF+SraP1jKOf38ID8PcyY9T+SgNhyHks9quVpd+CA4A",
+      "python_error": "signature does not match the signed fields"
+    },
+    {
+      "why": "other namespace",
+      "namespace": "board-pin",
+      "data_hex": "64617461",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEAwqCb+sANREEnV6Dm3b0gwiIB9bzAAfxImA/NXahp3bIF+SraP1jKOf38ID8PcyY9T+SgNhyHks9quVpd+CA4A",
+      "python_error": "signature is for namespace 'board-message', not 'board-pin'"
+    },
+    {
+      "why": "non-ascii namespace",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAAGYsWNYXJkAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "python_error": "signature is for namespace 'bōard', not 'board-message'"
+    },
+    {
+      "why": "sha256",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhMjU2AAAAUwAAAAtzc2gtZWQyNTUxOQAAAEC+xJOaPMolsqf2MW1Grd06eyo9vB9Y9z+iFkPkpMTf9IDU1MJXQRRG++oMSpmZDn6V3m/nFrDGkwU5J/OdzOoP",
+      "python_error": "signature uses sha256; only sha512 is accepted"
+    },
+    {
+      "why": "ecdsa key",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEE338Hpu+5I0V+lCd/QLp9a731l6uZl0UuxnQRENk72dxvgVtCB/jb+9iSNkNEaKNqT7vE+Cxg9soFduQzNK+SWQAAAA1ib2FyZC1tZXNzYWdlAAAAAAAAAAZzaGE1MTIAAABlAAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAABKAAAAIQC5zK193kcorG32SuR6L7mXBZKL2qQVkuB3N+ZKEkPuaAAAACEAsfaG7e0z4AavKC+D31yVVKD+a/haGmiKwygJJ3jPu0o=",
+      "python_error": "only ed25519 keys are supported, not ecdsa-sha2-nistp256"
+    },
+    {
+      "why": "trailing bytes",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEAwqCb+sANREEnV6Dm3b0gwiIB9bzAAfxImA/NXahp3bIF+SraP1jKOf38ID8PcyY9T+SgNhyHks9quVpd+CA4AAA==",
+      "python_error": "trailing bytes after the signature"
+    },
+    {
+      "why": "rsa signature type",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAATwAAAAdzc2gtcnNhAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "python_error": "only ed25519 signatures are supported"
+    },
+    {
+      "why": "short public key",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "U1NIU0lHAAAAAQAAADIAAAALc3NoLWVkMjU1MTkAAAAfAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAA1ib2FyZC1tZXNzYWdlAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "python_error": "malformed ed25519 public key"
+    },
+    {
+      "why": "zero signature",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmrNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gtZWQyNTUxOQAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "python_error": "signature does not match the signed fields"
+    }
+  ],
+  "accepted": [
+    {
+      "why": "base64 wrapped at 70 columns",
+      "namespace": "board-message",
+      "data_hex": "64617461",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgUgo6ISP2GNcek3B6XjCQpIVGmr\nNGPUZ5tY2KMc0nbKoAAAANYm9hcmQtbWVzc2FnZQAAAAAAAAAGc2hhNTEyAAAAUwAAAAtz\nc2gtZWQyNTUxOQAAAEAwqCb+sANREEnV6Dm3b0gwiIB9bzAAfxImA/NXahp3bIF+SraP1j\nKOf38ID8PcyY9T+SgNhyHks9quVpd+CA4A",
+      "fingerprint": "SHA256:bkAKvEpsC35bXyEi1hTCV9Cd/77+M3t17LPDuSLMwCg"
+    }
+  ]
+}
