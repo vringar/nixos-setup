@@ -328,7 +328,17 @@ def test_project_under_tmp_is_not_covered_by_the_sandbox_tmp(tmp_path):
     (launcher.project / "marker").write_text("here\n")
     result = launcher.run(shutil.which("cat"), "marker")
     assert result.returncode == 0, result.stderr
-    assert "here" in result.stdout.splitlines()
+    assert result.stdout == "here\n"
+
+
+@needs_bwrap
+def test_stdout_is_the_commands_alone(tmp_path):
+    """The launcher's own messages go to stderr: with stdout a pipe, a line
+    of its own there would also land after the command's output."""
+    result = Launcher(tmp_path).run(shutil.which("echo"), "out")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "out\n"
+    assert "Starting sandboxed" in result.stderr
 
 
 @needs_bwrap

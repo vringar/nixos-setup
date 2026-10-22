@@ -975,7 +975,9 @@ def main():
                 "--setenv", "TESTCONTAINERS_RYUK_DISABLED", "true",
             ]
 
-        print(banner)
+        # On stderr: stdout is the sandboxed command's alone, and anything
+        # printed to it here would be buffered past the command's output.
+        print(banner, file=sys.stderr)
         status = exit_status(run_sandbox(bwrap_args, inner_cmd))
     except Stopped as stopped:
         status = 128 + stopped.signum
