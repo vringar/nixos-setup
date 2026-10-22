@@ -5,6 +5,7 @@ service through a stand-in systemctl that runs a real board-server, and
 admin deletions between two server runs.
 """
 
+import json
 import os
 import re
 import signal
@@ -282,6 +283,17 @@ def test_port_still_answering_after_stop_restarts_the_service_we_stopped(tmp_pat
     assert systemd.calls() == ["is-active", "stop", "start"]  # we took it down, so we bring it back
 
 
+def test_a_stop_that_reports_failure_still_restarts_the_service(tmp_path, service):
+    """systemctl can fail after systemd has begun the stop (a Ctrl-C, its
+    wait timing out), and systemd finishes it anyway. The board used to be
+    left down: the restart only followed a stop that had succeeded."""
+    systemd = FakeSystemd(tmp_path, active=True, server=service, stop_fails=True)
+    r = admin(_service_env(tmp_path, systemd, service))
+    assert r.code == 1 and "canceled" in r.err
+    assert systemd.calls() == ["is-active", "stop", "start"]
+    assert json.loads(systemd.state.read_text())["active"] is True
+
+
 def test_failed_restart_warns_instead_of_raising(tmp_path, service):
     systemd = FakeSystemd(tmp_path, active=True, server=service, start_fails=True)
     run = drive_tui(_service_env(tmp_path, systemd, service), [Wait("select an area"), b"q"],
@@ -445,6 +457,25 @@ def test_tui_deletes_one_message_on_y_and_keeps_it_on_anything_else(populated, t
     assert first not in _ids(populated, "proj", "design")
     assert len(_ids(populated, "proj", "design")) == 2
     assert f"delete_message #{first} proj/design" in _audit(tmp_path)
+
+
+def test_a_deletion_the_audit_log_cannot_take_is_named(populated, tmp_path):
+    """The deletion is done before its entry is written. If that write
+    fails, the error must name what went unrecorded: "cannot write the
+    audit log" alone left no trace of which message was gone."""
+    first = _ids(populated, "proj", "design")[0]
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        run = drive_tui(_env(tmp_path, BOARD_ADMIN_LOG=str(locked / "audit.log")), [
+            Pick("proj  ["), Pick("design  ("), b"b", Pick(f"#{first}  "), Wait(DELETE_ONE), b"y"],
+            cols=400)
+    finally:
+        locked.chmod(0o700)
+    assert run.code == 1
+    assert first not in _ids(populated, "proj", "design")
+    assert run.seen(f'"delete_message #{first} proj/design from=alice" is done but not in the audit log')
 
 
 # --- name claims --------------------------------------------------------------

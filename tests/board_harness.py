@@ -732,6 +732,9 @@ elif verb == "stop":
                     break
                 time.sleep(0.05)
         state["active"] = False
+    if state["stop_fails"]:
+        print("Job for message-board.service canceled.", file=sys.stderr)
+        code = 1
 elif verb == "start":
     if state["start_fails"]:
         print("Job for message-board.service failed.", file=sys.stderr)
@@ -750,15 +753,18 @@ sys.exit(code)
 
 class FakeSystemd:
     """A `systemctl` first on PATH, managing one unit: `server`, if given, is
-    the real board-server that unit runs."""
+    the real board-server that unit runs. `stop_fails`: the unit stops, but
+    systemctl says it failed, as when it is interrupted or its wait times
+    out while systemd finishes the stop anyway."""
 
-    def __init__(self, directory, active=True, server=None, stop_works=True, start_fails=False):
+    def __init__(self, directory, active=True, server=None, stop_works=True, start_fails=False,
+                 stop_fails=False):
         self.dir = Path(directory) / "fake-systemd"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.state = self.dir / "state.json"
         self.state.write_text(json.dumps({
             "calls": [], "active": active, "stop_works": stop_works,
-            "start_fails": start_fails,
+            "start_fails": start_fails, "stop_fails": stop_fails,
             "pid": server.proc.pid if server and server.proc else None,
             "port": server.port if server else None}))
         script = self.dir / "systemctl"

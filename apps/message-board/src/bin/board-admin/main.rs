@@ -174,8 +174,11 @@ fn administer(
     let unit = service.unit.as_deref().unwrap_or_default();
     if service.is_active()? {
         note(&format!("board-admin: stopping {unit}..."))?;
-        service.stop()?;
+        // Before the stop, not after: systemctl can fail once systemd has
+        // begun it (a Ctrl-C, its wait timing out), and systemd finishes the
+        // stop anyway. Starting a unit that still runs does nothing.
         *stopped = true;
+        service.stop()?;
         // systemctl stop returns once the unit reports stopped, but give the
         // port a moment to actually free up before trusting it.
         let mut freed = false;
