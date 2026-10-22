@@ -289,6 +289,7 @@ impl Board {
                     .filter(|other| other.name != key.name && looks_alike(&other.name, &key.name))
                     .map(|other| other.name.clone())
                     .collect();
+                look_alikes.sort();
                 look_alikes.dedup();
                 out.push(Registration {
                     item,

@@ -147,6 +147,7 @@ fn the_inbox_flags_look_alike_names() -> TestResult {
     f.register(&one, "ghidra")?;
     f.register(&two, "ghidr4")?;
     f.register(&key(4)?, "unrelated")?;
+    f.register(&key(5)?, "ghidr4")?;
     let flags: Vec<(String, Vec<String>)> =
         f.board.registrations()?.into_iter().map(|r| (r.name, r.look_alikes)).collect();
     assert_eq!(
@@ -154,7 +155,8 @@ fn the_inbox_flags_look_alike_names() -> TestResult {
         [
             ("ghidra".to_owned(), vec!["ghidr4".to_owned()]),
             ("ghidr4".to_owned(), vec!["ghidra".to_owned()]),
-            ("unrelated".to_owned(), vec![])
+            ("unrelated".to_owned(), vec![]),
+            ("ghidr4".to_owned(), vec!["ghidra".to_owned()])
         ]
     );
     Ok(())
