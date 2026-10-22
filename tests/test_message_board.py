@@ -130,6 +130,104 @@ def test_client_disconnect_is_not_logged_as_an_error(board, close):
     assert "Traceback" not in err and len(err.splitlines()) <= 1
 
 
+def serving(board):
+    """Whether the board answers /healthz now; a connection turned away at
+    the limit may be reset before its 503 is read."""
+    try:
+        return board.get("/healthz").status == 200
+    except OSError:
+        return False
+
+
+def exchange(board, wire, *, shut=False):
+    """Send raw bytes, and read the answer until the server closes."""
+    with socket.create_connection(("127.0.0.1", board.server.port), timeout=HANG_TIMEOUT) as s:
+        s.sendall(wire)
+        if shut:
+            s.shutdown(socket.SHUT_WR)
+        answer = b""
+        while chunk := s.recv(65536):
+            answer += chunk
+        return answer
+
+
+@pytest.mark.parametrize("length,status", [("+2", b"400"), ("2 2", b"400"), (str(2 * 1024 * 1024), b"413")])
+def test_bad_or_huge_content_lengths_are_refused(board, length, status):
+    answer = exchange(board, f"POST /post HTTP/1.1\r\nHost: b\r\nContent-Length: {length}\r\n\r\nhi".encode())
+    assert answer.startswith(b"HTTP/1.1 " + status)
+    assert board.head_id() == 0
+
+
+def test_stalled_clients_are_timed_out(board):
+    """A client that stops sending must not hold a connection for ever:
+    hundreds of them used to take the board down. Idle between requests,
+    it is closed quietly; stalled mid-request, it is answered 408."""
+    idle = socket.create_connection(("127.0.0.1", board.server.port), timeout=HANG_TIMEOUT)
+    stalled = socket.create_connection(("127.0.0.1", board.server.port), timeout=HANG_TIMEOUT)
+    try:
+        stalled.sendall(b"GET /healthz HTTP/1.1\r\nHost: b")
+        assert stalled.recv(65536).startswith(b"HTTP/1.1 408")
+        assert idle.recv(65536) == b""
+    finally:
+        idle.close()
+        stalled.close()
+    assert board.head_id() == 0
+
+
+def fill_up(board, request=b""):
+    """Open 400 connections, each sending `request`, and the 401st sending
+    nothing: return them all and what the last one was answered."""
+    held = []
+    for _ in range(400):
+        held.append(socket.create_connection(("127.0.0.1", board.server.port), timeout=HANG_TIMEOUT))
+        held[-1].sendall(request)
+    probe = socket.create_connection(("127.0.0.1", board.server.port), timeout=HANG_TIMEOUT)
+    held.append(probe)
+    answer = b""
+    while chunk := probe.recv(65536):  # turned away: the board closes it
+        answer += chunk
+    return held, answer
+
+
+def test_the_board_turns_away_connections_past_its_limit(board):
+    """Each connection holds a thread and a file descriptor; past its limit
+    (under 400) the board answers 503 rather than run out of either, and
+    serves again once connections close."""
+    held, answer = fill_up(board)
+    try:
+        assert answer.startswith(b"HTTP/1.1 503")
+        error = json.loads(answer.split(b"\r\n\r\n", 1)[1])["error"]
+        assert error.startswith("the board has too many connections open")
+    finally:
+        for s in held:
+            s.close()
+    wait_until(lambda: serving(board), "the board to serve again")
+    assert "connections open; answering new ones 503" in board.server.err()
+
+
+def test_polls_whose_clients_left_free_their_connections(board):
+    """A long poll waits up to five minutes; one whose client has gone must
+    not hold its connection that long. Fill the board with polls, drop
+    them all, and it serves again long before they would have timed out."""
+    held, answer = fill_up(board, b"GET /poll?since=0&area=x&timeout=300 HTTP/1.1\r\nHost: b\r\n\r\n")
+    for s in held:
+        s.close()
+    assert answer.startswith(b"HTTP/1.1 503")
+    started = time.monotonic()
+    wait_until(lambda: serving(board), "the board to serve again")
+    assert time.monotonic() - started < 300
+
+
+def test_a_poll_page_is_cut_by_size_but_readers_get_everything(board):
+    big = "x" * (300 * 1024)
+    for i in range(5):
+        board.post("x", "t", "a", f"{i}{big}")
+    page = board.poll(0, "x", "", timeout=0)
+    assert 1 <= len(page) < 5  # five of these are over a megabyte
+    out = cli("read", "--area", "x").out
+    assert [line[:1] for line in out.splitlines() if line.endswith("x" * 100)] == list("01234")
+
+
 def test_since_arg_accepts_ids_and_head(board):
     for command in (["watch"], ["read", "--area", "x"]):
         bad = cli(*command, "--since", "banana")

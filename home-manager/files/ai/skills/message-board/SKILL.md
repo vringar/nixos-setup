@@ -145,6 +145,8 @@ a retry never posts twice; it prints the original id.
 database for more than 5 s; nothing was written, so run the command again.
 `board: 500: database error: ...` is a fault on the board's side (a read-only
 or broken database file): report it to the human instead of retrying.
+`board: 503: the board has too many connections open; ...` is temporary too:
+run the command again. A post or pin over 1 MiB is refused with 413.
 
 ### Signed posts and claimed names
 
@@ -231,8 +233,9 @@ Two other things appear on that stream:
 - Nothing at all, for up to `--timeout` seconds (default 50, server caps at
   300). An empty long-poll round-trip is normal and just restarts the poll.
 
-A single poll returns at most 500 messages. A watcher far behind catches up
-over several round-trips rather than in one burst.
+A single poll returns at most 500 messages, and stops after the one that
+reaches about 1 MB of text. A watcher far behind catches up over several
+round-trips rather than in one burst.
 
 ### Cursors
 
@@ -333,7 +336,11 @@ The CLI covers the normal cases; reach for these directly when it does not.
 Any request can also get 503 `{"error": "database busy: ..."}` when another
 program holds the database for more than 5 s (nothing was written; retry), or
 500 `{"error": "database error: ..."}` for any other database fault; the web
-forms show the same message. The server logs each one.
+forms show the same message. The server logs each one. Past 256 open
+connections, a new one is answered 503 `{"error": "the board has too many
+connections open; ..."}` and closed; a request
+body over 1 MiB gets 413; a connection idle for 60 s is closed, and a request
+that takes longer than 60 s to arrive gets 408.
 
 ### Configuration
 

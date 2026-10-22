@@ -3,17 +3,21 @@
 //! as HTTP/1.1 and 1.0 define it, and every protocol error named, so that
 //! it can be logged and answered.
 
-use std::io::{self, BufRead as _, BufReader, Read as _, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::net::TcpStream;
-use std::num::ParseIntError;
+use std::time::{Duration, Instant};
 
 use crate::html::Html;
 
 /// The most a request line and its headers may take.
 pub const MAX_HEAD: usize = 64 * 1024;
-/// The largest request body taken; a pin or post is far smaller.
-pub const MAX_BODY: u64 = 16 * 1024 * 1024;
+/// The largest request body taken. The largest message on the board so
+/// far is 25 KB.
+pub const MAX_BODY: u64 = 1024 * 1024;
 const MAX_HEADERS: usize = 100;
+/// How long a client may take to send the next request, and then to send
+/// all of it: a stalled client must not hold a thread and a socket.
+pub const CLIENT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Every HTML response's policy. No inline script: board-sign.js holds a
 /// private key in memory, so nothing a message body could smuggle into the
@@ -33,15 +37,17 @@ pub struct Request {
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolError {
     #[error("{0}")]
-    Io(#[from] io::Error),
+    Io(io::Error),
+    #[error("the request took over {} s to arrive", CLIENT_TIMEOUT.as_secs())]
+    TimedOut,
     #[error("the connection closed in the middle of a request")]
     Truncated,
     #[error("the request line and headers are over {MAX_HEAD} bytes")]
     HeadTooLarge,
     #[error("malformed request: {0}")]
     Malformed(#[from] httparse::Error),
-    #[error("bad Content-Length {value:?}: {cause}")]
-    BadLength { value: String, cause: ParseIntError },
+    #[error("bad Content-Length {0:?}: not a number of bytes")]
+    BadLength(String),
     #[error("conflicting Content-Length headers")]
     ConflictingLength,
     #[error("a request body of {0} bytes is over the {MAX_BODY}-byte limit")]
@@ -50,23 +56,64 @@ pub enum ProtocolError {
     Chunked,
 }
 
+impl From<io::Error> for ProtocolError {
+    fn from(err: io::Error) -> Self {
+        if err.kind() == io::ErrorKind::TimedOut { Self::TimedOut } else { Self::Io(err) }
+    }
+}
+
 impl ProtocolError {
     /// The status to answer with, or `None` when there is no one left to
     /// answer.
     pub fn status(&self) -> Option<u16> {
         match self {
             Self::Io(_) | Self::Truncated => None,
+            Self::TimedOut => Some(408),
             Self::HeadTooLarge | Self::Malformed(httparse::Error::TooManyHeaders) => Some(431),
-            Self::Malformed(_) | Self::BadLength { .. } | Self::ConflictingLength => Some(400),
+            Self::Malformed(_) | Self::BadLength(_) | Self::ConflictingLength => Some(400),
             Self::BodyTooLarge(_) => Some(413),
             Self::Chunked => Some(501),
         }
     }
 }
 
+/// A connection's reading side, with a deadline for each read: a read
+/// past it fails with [`io::ErrorKind::TimedOut`].
+pub struct Timed<'a> {
+    stream: &'a TcpStream,
+    deadline: Instant,
+}
+
+impl<'a> Timed<'a> {
+    pub fn new(stream: &'a TcpStream) -> Self {
+        Self { stream, deadline: Instant::now() }
+    }
+
+    /// Let reads go on for `time` from now.
+    pub fn allow(&mut self, time: Duration) {
+        let now = Instant::now();
+        self.deadline = now.checked_add(time).unwrap_or(now);
+    }
+}
+
+impl Read for Timed<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let left = self.deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::ErrorKind::TimedOut.into());
+        }
+        self.stream.set_read_timeout(Some(left))?;
+        // A socket read timeout surfaces as WouldBlock on Unix.
+        let mut stream = self.stream;
+        stream
+            .read(buf)
+            .map_err(|err| if err.kind() == io::ErrorKind::WouldBlock { io::ErrorKind::TimedOut.into() } else { err })
+    }
+}
+
 /// The request line and headers, up to and including the empty line;
 /// `None` if the client closed the connection before sending any.
-fn read_head(reader: &mut BufReader<TcpStream>) -> Result<Option<Vec<u8>>, ProtocolError> {
+fn read_head(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>, ProtocolError> {
     let mut head = Vec::new();
     loop {
         let start = head.len();
@@ -87,12 +134,13 @@ fn read_head(reader: &mut BufReader<TcpStream>) -> Result<Option<Vec<u8>>, Proto
     }
 }
 
-/// The next request on a connection, or `None` once the client is done.
+/// The next request on a connection, or `None` once the client is done;
+/// `interim` takes a 100 Continue.
 ///
 /// # Errors
 /// If the connection fails, or the client sends what is not a request
 /// this server takes.
-pub fn read_request(reader: &mut BufReader<TcpStream>) -> Result<Option<Request>, ProtocolError> {
+pub fn read_request(reader: &mut impl BufRead, interim: &mut impl Write) -> Result<Option<Request>, ProtocolError> {
     let Some(head) = read_head(reader)? else {
         return Ok(None);
     };
@@ -112,8 +160,11 @@ pub fn read_request(reader: &mut BufReader<TcpStream>) -> Result<Option<Request>
         let value = String::from_utf8_lossy(header.value);
         let value = value.trim();
         if header.name.eq_ignore_ascii_case("content-length") {
-            let n =
-                value.parse::<u64>().map_err(|cause| ProtocolError::BadLength { value: value.to_owned(), cause })?;
+            // Digits only: u64's parser also takes a leading '+'.
+            let n = Some(value)
+                .filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
+                .and_then(|v| v.parse::<u64>().ok())
+                .ok_or_else(|| ProtocolError::BadLength(value.to_owned()))?;
             if length.is_some_and(|earlier| earlier != n) {
                 return Err(ProtocolError::ConflictingLength);
             }
@@ -135,9 +186,8 @@ pub fn read_request(reader: &mut BufReader<TcpStream>) -> Result<Option<Request>
         return Err(ProtocolError::BodyTooLarge(length));
     }
     if expect_continue {
-        let stream = reader.get_mut();
-        stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
-        stream.flush()?;
+        interim.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
+        interim.flush()?;
     }
     let mut body = Vec::new();
     reader.by_ref().take(length).read_to_end(&mut body)?;
@@ -154,6 +204,7 @@ fn reason(status: u16) -> &'static str {
         400 => "Bad Request",
         403 => "Forbidden",
         404 => "Not Found",
+        408 => "Request Timeout",
         409 => "Conflict",
         413 => "Content Too Large",
         431 => "Request Header Fields Too Large",
@@ -221,9 +272,37 @@ impl Response {
             wire.push_str("\r\n");
         }
         wire.push_str("\r\n");
-        let mut bytes = wire.into_bytes();
-        bytes.extend_from_slice(&self.body);
-        out.write_all(&bytes)?;
+        // Head and body as they are, not copied into one buffer: a poll's
+        // body can be megabytes.
+        out.write_all(wire.as_bytes())?;
+        out.write_all(&self.body)?;
         out.flush()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(wire: &[u8]) -> Result<Option<Request>, ProtocolError> {
+        read_request(&mut io::BufReader::new(wire), &mut Vec::new())
+    }
+
+    #[test]
+    fn content_length_is_digits() -> Result<(), ProtocolError> {
+        let request = parse(b"POST /post HTTP/1.1\r\nContent-Length: 2\r\n\r\nhi")?;
+        assert_eq!(request.map(|r| r.body), Some(b"hi".to_vec()));
+        for bad in ["+2", "-2", "2 2", "0x2", "", "99999999999999999999999"] {
+            let wire = format!("POST /post HTTP/1.1\r\nContent-Length: {bad}\r\n\r\nhi");
+            assert!(matches!(parse(wire.as_bytes()), Err(ProtocolError::BadLength(_))), "{bad:?}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_request_cut_short_is_truncated_and_none_is_none() {
+        assert!(matches!(parse(b""), Ok(None)));
+        assert!(matches!(parse(b"GET / HTTP/1.1\r\nHost: x"), Err(ProtocolError::Truncated)));
+        assert!(matches!(parse(b"POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nhi"), Err(ProtocolError::Truncated)));
     }
 }

@@ -35,6 +35,8 @@ enum Failure {
     Bad(String),
     /// The JSON body is not JSON.
     NotJson(serde_json::Error),
+    /// The client left while its long poll waited: no one to answer.
+    Gone,
 }
 
 impl From<DbError> for Failure {
@@ -62,11 +64,13 @@ fn db_failure(err: &DbError) -> (u16, String) {
     }
 }
 
-/// The request, for a log line: method, path and client.
+/// The request, for a log line: method, path and client; and whether the
+/// client still waits for the answer.
 struct Context<'a> {
     method: &'a str,
     path: &'a str,
     peer: SocketAddr,
+    waiting: &'a dyn Fn() -> bool,
 }
 
 impl Context<'_> {
@@ -107,10 +111,11 @@ impl Params {
 }
 
 /// Answer a request. Every way a request can go wrong ends here as a
-/// status: nothing is dropped.
-pub fn handle(app: &App, request: &Request, peer: SocketAddr) -> Response {
+/// status: nothing is dropped. `None` only when the client left before
+/// there was an answer, as `waiting` (asked during a long poll) found.
+pub fn handle(app: &App, request: &Request, peer: SocketAddr, waiting: &dyn Fn() -> bool) -> Option<Response> {
     let (path, query) = split_target(&request.target);
-    let ctx = Context { method: &request.method, path, peer };
+    let ctx = Context { method: &request.method, path, peer, waiting };
     let answer = match request.method.as_str() {
         "GET" => get(app, path, &Params::parse(query.as_bytes()), &ctx),
         "POST" => post(app, path, &request.body, &ctx),
@@ -120,7 +125,8 @@ pub fn handle(app: &App, request: &Request, peer: SocketAddr) -> Response {
         }
     };
     let failed = match answer {
-        Ok(response) => return response,
+        Ok(response) => return Some(response),
+        Err(Failure::Gone) => return None,
         Err(Failure::Db(err)) => ctx.db_failed(&err),
         Err(Failure::Bad(why)) => {
             ctx.log(&why);
@@ -131,13 +137,13 @@ pub fn handle(app: &App, request: &Request, peer: SocketAddr) -> Response {
             (400, "invalid JSON".to_owned())
         }
     };
-    match json_error(failed.0, &failed.1) {
+    Some(match json_error(failed.0, &failed.1) {
         Ok(response) => response,
         Err(err) => {
             ctx.log(&format!("cannot encode an error as JSON: {err}"));
             Response::text(500, "internal error")
         }
-    }
+    })
 }
 
 /// The path and query string of a request target. An absolute-form target
@@ -183,7 +189,7 @@ fn get(app: &App, path: &str, q: &Params, ctx: &Context<'_>) -> Answer {
             }
             let wait = Duration::try_from_secs_f64(timeout.clamp(0.0, MAX_POLL)).unwrap_or(Duration::ZERO);
             let scope = Scope { since, area, topic, include_archived: archived_flag(q) };
-            let messages = app.board.poll(&scope, wait)?;
+            let messages = app.board.poll(&scope, wait, ctx.waiting)?.ok_or(Failure::Gone)?;
             if q.get("format") == Some("lines") {
                 Ok(Response::text(200, &format_lines(&messages)))
             } else {

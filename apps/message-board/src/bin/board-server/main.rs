@@ -22,7 +22,9 @@
 //!
 //! One thread per connection: a long poll blocks its thread on the store's
 //! condition variable for up to five minutes, which needs no async
-//! runtime, and a local board has few connections.
+//! runtime, and a local board has few connections. They are capped, and
+//! timed out when the client stalls or leaves, so that no client can use
+//! up the threads and file descriptors.
 
 mod html;
 mod http;
@@ -31,10 +33,11 @@ mod routes;
 
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, BufReader, ErrorKind, Read as _};
+use std::io::{self, BufRead as _, BufReader, ErrorKind, Read as _};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -236,13 +239,74 @@ impl Shutdown {
     }
 }
 
+/// The most connections served at once. Each holds a thread and a file
+/// descriptor; past this a new one is answered 503 and closed, so the
+/// process never runs out of either (systemd's default soft limit is 1024
+/// descriptors).
+const MAX_CONNECTIONS: usize = 256;
+
+/// The answer past [`MAX_CONNECTIONS`], as every error: JSON.
+const FULL: &str = r#"{"error":"the board has too many connections open; try again shortly"}"#;
+
+/// The connections open, and how many were turned away at the limit.
+#[derive(Default)]
+struct Connections {
+    open: AtomicUsize,
+    refused: AtomicUsize,
+}
+
+/// One connection's place under [`MAX_CONNECTIONS`], given back on drop.
+struct Slot(Arc<Connections>);
+
+impl Connections {
+    fn take(this: &Arc<Self>) -> Option<Slot> {
+        let below = this
+            .open
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| (n < MAX_CONNECTIONS).then(|| n.saturating_add(1)));
+        below.is_ok().then(|| Slot(Arc::clone(this)))
+    }
+
+    /// Answer a connection over the limit 503, and close it.
+    fn refuse(&self, mut stream: TcpStream, peer: SocketAddr) {
+        if self.refused.fetch_add(1, Ordering::SeqCst) == 0 {
+            log::line(&format!("board: {MAX_CONNECTIONS} connections open; answering new ones 503 until one closes"));
+        }
+        let answer = Response::json(503, FULL.to_owned());
+        // A new socket's send buffer is empty, so this does not block; the
+        // timeout is only a backstop.
+        let sent = stream
+            .set_write_timeout(Some(Duration::from_secs(1)))
+            .and_then(|()| answer.write_to(&mut stream, date().as_deref()));
+        if let Err(err) = sent {
+            log::line(&format!("board: cannot tell {peer} the board is full: {err}"));
+        }
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.open.fetch_sub(1, Ordering::SeqCst);
+        let refused = self.0.refused.swap(0, Ordering::SeqCst);
+        if refused > 0 {
+            log::line(&format!("board: below {MAX_CONNECTIONS} connections again; {refused} were turned away"));
+        }
+    }
+}
+
 fn serve(listener: &TcpListener, app: &Arc<App>) {
+    let connections = Arc::new(Connections::default());
     loop {
         match listener.accept() {
             Ok((stream, peer)) => {
+                let Some(slot) = Connections::take(&connections) else {
+                    connections.refuse(stream, peer);
+                    continue;
+                };
                 let app = Arc::clone(app);
-                let spawned =
-                    thread::Builder::new().name(format!("board {peer}")).spawn(move || connection(&app, stream, peer));
+                let spawned = thread::Builder::new().name(format!("board {peer}")).spawn(move || {
+                    connection(&app, &stream, peer);
+                    drop(slot);
+                });
                 if let Err(err) = spawned {
                     log::line(&format!("board: no thread for the connection from {peer}: {err}"));
                 }
@@ -267,18 +331,61 @@ fn date() -> Option<String> {
     }
 }
 
-/// Serve one connection's requests, in order, until either side ends it.
-fn connection(app: &App, stream: TcpStream, peer: SocketAddr) {
-    let mut reader = match stream.try_clone() {
-        Ok(read_half) => BufReader::new(read_half),
+/// Whether a long poll's client still waits for the answer: once it has
+/// gone, its end of the connection reads as closed.
+fn client_waiting(stream: &TcpStream, peer: SocketAddr) -> bool {
+    if let Err(err) = stream.set_nonblocking(true) {
+        log::line(&format!("board: cannot check whether {peer} still waits: {err}"));
+        return true;
+    }
+    let mut probe = [0_u8; 1];
+    let waiting = match stream.peek(&mut probe) {
+        Ok(0) => false,
+        // Nothing to read yet, or its next request already sent.
+        Ok(_) => true,
+        Err(err) if err.kind() == ErrorKind::WouldBlock => true,
         Err(err) => {
-            log::line(&format!("board: cannot read from {peer}: {err}"));
-            return;
+            log::line(&format!("board: connection from {peer} lost during a poll: {err}"));
+            false
         }
     };
+    match stream.set_nonblocking(false) {
+        Ok(()) => waiting,
+        Err(err) => {
+            log::line(&format!("board: cannot serve {peer} further: {err}"));
+            false
+        }
+    }
+}
+
+/// Serve one connection's requests, in order, until either side ends it,
+/// or the client stalls for [`http::CLIENT_TIMEOUT`].
+fn connection(app: &App, stream: &TcpStream, peer: SocketAddr) {
+    // Head and body are written separately, and Nagle's algorithm would
+    // hold the body back until the client acknowledged the head.
+    let set_up = stream.set_nodelay(true).and_then(|()| stream.set_write_timeout(Some(http::CLIENT_TIMEOUT)));
+    if let Err(err) = set_up {
+        log::line(&format!("board: cannot set up the connection from {peer}: {err}"));
+        return;
+    }
+    let mut reader = BufReader::new(http::Timed::new(stream));
     let mut writer = stream;
+    let waiting = || client_waiting(stream, peer);
     loop {
-        let request = match http::read_request(&mut reader) {
+        // An idle keep-alive connection is closed after the timeout...
+        reader.get_mut().allow(http::CLIENT_TIMEOUT);
+        match reader.fill_buf() {
+            Ok([]) => return,
+            Ok(_) => {}
+            Err(err) if err.kind() == ErrorKind::TimedOut => return,
+            Err(err) => {
+                log::line(&format!("board: connection from {peer} lost: {err}"));
+                return;
+            }
+        }
+        // ...and from its first byte, a request has as long to arrive whole.
+        reader.get_mut().allow(http::CLIENT_TIMEOUT);
+        let request = match http::read_request(&mut reader, &mut writer) {
             Ok(Some(request)) => request,
             Ok(None) => return,
             Err(err) => {
@@ -300,7 +407,9 @@ fn connection(app: &App, stream: TcpStream, peer: SocketAddr) {
                 return;
             }
         };
-        let response = routes::handle(app, &request, peer);
+        let Some(response) = routes::handle(app, &request, peer, &waiting) else {
+            return; // left during its long poll
+        };
         if let Err(err) = response.write_to(&mut writer, date().as_deref()) {
             log::line(&format!("board: client {peer} went away mid-response: {err}"));
             return;

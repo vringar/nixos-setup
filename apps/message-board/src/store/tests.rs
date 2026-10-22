@@ -240,13 +240,44 @@ fn a_poll_wakes_for_a_post_made_while_it_waits() -> TestResult {
         thread::sleep(Duration::from_millis(300));
         post(&writer, "x", "t", "a", "woke you")
     });
-    let rows =
-        board.poll(&Scope { since: 0, area: "x", topic: "", include_archived: false }, Duration::from_secs(60))?;
+    let x = Scope { since: 0, area: "x", topic: "", include_archived: false };
+    let rows = board.poll(&x, Duration::from_secs(60), || true)?.ok_or("gave up")?;
     poster.join().map_err(|_panicked| "poster thread panicked")??;
     assert_eq!(bodies(&rows), ["woke you"]);
     assert!(started.elapsed() < Duration::from_secs(60));
-    let empty = board.poll(&Scope { since: 99, area: "x", topic: "", include_archived: false }, Duration::ZERO)?;
-    assert_eq!(empty, Vec::<Message>::new());
+    let later = Scope { since: 99, ..x };
+    assert_eq!(board.poll(&later, Duration::ZERO, || true)?, Some(Vec::new()));
+    Ok(())
+}
+
+#[test]
+fn a_poll_gives_up_once_its_client_is_gone() -> TestResult {
+    let f = fixture()?;
+    let started = Instant::now();
+    let asked = std::cell::Cell::new(0);
+    let wanted = || {
+        asked.set(asked.get() + 1);
+        asked.get() < 3
+    };
+    let x = Scope { since: 0, area: "x", topic: "", include_archived: false };
+    assert_eq!(f.board.poll(&x, Duration::from_secs(300), wanted)?, None);
+    assert_eq!(asked.get(), 3);
+    assert!(started.elapsed() < Duration::from_secs(60), "{:?}", started.elapsed());
+    Ok(())
+}
+
+#[test]
+fn a_page_stops_at_about_a_megabyte_of_text() -> TestResult {
+    let f = fixture()?;
+    let big = "x".repeat(300 * 1024);
+    for _ in 0..5 {
+        post(&f.board, "x", "t", "a", &big)?;
+    }
+    let x = Scope { since: 0, area: "x", topic: "", include_archived: false };
+    let first = f.board.query(&x, POLL_LIMIT)?;
+    assert_eq!(first.len(), 4); // the fourth reaches POLL_BYTES
+    let last = first.last().map(|m| m.id).ok_or("empty page")?;
+    assert_eq!(f.board.query(&Scope { since: last, ..x }, POLL_LIMIT)?.len(), 1);
     Ok(())
 }
 

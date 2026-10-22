@@ -56,6 +56,11 @@ pub const MIN_DISTANCE: usize = 3;
 pub const SERVER_NAME: &str = "board";
 /// The most messages one poll returns.
 pub const POLL_LIMIT: i64 = 500;
+/// About the most message text one poll returns: it stops after the
+/// message that reaches this. A client pages on from the last id it got.
+pub const POLL_BYTES: usize = 1024 * 1024;
+/// How often a waiting long poll asks whether its client still wants it.
+const POLL_CHECK: Duration = Duration::from_secs(1);
 /// How long a write waits for another program's lock on the file.
 pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -437,7 +442,19 @@ fn query(conn: &Connection, scope: &Scope<'_>, limit: i64) -> rusqlite::Result<V
     }
     sql.push_str(" ORDER BY id LIMIT ?");
     args.push(Value::Integer(limit));
-    conn.prepare(&sql)?.query_map(params_from_iter(args), message)?.collect()
+    let mut statement = conn.prepare(&sql)?;
+    let mut rows = statement.query(params_from_iter(args))?;
+    let mut found = Vec::new();
+    let mut text = 0_usize;
+    while let Some(row) = rows.next()? {
+        let m = message(row)?;
+        text = text.saturating_add(m.body.len()).saturating_add(m.area.len()).saturating_add(m.topic.len());
+        found.push(m);
+        if text >= POLL_BYTES {
+            break;
+        }
+    }
+    Ok(found)
 }
 
 fn get_identity(conn: &Connection, name: &str) -> rusqlite::Result<Option<Identity>> {
@@ -944,7 +961,8 @@ impl Board {
         })
     }
 
-    /// The messages in `scope`, oldest first, at most `limit`.
+    /// The messages in `scope`, oldest first: at most `limit`, and none
+    /// after the one that reaches [`POLL_BYTES`] of text.
     ///
     /// # Errors
     /// On a database fault.
@@ -952,12 +970,20 @@ impl Board {
         self.read(|conn| query(conn, scope, limit))
     }
 
-    /// The long poll: the next messages in `scope` (at most
-    /// [`POLL_LIMIT`]), waiting up to `timeout` for one to be posted.
+    /// The long poll: the next messages in `scope` (as [`Board::query`]
+    /// with [`POLL_LIMIT`]), waiting up to `timeout` for one to be posted.
+    /// While it waits it asks `wanted` every second or so, and gives up
+    /// with `None` once that says no: a client that has gone must not hold
+    /// its thread and socket for the rest of the timeout.
     ///
     /// # Errors
     /// On a database fault.
-    pub fn poll(&self, scope: &Scope<'_>, timeout: Duration) -> Result<Vec<Message>, DbError> {
+    pub fn poll(
+        &self,
+        scope: &Scope<'_>,
+        timeout: Duration,
+        wanted: impl Fn() -> bool,
+    ) -> Result<Option<Vec<Message>>, DbError> {
         let deadline = Instant::now().checked_add(timeout);
         // Query and wait under the same lock: a write cannot land between
         // the two, so no wakeup is lost.
@@ -967,9 +993,12 @@ impl Board {
             let remaining = deadline.and_then(|d| d.checked_duration_since(Instant::now()));
             match remaining {
                 Some(left) if rows.is_empty() && !left.is_zero() => {
-                    guard = self.changed.wait_timeout(guard, left)?.0;
+                    if !wanted() {
+                        return Ok(None);
+                    }
+                    guard = self.changed.wait_timeout(guard, left.min(POLL_CHECK))?.0;
                 }
-                _ => return Ok(rows),
+                _ => return Ok(Some(rows)),
             }
         }
     }
