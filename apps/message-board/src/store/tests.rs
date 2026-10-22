@@ -1,7 +1,17 @@
 //! The store against real SQLite files in a temporary directory, with real
-//! keys and signatures.
+//! keys and signatures. The helpers here sign every write as a client
+//! would: against the board's head, with a fresh client key.
+
+mod files;
+mod identity;
+mod items;
+mod notes;
+mod paths;
+mod poll;
+mod writes;
 
 use std::error::Error as StdError;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::*;
@@ -9,30 +19,34 @@ use crate::sign::{self, PrivateKey};
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
+/// The owner's name in every fixture.
+const OWNER: &str = "Stefan";
+
 struct Fixture {
     _dir: tempfile::TempDir,
     path: std::path::PathBuf,
-    board: Board,
+    board: Arc<Board>,
+    /// `Stefan`'s key, the owner key (seed 1).
     owner: PrivateKey,
 }
 
 /// A key from a fixed seed: the same in every run.
-fn key(seed: u8) -> Result<PrivateKey, Box<dyn StdError>> {
-    Ok(PrivateKey::from_seed(&[seed; 32])?)
+fn key(seed: u8) -> Result<PrivateKey, sign::SignatureError> {
+    PrivateKey::from_seed(&[seed; 32])
 }
 
 fn verified(key: &PrivateKey) -> sign::Verified {
     sign::Verified { public_line: key.public_line(), fingerprint: key.fingerprint() }
 }
 
-/// A fresh board with `Stefan` as the owner (key seed 1).
+/// A fresh board with `Stefan` as the owner.
 fn fixture() -> Result<Fixture, Box<dyn StdError>> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("board-v2.db");
     let board = Board::open(&path)?.board;
     let owner = key(1)?;
-    board.set_owner("Stefan", &verified(&owner))?;
-    Ok(Fixture { _dir: dir, path, board, owner })
+    board.set_owner(OWNER, &verified(&owner))?;
+    Ok(Fixture { _dir: dir, path, board: Arc::new(board), owner })
 }
 
 /// A client key no other request in this test run uses.
@@ -41,8 +55,7 @@ fn client_key() -> String {
     format!("k-{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
-/// A request signed by `private` against the board's head, as a client
-/// makes it.
+/// A request signed by a key against the board's head, as a client makes it.
 struct Request<A> {
     action: A,
     key: String,
@@ -51,13 +64,13 @@ struct Request<A> {
 }
 
 impl<A: Action + Copy> Request<A> {
-    fn new(board: &Board, private: &PrivateKey, action: A) -> Result<Self, Box<dyn StdError>> {
+    fn new(board: &Board, private: &PrivateKey, action: A) -> Result<Self, Error> {
         Self::keyed(board, private, action, &client_key())
     }
 
-    fn keyed(board: &Board, private: &PrivateKey, action: A, key: &str) -> Result<Self, Box<dyn StdError>> {
+    fn keyed(board: &Board, private: &PrivateKey, action: A, key: &str) -> Result<Self, Error> {
         let nonce = board.head()?.to_string();
-        let signature = action.sign(private, key, &nonce)?;
+        let signature = action.sign(private, key, &nonce).map_err(Error::BadSignature)?;
         Ok(Self { action, key: key.to_owned(), nonce, signature })
     }
 
@@ -66,57 +79,81 @@ impl<A: Action + Copy> Request<A> {
     }
 }
 
-/// Sign `action` with `$key` and run it as `$board.$method`.
+/// Sign `$action` with `$key` and run it as `$board.$method`.
 macro_rules! submit {
     ($board:expr, $key:expr, $method:ident, $action:expr) => {
-        Request::new(&$board, $key, $action).map(|request| $board.$method(&request.signed()))
+        Request::new(&$board, $key, $action).and_then(|request| $board.$method(&request.signed()))
     };
 }
-
-/// Register `name` with `private` and have the owner approve it.
-fn trusted(f: &Fixture, private: &PrivateKey, name: &str) -> Result<i64, Box<dyn StdError>> {
-    let registered = submit!(f.board, private, register, Register { name, note: "test", repo: "" })??;
-    let approve = Approve { item: registered.item, name, fingerprint: &private.fingerprint() };
-    Ok(submit!(f.board, &f.owner, approve, approve)??.id)
-}
+use submit;
 
 fn create(path: &str, kind: NodeKind) -> Create<'_> {
     Create { path, kind, description: "", owner: "", body: "" }
 }
 
-#[test]
-fn a_round_trip_through_the_main_flows() -> TestResult {
-    let f = fixture()?;
-    let agent = key(2)?;
-    // unknown, then pending, then trusted
-    let early = submit!(f.board, &agent, post, Post { path: "rev/log", body: "hi" })?.err().ok_or("accepted")?;
-    assert!(matches!(&early, Error::NotRegistered { fingerprint } if *fingerprint == agent.fingerprint()));
-    let registered = submit!(f.board, &agent, register, Register { name: "agent", note: "n", repo: "/r" })??;
-    let pending = submit!(f.board, &agent, post, Post { path: "rev/log", body: "hi" })?.err().ok_or("accepted")?;
-    assert!(matches!(pending, Error::RegistrationPending { item } if item == registered.item));
-    let approve = Approve { item: registered.item, name: "agent", fingerprint: &agent.fingerprint() };
-    let approved = submit!(f.board, &f.owner, approve, approve)??;
-    assert_eq!(approved.state, ItemState::Answered);
+impl Fixture {
+    /// A key `seed`, registered as `name` and approved by the owner.
+    fn agent(&self, seed: u8, name: &str) -> Result<PrivateKey, Box<dyn StdError>> {
+        let private = key(seed)?;
+        let registered = self.register(&private, name)?;
+        self.approve(registered.item, name, &private)?;
+        Ok(private)
+    }
 
-    submit!(f.board, &f.owner, create, create("rev", NodeKind::Container))??;
-    submit!(f.board, &agent, create, create("rev/log", NodeKind::Thread))??;
-    let since = f.board.head()?;
-    let posted = submit!(f.board, &agent, post, Post { path: "rev/log", body: "hello @Stefan" })??;
-    let watch = Watch { paths: vec!["rev/log".to_owned()], mentions: vec!["Stefan".to_owned()], ..Watch::default() };
-    let page = f.board.poll(&watch, since, std::time::Duration::ZERO, || true)?.ok_or("gave up")?;
-    let [delivered] = page.events.as_slice() else { return Err(format!("not one event: {page:?}").into()) };
-    assert_eq!(delivered.event.id, posted.id);
-    assert_eq!(delivered.event.from.as_deref(), Some("agent"));
-    assert_eq!(delivered.why, [Why::Path, Why::Mention]);
-    assert_eq!(page.cursor, f.board.head()?);
-    assert!(f.path.exists());
-    Ok(())
+    fn register(&self, private: &PrivateKey, name: &str) -> Result<Registered, Error> {
+        submit!(self.board, private, register, Register { name, note: "for a test", repo: "/src/test" })
+    }
+
+    /// The owner approves registration `item` of `name` by `private`.
+    fn approve(&self, item: i64, name: &str, private: &PrivateKey) -> Result<Resolved, Error> {
+        submit!(self.board, &self.owner, approve, Approve { item, name, fingerprint: &private.fingerprint() })
+    }
+
+    fn revoke(&self, by: &PrivateKey, fingerprint: &str, reason: &str) -> Result<Revoked, Error> {
+        submit!(self.board, by, revoke, Revoke { fingerprint, reason })
+    }
+
+    fn create(&self, by: &PrivateKey, path: &str, kind: NodeKind) -> Result<Created, Error> {
+        submit!(self.board, by, create, create(path, kind))
+    }
+
+    fn queue(&self, by: &PrivateKey, path: &str, owner: &str) -> Result<Created, Error> {
+        submit!(self.board, by, create, Create { owner, ..create(path, NodeKind::Queue) })
+    }
+
+    fn post(&self, by: &PrivateKey, path: &str, body: &str) -> Result<Posted, Error> {
+        submit!(self.board, by, post, Post { path, body })
+    }
+
+    fn set_note(
+        &self,
+        by: &PrivateKey,
+        path: &str,
+        body: &str,
+        base_version: i64,
+        through: Option<i64>,
+    ) -> Result<NoteSaved, Error> {
+        submit!(self.board, by, set_note, SetNote { path, body, base_version, through })
+    }
+
+    fn file(&self, by: &PrivateKey, path: &str, body: &str) -> Result<Filed, Error> {
+        submit!(self.board, by, file, File { path, body })
+    }
+
+    fn resolve(&self, by: &PrivateKey, item: i64, state: ItemState, body: &str) -> Result<Resolved, Error> {
+        submit!(self.board, by, resolve, Resolve { item, state, body, reference: None })
+    }
+
+    /// `rev`, made by the owner: the container most tests work in.
+    fn rev(&self) -> Result<(), Error> {
+        self.create(&self.owner, "rev", NodeKind::Container).map(drop)
+    }
 }
 
-#[test]
-fn trusted_helper_works() -> TestResult {
-    let f = fixture()?;
-    trusted(&f, &key(3)?, "helper")?;
-    assert_eq!(f.board.key(&key(3)?.fingerprint())?.map(|k| k.state), Some(KeyState::Trusted));
-    Ok(())
+/// The refusal a result is, or an error saying it was not one.
+fn refused<T: std::fmt::Debug>(result: Result<T, Error>) -> Result<Error, String> {
+    match result {
+        Ok(value) => Err(format!("accepted: {value:?}")),
+        Err(err) => Ok(err),
+    }
 }
