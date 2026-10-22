@@ -1,5 +1,6 @@
-// Signs the web view's posts and pin edits with an SSH key the user pastes
-// into the Authorize dialog. The key becomes a non-extractable WebCrypto key
+// Signs the web view's writes (posts, note edits, and the owner's approvals,
+// declines, answers and revocations) with an SSH key the user pastes into
+// the Authorize dialog. The key becomes a non-extractable WebCrypto key
 // held in one variable of this script: never stored, never sent, gone on
 // reload. The signatures are the same SSHSIG over the same canonical bytes
 // as the board's own signing (src/sign.rs), which must stay byte-identical
@@ -133,12 +134,28 @@
   if (typeof document === "undefined") return;
 
   // --- the page --------------------------------------------------------------
-  let me = null;  // {name, key, blob, fingerprint} once authorized
+  // {key, blob, fingerprint, name, state} once authorized: the signing key,
+  // and who the board says it is (GET /keys/<fingerprint>).
+  let me = null;
   const $ = (sel) => document.querySelector(sel);
   const usable = window.isSecureContext && window.crypto?.subtle;
-  const FORMS = { "/ui/post": MESSAGE, "/ui/pin": PIN };
+  // The page's signed forms, by the path they post to.
+  const FORMS = {
+    "/ui/post": KINDS.post,
+    "/ui/note": KINDS.note,
+    "/ui/approve": KINDS.approve,
+    "/ui/resolve": KINDS.resolve,
+    "/ui/revoke": KINDS.revoke,
+  };
+  // The key states each kind of control is shown to: `data-needs="trusted"`
+  // (post, edit) to any key the board trusts, `data-needs="owner"`
+  // (approve, decline, answer, revoke) to the owner key only. The board
+  // checks every write regardless; this only spares the reader buttons that
+  // would be refused.
+  const SHOWN_TO = { trusted: ["trusted", "owner"], owner: ["owner"] };
+  const signedForm = (path) => typeof path === "string" && Object.hasOwn(FORMS, path);
 
-  // Re-applied after every swap: a boosted nav click replaces the whole body.
+  // Re-applied after every swap: a boosted link replaces the whole body.
   function render() {
     const open = $("#auth-open");
     if (!open) return;
@@ -148,11 +165,20 @@
     }
     open.hidden = !!me;
     $("#auth-status").hidden = $("#auth-forget").hidden = !me;
-    if (me) $("#auth-status").textContent = `🔒 ${me.name} · ${me.fingerprint}`;
-    for (const input of document.querySelectorAll("form [name=from]")) {
-      input.readOnly = !!me;
-      if (me) input.value = me.name;
+    if (me) $("#auth-status").textContent = `🔒 ${me.name ?? "no name"} · ${me.state} · ${me.fingerprint}`;
+    for (const control of document.querySelectorAll("[data-needs]")) {
+      control.hidden = !(SHOWN_TO[control.dataset.needs] ?? []).includes(me?.state);
     }
+  }
+
+  // The key's name and state as the board has them; a key it does not know
+  // is "unregistered", as `board whoami` says.
+  async function lookUp(fingerprint) {
+    const response = await fetch(`/keys/${encodeURIComponent(fingerprint)}`);
+    if (response.status === 404) return { name: null, state: "unregistered" };
+    if (!response.ok) throw new Error(`the board cannot say whose key this is (${response.status})`);
+    const { name, state } = await response.json();
+    return { name, state };
   }
 
   const closeDialog = () => $("#auth-dialog").close();
@@ -162,7 +188,8 @@
     const text = form.elements.privkey.value;
     form.elements.privkey.value = "";
     try {
-      me = { name: form.elements.namedItem("name").value.trim(), ...(await importKey(text)) };
+      const signer = await importKey(text);
+      me = { ...signer, ...(await lookUp(signer.fingerprint)) };
       closeDialog();
       render();
     } catch (e) {
@@ -173,6 +200,7 @@
 
   function showError(form, message) {
     const error = form.querySelector(".error");
+    if (!error) return;
     error.textContent = message;
     error.hidden = !message;
   }
@@ -182,9 +210,10 @@
   // that signs, so htmx still swaps in whatever the board answers.
   function submitSigned(form, path) {
     const kind = FORMS[path];
-    const values = Object.fromEntries(new FormData(form));
-    values.from = me.name;
-    if (kind === MESSAGE) values.key = crypto.randomUUID();  // one post, however often re-signed
+    const data = new FormData(form);
+    // Exactly the fields the kind signs; one the form leaves out is "".
+    const values = Object.fromEntries(kind[1].filter((f) => f !== "nonce").map((f) => [f, data.get(f) ?? ""]));
+    values.key = crypto.randomUUID();  // one write, however often re-signed
     const send = (url, init) => postSigned(me, kind, url, values, init).catch((e) => {
       showError(form, `not sent: ${e.message}`);
       throw e;
@@ -200,7 +229,7 @@
       return;
     }
     const path = form.getAttribute("hx-post");
-    if (!me || !(path in FORMS)) return;  // unsigned: htmx's own submit
+    if (!me || !signedForm(path)) return;  // unsigned: htmx's own submit, which the board refuses
     e.preventDefault();
     e.stopPropagation();  // capture phase: htmx's listener on the form never sees it
     submitSigned(form, path);
@@ -219,18 +248,19 @@
     }
   });
 
-  // A refused post (claimed name, bad signature) keeps the feed and the text;
-  // the reason goes next to the form. A good one clears the box.
+  // A refused write keeps the page and what was typed; the reason goes next
+  // to the form. One that landed clears its form, and htmx swaps in the
+  // piece of page it changed.
   document.addEventListener("htmx:after:request", (e) => {
     const form = e.target;
-    if (form.getAttribute?.("hx-post") !== "/ui/post") return;
+    if (!signedForm(form.getAttribute?.("hx-post"))) return;
     const { ctx } = e.detail;
     if (ctx.response.status >= 400) {
       e.preventDefault();
       showError(form, ctx.text);
     } else {
       showError(form, "");
-      form.elements.body.value = "";
+      form.reset();
     }
   });
 
