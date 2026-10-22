@@ -10,6 +10,7 @@ import select
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -151,13 +152,30 @@ def die_with_launcher(sig):
     return preexec
 
 
-# Written into the sandbox's Podman dir once the service is up. From then on
-# the storage can hold files only Podman's user namespace can delete.
-PODMAN_SERVED = "served"
+# The dirs under the sandbox's Podman dir that only Podman writes to.
+PODMAN_DIRS = ("storage", "run", "tmp", "runtime")
 
 
 def podman_dir(sandbox_tmp):
     return os.path.join(sandbox_tmp, "podman")
+
+
+def podman_wrote(sandbox_tmp):
+    """Whether Podman left anything in the sandbox's Podman dir: then it can
+    hold files only Podman's user namespace can delete, whether or not the
+    service ever came up. A podman killed during its first start leaves
+    half-made storage behind."""
+    base = podman_dir(sandbox_tmp)
+    for sub in PODMAN_DIRS:
+        try:
+            with os.scandir(os.path.join(base, sub)) as entries:
+                if any(entries):
+                    return True
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return True  # what cannot even be looked into needs Podman most
+    return False
 
 
 def podman_store_args(sandbox_tmp):
@@ -242,7 +260,7 @@ def start_podman_service(sandbox_tmp, view_args, podman=None, bwrap=BWRAP):
 
     base = podman_dir(sandbox_tmp)
     socket_path = os.path.join(base, "podman.sock")
-    for sub in ("storage", "run", "tmp", "runtime"):
+    for sub in PODMAN_DIRS:
         os.makedirs(os.path.join(base, sub), mode=0o700)
 
     store = podman_store_args(sandbox_tmp)
@@ -284,7 +302,6 @@ def start_podman_service(sandbox_tmp, view_args, podman=None, bwrap=BWRAP):
             print(f"  {line}", file=sys.stderr)
         return None, None
 
-    open(os.path.join(base, PODMAN_SERVED), "x").close()
     return proc, socket_path
 
 
@@ -306,26 +323,58 @@ def remove_podman_storage(sandbox_tmp, podman):
 
 
 def remove_tree(path):
-    """shutil.rmtree, returning what it could not delete as warnings."""
+    """shutil.rmtree, returning what it could not delete as warnings.
+
+    A directory of the user's own that denies the user, as overlayfs leaves
+    its work dir (mode 000), is given back its permissions and deleted; so
+    is a file in a directory the user may not write to. What belongs to
+    someone else stays, and is reported.
+    """
     failed = []
+    retried = set()
 
-    def note(_function, failed_path, error):
-        if not isinstance(error, FileNotFoundError):  # gone is what we want
-            failed.append(f"{failed_path}: {error.strerror or error}")
+    def retry(function, failed_path, error):
+        if isinstance(error, FileNotFoundError):  # gone is what we want
+            return
+        if isinstance(error, PermissionError) and failed_path not in retried:
+            retried.add(failed_path)
+            try:
+                parent = os.path.dirname(failed_path)
+                if os.path.commonpath([parent, path]) == path:  # nothing above path
+                    os.chmod(parent, os.stat(parent).st_mode | stat.S_IRWXU)
+                if stat.S_ISDIR(os.lstat(failed_path).st_mode):
+                    os.chmod(failed_path, stat.S_IRWXU)
+                    shutil.rmtree(failed_path, onexc=retry)
+                else:
+                    os.unlink(failed_path)
+                return
+            except FileNotFoundError:
+                return
+            except OSError as e:
+                error = e
+        failed.append(f"{failed_path}: {error.strerror or error}")
 
-    shutil.rmtree(path, onexc=note)
+    shutil.rmtree(path, onexc=retry)
     if not failed:
         return []
     return [f"could not delete {len(failed)} path(s) under {path}, first {failed[0]}"]
 
 
 def remove_sandbox_tmp(sandbox_tmp, podman=None):
-    """Delete a sandbox's temp dir, Podman's storage included. Returns warnings."""
-    warnings = []
+    """Delete a sandbox's temp dir, Podman's storage included. Returns warnings.
+
+    Whatever Podman left goes through `podman unshare rm`, which can delete
+    files of the namespace's other uids. That failing matters only if the
+    plain delete after it cannot finish the job either, so it is reported
+    along with what is left, not on its own: where Podman cannot run at all,
+    as in a nested sandbox, its leftovers are the user's own.
+    """
+    podman_warnings = []
     podman = podman or shutil.which("podman")
-    if podman and os.path.exists(os.path.join(podman_dir(sandbox_tmp), PODMAN_SERVED)):
-        warnings += remove_podman_storage(sandbox_tmp, podman)
-    return warnings + remove_tree(sandbox_tmp)
+    if podman and podman_wrote(sandbox_tmp):
+        podman_warnings = remove_podman_storage(sandbox_tmp, podman)
+    left = remove_tree(sandbox_tmp)
+    return podman_warnings + left if left else []
 
 
 # A file in each sandbox's temp dir, locked by its launcher for as long as

@@ -1,10 +1,12 @@
 """Tests for how claude-sandbox runs the sandbox, and what it leaves behind."""
 
+import glob
 import importlib.util
 import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import textwrap
@@ -150,9 +152,13 @@ def fake_podman(directory):
     _CONTAINERS_USERNS_CONFIGURED=done, as podman runs it in its own.
     `system service` refuses to run anywhere else. There it writes what it
     sees to $FAKE_PODMAN_REPORT, if set, starts a "container", a daemonized
-    `sleep $FAKE_CONTAINER`, if set, creates the socket file it is asked to
-    serve on, and then serves nothing until it is stopped. Anything else
-    does nothing.
+    `sleep $FAKE_CONTAINER`, if set, writes its database into its storage,
+    creates the socket file it is asked to serve on, and then serves nothing
+    until it is stopped. With
+    $FAKE_PODMAN_HANG set it instead starts as podman did once when it was
+    killed during its first start: it logs a few steps, leaves a work dir of
+    overlayfs's metacopy check in its storage, mode 000 as overlayfs leaves
+    it, and never comes up. Anything else does nothing.
     """
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "podman"
@@ -178,6 +184,13 @@ def fake_podman(directory):
         if args[:2] == ["system", "service"]:
             if os.environ.get("_CONTAINERS_USERNS_CONFIGURED") != "done" or os.getuid() != 0:
                 sys.exit("Error: not in the user namespace")
+            if os.environ.get("FAKE_PODMAN_HANG"):
+                for step in range(1, 11):
+                    print(f'level=info msg="start step {{step}}"', file=sys.stderr, flush=True)
+                work = os.path.join(options["--root"], "overlay", "metacopy-check123", "work")
+                os.makedirs(os.path.join(work, "work"))
+                os.chmod(os.path.join(work, "work"), 0)
+                time.sleep(3600)
             report = os.environ.get("FAKE_PODMAN_REPORT")
             if report:
                 with open(report, "w") as out:
@@ -189,6 +202,7 @@ def fake_podman(directory):
                         dbus=os.environ.get("DBUS_SESSION_BUS_ADDRESS"),
                         sees={{p: os.path.exists(p) for p in json.loads(os.environ.get("FAKE_PODMAN_PATHS", "[]"))}},
                     ), out)
+            open(os.path.join(options["--root"], "db.sql"), "w").close()  # as podman's does
             container = os.environ.get("FAKE_CONTAINER")
             if container and os.fork() == 0:
                 os.setsid()
@@ -526,6 +540,37 @@ def test_a_podman_service_that_fails_says_why(tmp_path, capsys):
     assert quoted == [f"line {n}" for n in range(4, 11)] + ["Error: no such file or directory"]
 
 
+@needs_bwrap
+def test_a_service_that_does_not_come_up_says_how_far_it_got_and_is_cleaned_up(
+    tmp_path, capsys, monkeypatch
+):
+    """As podman once did on a first start: killed during the overlayfs check
+    it runs as it sets up its storage, it left a mode 000 work dir there,
+    which nothing then deleted."""
+    monkeypatch.setattr(sandbox, "PODMAN_START_TIMEOUT", 1)
+    monkeypatch.setattr(sandbox, "RM", shutil.which("rm"))  # as default.nix substitutes it
+    monkeypatch.setenv("FAKE_PODMAN_HANG", "1")
+    sandbox_tmp = tmp_path / "sandbox"
+    sandbox_tmp.mkdir()
+    podman = fake_podman(tmp_path / "bin")
+    view = BWRAP_ARGS + ["--bind", str(sandbox_tmp), str(sandbox_tmp)]
+
+    assert sandbox.start_podman_service(
+        str(sandbox_tmp), view, podman=str(podman), bwrap=BWRAP
+    ) == (None, None)
+    err = capsys.readouterr().err
+    assert "did not start within 1 s" in err
+    assert 'level=info msg="start step 10"' in err
+    work = sandbox_tmp / "podman" / "storage" / "overlay" / "metacopy-check123" / "work" / "work"
+    assert stat.S_IMODE(os.lstat(work).st_mode) == 0
+    assert podman_services(podman) == []
+
+    assert sandbox.remove_sandbox_tmp(str(sandbox_tmp), podman=str(podman)) == []
+    assert not sandbox_tmp.exists()
+    assert [*store_args(sandbox_tmp), "unshare", sandbox.RM, "-rf",
+            str(sandbox_tmp / "podman")] in podman_calls(podman)
+
+
 # --- the temp dir -------------------------------------------------------------
 
 
@@ -600,24 +645,87 @@ def test_only_unlocked_dirs_of_this_launcher_are_removed(tmp_path):
     assert Path(live).exists()
 
 
-def test_what_cannot_be_deleted_is_reported(tmp_path):
-    launcher = Launcher(tmp_path)
+def locked_tree(root):
+    """Directories of the user's own that deny the user: overlayfs's work
+    dir, mode 000, one with something in it, and one that is read-only."""
+    (root / "work" / "work").mkdir(parents=True)
+    (root / "closed" / "inner").mkdir(parents=True)
+    (root / "closed" / "inner" / "file").write_text("x\n")
+    (root / "read-only").mkdir()
+    (root / "read-only" / "file").write_text("x\n")
+    for path, mode in [(root / "work" / "work", 0), (root / "closed" / "inner", 0),
+                       (root / "closed", 0), (root / "read-only", 0o500)]:
+        path.chmod(mode)
+
+
+def test_the_remover_deletes_the_users_own_locked_dirs(tmp_path):
+    root = tmp_path / "sandbox"
+    locked_tree(root)
+    assert sandbox.remove_tree(str(root)) == []
+    assert not root.exists()
+
+
+def test_what_cannot_be_deleted_is_reported(tmp_path, monkeypatch):
+    root = tmp_path / "sandbox"
+    (root / "stuck").mkdir(parents=True)
+    (root / "stuck" / "file").write_text("x\n")
+    (root / "stuck").chmod(0o500)
+    chmod = os.chmod
+
+    def refuse(path, mode, **kwargs):
+        raise PermissionError(1, "Operation not permitted", path)
+
+    monkeypatch.setattr(sandbox.os, "chmod", refuse)  # as for a file of another uid's
     try:
-        # A directory the launcher cannot empty: no write permission.
-        result = launcher.run(sys.executable, "-c", textwrap.dedent("""\
-            import os
-            os.mkdir("/tmp/stuck")
-            open("/tmp/stuck/file", "w").close()
-            os.chmod("/tmp/stuck", 0o500)
-        """))
-        assert result.returncode == 0, result.stderr
-        assert "could not delete" in result.stderr
-        assert "Permission denied" in result.stderr
-        [leftover] = launcher.leftovers()
-        assert sorted(p.name for p in leftover.iterdir()) == ["stuck"]
+        [warning] = sandbox.remove_tree(str(root))
     finally:
-        for leftover in launcher.leftovers():
-            (leftover / "stuck").chmod(0o700)
+        monkeypatch.undo()
+        chmod(root / "stuck", 0o700)
+    assert warning.startswith(f"could not delete ")
+    assert f"under {root}, first {root}/stuck/file: Operation not permitted" in warning
+
+
+@needs_bwrap
+def test_a_locked_dir_the_sandbox_leaves_is_deleted_on_exit(tmp_path):
+    launcher = Launcher(tmp_path)
+    result = launcher.run(sys.executable, "-c", textwrap.dedent("""\
+        import os
+        os.makedirs("/tmp/work/work")
+        os.chmod("/tmp/work/work", 0)
+    """))
+    assert result.returncode == 0, result.stderr
+    assert launcher_warnings(result.stderr) == []
+    assert launcher.leftovers() == []
+
+
+@needs_bwrap
+@pytest.mark.parametrize("podman_later", [True, False])
+def test_a_killed_launchers_half_made_podman_storage_is_swept(tmp_path, podman_later):
+    """Killed while Podman sets up its storage: the next launch deletes the
+    mode 000 dir it left there, through podman if there is one and by
+    itself if not."""
+    launcher = Launcher(tmp_path, podman=True)
+    launcher.env["FAKE_PODMAN_HANG"] = "1"
+    proc = launcher.popen(shutil.which("true"))
+    try:
+        work = eventually(lambda: glob.glob(
+            str(launcher.tmpdir / "*" / "podman" / "storage" / "overlay" / "*" / "work" / "work")
+        ))
+    finally:
+        proc.kill()  # no cleanup code of the launcher's gets to run
+        proc.wait()
+    [leftover] = launcher.leftovers()
+    assert stat.S_IMODE(os.lstat(work[0]).st_mode) == 0
+
+    del launcher.env["FAKE_PODMAN_HANG"]
+    if not podman_later:
+        launcher.env["PATH"] = str(tmp_path / "bin")
+    result = launcher.run(shutil.which("true"))
+    assert result.returncode == 0, result.stderr
+    assert launcher_warnings(result.stderr) == []
+    assert launcher.leftovers() == []
+    sweep = [*store_args(leftover), "unshare", shutil.which("rm"), "-rf", str(leftover / "podman")]
+    assert (sweep in podman_calls(launcher.podman)) == podman_later
 
 
 # --- what the sandbox gets ----------------------------------------------------
