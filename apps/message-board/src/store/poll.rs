@@ -276,8 +276,9 @@ impl Board {
                         return Ok(None);
                     }
                     // Nothing up to the head matched: the next scan starts
-                    // there, not at `since` again.
-                    scan_from = head;
+                    // there, not at `since` again -- but never before
+                    // `since`, which a client may hold ahead of the head.
+                    scan_from = head.max(scan_from);
                     guard = self.changed.wait_timeout(guard, left.min(POLL_CHECK)).map_err(DbError::from)?.0;
                 }
                 _ => {

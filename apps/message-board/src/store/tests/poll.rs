@@ -193,6 +193,28 @@ fn a_poll_wakes_for_a_matching_write_and_sleeps_through_others() -> TestResult {
 }
 
 #[test]
+fn a_poll_from_ahead_of_the_head_never_goes_back() -> TestResult {
+    let Tree { f, .. } = tree()?;
+    let since = f.board.head()? + 1;
+    let board = Arc::clone(&f.board);
+    let writer = thread::spawn(move || -> Result<(i64, i64), Box<dyn StdError + Send + Sync>> {
+        let agent = key(2)?;
+        let post =
+            |body| -> Result<i64, Error> { Ok(submit!(board, &agent, post, Post { path: "rev/log", body })?.id) };
+        thread::sleep(Duration::from_millis(200));
+        let at_since = post("at the cursor: seen already")?;
+        thread::sleep(Duration::from_millis(200));
+        Ok((at_since, post("after it")?))
+    });
+    let watch = Watch { paths: paths(&["rev/log"]), ..Watch::default() };
+    let page = f.board.poll(&watch, since, Duration::from_secs(60), || true)?.ok_or("gave up")?;
+    let (at_since, after) = writer.join().map_err(|_panicked| "writer panicked")?.map_err(|err| err.to_string())?;
+    assert_eq!(at_since, since);
+    assert_eq!(page.events.iter().map(|d| d.event.id).collect::<Vec<_>>(), [after]);
+    Ok(())
+}
+
+#[test]
 fn a_poll_gives_up_once_its_client_is_gone() -> TestResult {
     let Tree { f, .. } = tree()?;
     let started = Instant::now();
