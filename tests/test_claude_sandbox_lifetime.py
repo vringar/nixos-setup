@@ -555,6 +555,108 @@ def test_the_sandbox_gets_the_forge_agent_but_no_private_key(tmp_path):
     assert launcher.leftovers() == []
 
 
+# --- the GitHub token, and no D-Bus -------------------------------------------
+
+TOKEN = "gho_sandboxtest0123456789"
+
+
+def fake_gh(bin_dir, script):
+    """A gh on PATH in bin_dir that runs script (sh) for any arguments."""
+    gh = bin_dir / "gh"
+    gh.write_text(f"#!{shutil.which('sh')}\n{script}\n")
+    gh.chmod(0o755)
+    return gh
+
+
+def gh_env(tmp_path, **extra):
+    """An environment whose PATH holds only what is in tmp_path."""
+    return {"PATH": str(tmp_path), **extra}
+
+
+def test_gh_token_asks_gh_outside(tmp_path):
+    fake_gh(tmp_path, f'[ "$1 $2" = "auth token" ] && echo {TOKEN}')
+    assert sandbox.gh_token(env=gh_env(tmp_path)) == (TOKEN, None)
+
+
+def test_gh_token_leaves_a_set_token_alone(tmp_path):
+    calls = tmp_path / "calls"
+    fake_gh(tmp_path, f"echo called >> {calls}; echo other")
+    assert sandbox.gh_token(env=gh_env(tmp_path, GH_TOKEN=TOKEN)) == (None, None)
+    assert not calls.exists()
+
+
+def test_gh_token_without_gh_passes_nothing(tmp_path):
+    assert sandbox.gh_token(env=gh_env(tmp_path)) == (None, None)
+
+
+def test_gh_token_says_why_gh_has_none(tmp_path):
+    fake_gh(tmp_path, "echo 'no oauth token found for github.com' >&2; exit 1")
+    token, warning = sandbox.gh_token(env=gh_env(tmp_path))
+    assert token is None
+    assert "no oauth token found for github.com" in warning
+
+
+def test_gh_token_warns_on_a_silent_failure(tmp_path):
+    fake_gh(tmp_path, "exit 0")
+    token, warning = sandbox.gh_token(env=gh_env(tmp_path))
+    assert token is None
+    assert "no token" in warning
+
+
+def test_gh_token_gives_up_on_a_hung_gh(tmp_path):
+    fake_gh(tmp_path, f"exec {shutil.which('sleep')} 60")
+    token, warning = sandbox.gh_token(env=gh_env(tmp_path), timeout=0.2)
+    assert token is None
+    assert "timed out" in warning
+
+
+def test_the_session_bus_is_not_bound(tmp_path, monkeypatch):
+    """Through the bus, the sandbox could have the user's service manager run
+    anything outside it (systemd-run --user)."""
+    bus = f"/run/user/{os.getuid()}/bus"
+    real_exists = os.path.exists
+    monkeypatch.setattr(os.path, "exists", lambda p: p == bus or real_exists(p))
+    home = tmp_path / "home"
+    home.mkdir()
+    project = home / "project"
+    project.mkdir()
+    args = sandbox.build_bwrap_args(
+        str(project), str(home), str(tmp_path / "tmp"), str(tmp_path / "hist"), "/bin/sh"
+    )
+    assert not [a for a in args if "/bus" in a]
+
+
+@needs_bwrap
+def test_the_sandbox_gets_the_token_through_its_environment(tmp_path):
+    launcher = Launcher(tmp_path)
+    launcher.env.pop("GH_TOKEN", None)
+    fake_gh(tmp_path / "bin", f'[ "$1 $2" = "auth token" ] && echo {TOKEN}')
+    result = launcher.run(shutil.which("sh"), "-c", 'printf %s "$GH_TOKEN"')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == TOKEN
+    assert launcher_warnings(result.stderr) == []
+
+
+@needs_bwrap
+def test_the_token_stays_off_bwraps_command_line(tmp_path):
+    """Any user on the host can read a process's command line."""
+    launcher = Launcher(tmp_path)
+    launcher.env.pop("GH_TOKEN", None)
+    fake_gh(tmp_path / "bin", f"echo {TOKEN}")
+    sleep = sleeper()
+    proc = launcher.popen(*sleep)
+    try:
+        wait_until_running(sleep, proc)
+        bwrap = bwrap_child(proc)
+        cmdline = Path(f"/proc/{bwrap}/cmdline").read_bytes()
+        environ = Path(f"/proc/{bwrap}/environ").read_bytes()
+    finally:
+        proc.kill()
+        proc.wait()
+    assert TOKEN.encode() not in cmdline
+    assert f"GH_TOKEN={TOKEN}".encode() in environ.split(b"\0")
+
+
 # --- what the launcher does to the project ------------------------------------
 
 

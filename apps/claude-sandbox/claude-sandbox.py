@@ -691,12 +691,10 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     if os.path.isfile(legacy_credentials) and not os.path.exists(config_credentials):
         args += ["--bind", legacy_credentials, config_credentials]
 
-    uid = os.getuid()
-
-    # D-Bus user socket (needed for KWallet/keyring access, e.g. gh credentials)
-    dbus_socket = f"/run/user/{uid}/bus"
-    if os.path.exists(dbus_socket):
-        args += ["--bind", dbus_socket, dbus_socket]
+    # No D-Bus session bus: through it the sandbox could have the user's
+    # service manager run anything outside it (systemd-run --user), and read
+    # every secret in the keyring. gh's token comes in as GH_TOKEN instead
+    # (see gh_token).
 
     # Crossbridge: expose only this repo's own per-peer socket directory
     # (<root>/<own-slug>/), read-only. The crossbridge server and orchestrator
@@ -722,7 +720,7 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     if os.path.isfile(c8ctl_profiles_json):
         args += ["--ro-bind", c8ctl_profiles_json, c8ctl_profiles_json]
 
-    # GitHub CLI config and auth (read-write, gh updates token expiry)
+    # GitHub CLI config (read-write, gh updates it); its token is GH_TOKEN
     gh_config = os.path.join(home_dir, ".config", "gh")
     if os.path.isdir(gh_config):
         args += ["--bind", gh_config, gh_config]
@@ -879,8 +877,44 @@ def ignore_stop_signals():
         signal.signal(sig, lambda *_: None)
 
 
-def run_sandbox(bwrap_args, inner_cmd, bwrap=BWRAP):
+def gh_token(env=None, gh=None, timeout=60):
+    """gh's GitHub token for the sandbox, as (token, warning).
+
+    gh keeps its token in the desktop keyring, which it reaches over the
+    D-Bus session bus, and the sandbox does not get that bus. So gh is asked
+    for its token out here, and only the token goes in, as GH_TOKEN. The
+    timeout leaves time to unlock a locked keyring.
+
+    token is None when there is nothing to pass: GH_TOKEN is set already, and
+    the sandbox inherits it; gh is not installed; or gh has no token, which
+    comes with a warning.
+    """
+    env = os.environ if env is None else env
+    if env.get("GH_TOKEN"):
+        return None, None
+    gh = gh or shutil.which("gh", path=env.get("PATH"))
+    if not gh:
+        return None, None
+    try:
+        result = subprocess.run(
+            [gh, "auth", "token"], env=env, capture_output=True, text=True, timeout=timeout
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, f"gh in the sandbox is not logged in: `gh auth token` failed: {e}"
+    token = result.stdout.strip()
+    if result.returncode != 0 or not token:
+        reason = one_line(result.stderr) or f"exit status {result.returncode}, no token"
+        return None, f"gh in the sandbox is not logged in: `gh auth token` failed: {reason}"
+    return token, None
+
+
+def run_sandbox(bwrap_args, inner_cmd, bwrap=BWRAP, env=None):
     """Run inner_cmd under bwrap and wait for it; returns bwrap's returncode.
+
+    env is bwrap's environment, which the sandbox inherits; None is the
+    launcher's own. Secrets go there rather than into a --setenv: every user
+    on the host can read bwrap's command line, but only its own user its
+    environment.
 
     Through subprocess rather than a bare fork and exec, because Python
     ignores SIGPIPE and SIGXFSZ and an ignored signal survives exec: the
@@ -898,6 +932,7 @@ def run_sandbox(bwrap_args, inner_cmd, bwrap=BWRAP):
     """
     sandbox = subprocess.Popen(
         [bwrap, "--die-with-parent"] + bwrap_args + ["--"] + inner_cmd,
+        env=env,
         # bwrap sets this itself only once the sandbox is already set up.
         preexec_fn=die_with_launcher(signal.SIGKILL),
     )
@@ -1001,10 +1036,17 @@ def main():
                 "--setenv", "TESTCONTAINERS_RYUK_DISABLED", "true",
             ]
 
+        sandbox_env = None
+        token, gh_warning = gh_token()
+        if gh_warning:
+            print(f"claude-sandbox: {gh_warning}", file=sys.stderr)
+        if token:
+            sandbox_env = dict(os.environ, GH_TOKEN=token)
+
         # On stderr: stdout is the sandboxed command's alone, and anything
         # printed to it here would be buffered past the command's output.
         print(banner, file=sys.stderr)
-        status = exit_status(run_sandbox(bwrap_args, inner_cmd))
+        status = exit_status(run_sandbox(bwrap_args, inner_cmd, env=sandbox_env))
     except Stopped as stopped:
         status = 128 + stopped.signum
     finally:
