@@ -12,14 +12,11 @@ in
       # Runs real sandboxes in the claude-sandbox tests.
       pkgs.bubblewrap
       # tests/ imports the scripts under test directly, so the shell has to
-      # carry their third-party dependencies: pytest to run them at all,
+      # carry their third-party dependencies: pytest to run them at all, and
       # requests for apps/witcher-corpus/reconcile.py, without which
-      # `pytest tests/` fails at collection rather than at any assertion,
-      # jinja2 for the message board's web view, and cryptography for its
-      # signed posts.
+      # `pytest tests/` fails at collection rather than at any assertion.
+      # The message board's tests need nothing more: they drive its programs.
       (pkgs.python3.withPackages (ps: [
-        ps.cryptography
-        ps.jinja2
         ps.pytest
         ps.requests
       ]))

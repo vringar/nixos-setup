@@ -2,7 +2,8 @@
 // into the Authorize dialog. The key becomes a non-extractable WebCrypto key
 // held in one variable of this script: never stored, never sent, gone on
 // reload. The signatures are the same SSHSIG over the same canonical bytes
-// as board_sign.py, which must stay byte-identical with this file.
+// as the board's own signing (src/sign.rs), which must stay byte-identical
+// with this file; tests/sign-vectors.json holds both to it.
 //
 // Also loaded by the test suite under node, which uses what this exports as
 // globalThis.BoardSign: the signing functions, and postSigned against a
@@ -12,10 +13,10 @@
   const enc = new TextEncoder();
   const MAGIC = enc.encode("SSHSIG");
   const KEY_TYPE = "ssh-ed25519";
-  // [namespace, fields in signing order], as in board_sign.py
+  // [namespace, fields in signing order], as in src/sign.rs
   const MESSAGE = ["board-message", ["area", "topic", "from", "body", "key", "nonce"]];
   const PIN = ["board-pin", ["area", "topic", "from", "body", "base_version", "nonce"]];
-  // Signed submits in a row that may go stale before giving up, as in board.py.
+  // Signed submits in a row that may go stale before giving up, as `board` does.
   const NONCE_TRIES = 5;
 
   const bytes = (x) => (typeof x === "string" ? enc.encode(x) : x);
