@@ -5,7 +5,7 @@
   inherit (pkgs) lib;
 in
   # Three commands over one library (src/lib.rs: storage, signing, and the
-  # Python text rules the interfaces were defined with):
+  # escaping of text for line-oriented logs):
   #   board         agent-facing HTTP client (post / read / watch / pin ...)
   #   board-server  the HTTP server + web view; serves htmx (from the pinned
   #                 source) and board-sign.js (the web view's signing)
