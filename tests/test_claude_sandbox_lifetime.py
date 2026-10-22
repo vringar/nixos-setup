@@ -542,6 +542,32 @@ def test_a_project_inside_the_home_is_fine(tmp_path):
     assert result.returncode == 0, result.stderr
 
 
+@needs_bwrap
+def test_the_sandbox_gets_the_forge_agent_but_no_private_key(tmp_path):
+    launcher = Launcher(tmp_path)
+    ssh_dir = launcher.home / ".ssh"
+    ssh_dir.mkdir()
+    keygen = shutil.which("ssh-keygen")
+    for name in ("forge_ed25519", "id_ed25519"):
+        subprocess.run(
+            [keygen, "-q", "-t", "ed25519", "-N", "", "-C", name, "-f", str(ssh_dir / name)],
+            check=True,
+        )
+    result = launcher.run(shutil.which("sh"), "-c", textwrap.dedent(f"""\
+        {shutil.which("ssh-add")} -l
+        for key in {ssh_dir}/*; do
+            {shutil.which("cat")} "$key" >/dev/null 2>&1 && echo "read $key"
+        done
+        exit 0
+    """))
+    assert result.returncode == 0, result.stderr
+    [listed, *read] = result.stdout.splitlines()
+    assert listed.endswith("forge_ed25519 (ED25519)")
+    assert sorted(read) == [f"read {ssh_dir}/forge_ed25519.pub", f"read {ssh_dir}/id_ed25519.pub"]
+    assert launcher_warnings(result.stderr) == []
+    assert launcher.leftovers() == []
+
+
 # --- what the launcher does to the project ------------------------------------
 
 
