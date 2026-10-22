@@ -229,28 +229,23 @@ pub(super) fn check_open(item: &Item) -> Result<(), Error> {
     Ok(())
 }
 
-/// Refuse `author` resolving `item` as `state`: the queue's owner answers,
-/// the owner or the owner key declines, the asker cancels.
+/// Refuse `author` resolving `item` as `state` (answered, declined or
+/// cancelled): the queue's owner answers, the owner or the owner key
+/// declines, the asker cancels.
 fn check_resolver(item: &Item, state: ItemState, author: &Author) -> Result<(), Error> {
-    let allowed = match state {
-        ItemState::Answered => item.owner == author.name,
-        ItemState::Declined => item.owner == author.name || author.human,
-        ItemState::Cancelled => item.asker.as_deref() == Some(author.name.as_str()),
-        ItemState::Open | ItemState::Reassigned => {
-            return Err(Error::BadRequest(format!(
-                "an item is resolved as answered, declined or cancelled, not {state}"
-            )));
-        }
+    let (allowed, who) = match state {
+        ItemState::Answered => (item.owner == author.name, format!("{}, the queue's owner, answers", item.owner)),
+        ItemState::Declined => (
+            item.owner == author.name || author.human,
+            format!("{}, the queue's owner, or the board's owner declines", item.owner),
+        ),
+        // resolve() lets only the three resolutions through
+        _ => match &item.asker {
+            Some(asker) => (*asker == author.name, format!("{asker}, who asked, cancels")),
+            None => (false, "a registration is not cancelled".to_owned()),
+        },
     };
     if !allowed {
-        let who = match state {
-            ItemState::Answered => format!("{}, the queue's owner, answers", item.owner),
-            ItemState::Declined => format!("{}, the queue's owner, or the board's owner declines", item.owner),
-            _ => match &item.asker {
-                Some(asker) => format!("{asker}, who asked, cancels"),
-                None => "a registration is not cancelled".to_owned(),
-            },
-        };
         return Err(Error::Forbidden(format!("#{}: only {who}", item.id)));
     }
     Ok(())
@@ -330,6 +325,12 @@ impl Board {
     /// missing body, or a `ref` that is not a message or not on an answer.
     pub fn resolve(&self, signed: &Signed<'_, Resolve<'_>>) -> Result<Resolved, Error> {
         let resolve = &signed.action;
+        if !matches!(resolve.state, ItemState::Answered | ItemState::Declined | ItemState::Cancelled) {
+            return Err(Error::BadRequest(format!(
+                "an item is resolved as answered, declined or cancelled, not {}",
+                resolve.state
+            )));
+        }
         if resolve.state != ItemState::Cancelled && resolve.body.trim().is_empty() {
             return Err(Error::BadRequest(format!("to resolve an item as {}, say why", resolve.state)));
         }
