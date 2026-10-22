@@ -8,14 +8,20 @@ description = "Local long-poll message board (area/topic) for agent coordination
 [lib]
 path = "src/lib.rs"
 
+[[bin]]
+name = "board-server"
+path = "src/bin/board-server/main.rs"
+
 [dependencies]
 base64 = "0.23"
 ed25519-dalek = "3"
 getrandom = "0.4"
+httparse = "1.10"
 rusqlite = "0.40"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.11"
+signal-hook = "0.4"
 thiserror = "2"
 
 [dev-dependencies]
