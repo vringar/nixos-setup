@@ -921,6 +921,17 @@ def main():
         sys.exit(1)
 
     home_dir = os.environ["HOME"]
+    # The project is bound read-write over the empty home. Were it the home
+    # itself or a directory above it, the sandbox would get the whole home,
+    # the private keys in ~/.ssh included.
+    if os.path.commonpath([project_dir, os.path.realpath(home_dir)]) == project_dir:
+        print(
+            f"Error: {project_dir} holds your home directory, which the sandbox "
+            "must not get; sandbox a project inside it instead",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     shell_path = resolve_shell(home_dir)
 
     # Settled before anything is started, so that a mistake ends the launch

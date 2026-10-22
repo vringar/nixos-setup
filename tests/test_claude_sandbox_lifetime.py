@@ -498,3 +498,29 @@ def test_what_cannot_be_deleted_is_reported(tmp_path):
     finally:
         for leftover in launcher.leftovers():
             (leftover / "stuck").chmod(0o700)
+
+
+# --- what the sandbox gets ----------------------------------------------------
+
+
+@needs_bwrap
+@pytest.mark.parametrize("project", ["home", "above home"])
+def test_a_project_holding_the_home_is_refused(tmp_path, project):
+    launcher = Launcher(tmp_path)
+    launcher.project = launcher.home if project == "home" else tmp_path
+    (launcher.home / ".ssh").mkdir()
+    (launcher.home / ".ssh" / "id_ed25519").write_text("private\n")
+    result = launcher.run(shutil.which("cat"), str(launcher.home / ".ssh" / "id_ed25519"))
+    assert result.returncode == 1
+    assert "private" not in result.stdout
+    assert "holds your home directory" in result.stderr
+    assert launcher.leftovers() == []
+
+
+@needs_bwrap
+def test_a_project_inside_the_home_is_fine(tmp_path):
+    launcher = Launcher(tmp_path)
+    launcher.project = launcher.home / "project"
+    launcher.project.mkdir()
+    result = launcher.run(shutil.which("true"))
+    assert result.returncode == 0, result.stderr
