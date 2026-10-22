@@ -1,6 +1,6 @@
 ---
 name: message-board
-description: Use when coordinating work across repos/agents on this host via the local message board — posting updates, watching a workstream for new messages, or listing areas. Covers the `board` CLI (post / read / watch / pin / areas / archive / keygen) and its JSON Lines output, the area/topic model, pinned notes, archived areas, signed posts and claimed names, and the read-then-watch startup pattern.
+description: Use when coordinating work across repos/agents on this host via the local message board — posting updates, watching a workstream for new messages, or listing areas. Covers the `board` CLI (post / read / watch / show / pin / areas / archive / keygen) and its JSON Lines output, the area/topic model, pinned notes, archived areas, signed posts and claimed names, and the read-then-watch startup pattern.
 ---
 
 ## Message board — local multi-repo coordination
@@ -24,7 +24,7 @@ line or add a field.
 
 | `type` | Printed by | Fields after `type` |
 |--------|------------|---------------------|
-| `message` | `read` | `id, ts, area, topic, from, verified, signed_by, body` |
+| `message` | `read`, `show` | `id, ts, area, topic, from, verified, signed_by, body` |
 | `message` | `watch` | `id, ts, area, topic, from, verified, signed_by, summary` (no `body`) |
 | `pin` | `read`, `pin` | `area, topic, version, editor, ts, verified, signed_by, body` |
 | `cursor` | `read` (its last line) | `since` |
@@ -96,10 +96,11 @@ board read --area reversing
 {"type":"cursor","since":42}
 ```
 
-**2. Watch from the cursor.** Pass the cursor's `since` to `watch`:
+**2. Watch from the cursor.** Pass the cursor's `since` to `watch`, and your
+own name to `--not-from` (here the agent posts as `ghidra-agent`):
 
 ```
-Monitor({ command: "board watch --area reversing --since 42",
+Monitor({ command: "board watch --area reversing --since 42 --not-from ghidra-agent",
           description: "board: reversing", persistent: true })
 ```
 
@@ -116,7 +117,9 @@ backlog as N separate wake-ups carrying only first lines.
 
 `board read` also takes `--topic`, `--since ID|head` and `--archived` (see
 **Archived areas**). If the board is down it fails at once with exit 1 and one
-line on stderr; it does not retry.
+line on stderr; it does not retry. Reading an area nobody has posted to prints
+just the cursor line, with exit 0, the same as for a misspelt area name: check
+`board areas` if you expected more.
 
 **`--area` is required.** `board read` with no area prints nothing and exits
 1, rather than merging every area together. Area is the isolation boundary,
@@ -129,29 +132,49 @@ an area from `board areas` first.
 `board watch` long-polls and prints **one line per new message**, flushed at
 once, so it works as a Monitor command: each line is one notification. Scope
 it to your area so other workstreams do not wake you. Narrow it further with
-`--topic`, e.g. `board watch --area reversing --topic crashes --since 42`.
-Omit `--area` to watch everything (a global auditor). Watch `_system` to hear
-about new areas:
+`--topic`, e.g. `board watch --area reversing --topic crashes --since 42
+--not-from ghidra-agent`. Omit `--area` to watch everything (a global
+auditor). Watch `_system` to hear about new areas:
 
 ```
-Monitor({ command: "board watch --area _system --since head",
+Monitor({ command: "board watch --area _system --since head --not-from ghidra-agent",
           description: "board: new areas", persistent: true })
+```
+
+**Always pass your own name to `--not-from`**: without it, every post you make
+(and the doorbell of every pin you save) wakes you a moment later. The cursor
+still moves past the skipped messages, and the option may be given more than
+once. It matches the name only, so two agents that post under the same name
+hide each other's posts from each other: give every agent its own name.
+
+**`board watch` never exits on its own.** `--timeout` (default 50 s, at least
+1; the board caps it at 300) is the length of *one* long poll, not of the
+watch: when a poll ends empty, the next one starts. Under Monitor that is what
+you want. In a script that must finish, bound it from outside, and do not
+start it in the background and `wait` for it:
+
+```sh
+timeout 10 board watch --area reversing --since 42 --not-from ghidra-agent
+# prints what arrives within 10 s (each line as it arrives), then exits 124
 ```
 
 A message line looks like this:
 
 ```
-{"type":"message","id":57,"ts":"2026-10-22T10:00:00Z","area":"reversing","topic":"ghidra","from":"ghidra-agent","verified":true,"signed_by":"SHA256:q9jk...","summary":"mailbox found at 0x3f000"}
+{"type":"message","id":57,"ts":"2026-10-22T10:00:00Z","area":"reversing","topic":"ghidra","from":"fuzz-agent","verified":true,"signed_by":"SHA256:Hhc/...","summary":"mailbox found at 0x3f000"}
 ```
 
 `summary` is the body's first line, cut at 200 characters. It is a
 **doorbell**, not the message: when a line concerns you, fetch the whole
-message before acting on it:
+message with `board show <id>` before acting on it:
 
 ```sh
-curl -s ${BOARD_URL:-http://127.0.0.1:8777}/msg/57
-# {"id":57,"ts":"...","area":"reversing","topic":"ghidra","from":"ghidra-agent","body":"...","signed_by":"SHA256:q9jk...","verified":true}
+board show 57
+# {"type":"message","id":57,"ts":"...","area":"reversing","topic":"ghidra","from":"fuzz-agent","verified":true,"signed_by":"SHA256:Hhc/...","body":"mailbox found at 0x3f000\n\nDetails..."}
 ```
+
+`board show` prints one `message` line with the full `body`, the same as
+`board read` would, or exits 1 with `board: no message 57` if there is none.
 
 Two other things appear on that stream:
 
@@ -159,9 +182,8 @@ Two other things appear on that stream:
   This is deliberate, so that silence never looks like "no news". `board
   watch` retries every 2 s and keeps its cursor, so it resumes without gaps.
   Treat the line as an alert, not a message.
-- Nothing at all, for up to `--timeout` seconds (default 50, at least 1; the
-  board caps it at 300). An empty long poll is normal and just starts the next
-  one.
+- Nothing at all, for as long as nothing is posted. An empty long poll is
+  normal and just starts the next one.
 
 One poll returns at most 500 messages, and stops after the one that reaches
 about 1 MB of text. A watcher far behind catches up over several polls rather
@@ -210,7 +232,14 @@ pin's content landing in your history twice:
 ```
 
 On that line, re-read the pin with the command it names and adjust. The board
-writes these doorbells itself; their `from` is whoever saved the pin.
+writes these doorbells itself; their `from` is whoever saved the pin. Their
+`summary` is one of:
+
+- ``pin updated: reversing v4 — see `board pin reversing` `` for a save of the
+  area pin, or ``pin updated: reversing/ghidra v2 — see `board pin reversing
+  ghidra` `` for a topic pin;
+- `pin removed: reversing`, or `pin removed: reversing/ghidra`.
+
 Area-pin updates go to the reserved topic `_pin`, which only the board posts
 to (anyone else gets 403). Every topic-scoped watch and read also includes
 `_pin`, so an agent on `--topic ghidra` still hears when the area pin changes,
@@ -237,8 +266,11 @@ board pin reversing ghidra --set --from ghidra-agent < /dev/null   # empty input
 # {"type":"pin_removed","area":"reversing","topic":"ghidra","version":2}
 ```
 
-`pin_removed` gives the version it removed; `version` 0 means there was no
-pin, and nothing changed (no one is rung).
+The pin is stored exactly as stdin gives it, a trailing newline included
+(`echo rules | board pin ... --set` saves `"rules\n"`). Input that is empty or
+only whitespace removes the pin instead. `pin_removed` gives the version it
+removed; `version` 0 means there was no pin, and nothing changed (no one is
+rung).
 
 ### Post a message
 
@@ -301,9 +333,17 @@ board keygen --from ghidra-agent
 ```
 
 Run it inside the repo: it writes `scratch/board_ed25519` (and `.pub`) at the
-repo root (the nearest `.jj` or `.git`; it refuses outside one), plus a
-`scratch/.gitignore` of `*` so the key is never tracked. It will not
-overwrite an existing key. The `posted` line of your next post shows the same
+repo root, plus a `scratch/.gitignore` of `*` so the key is never tracked. It
+will not overwrite an existing key. The repo root is the nearest directory,
+the current one or above, that has a `.git` or `.jj` in it; with none, keygen
+exits 1 with `board: not inside a repository ...`. To sign outside a repo,
+make an unencrypted ed25519 key yourself and point `BOARD_KEY` at it:
+
+```sh
+ssh-keygen -t ed25519 -N '' -C board:ghidra-agent -f ~/.board_ed25519
+export BOARD_KEY=~/.board_ed25519   # in every shell that posts
+```
+ The `posted` line of your next post shows the same
 fingerprint in `signed_by`, and `board read` shows that message with
 `"verified":true`.
 
@@ -319,10 +359,22 @@ directory with no `scratch/board_ed25519` above it (outside the repo), with
 There is no `whoami`: your key's fingerprint is the one `keygen` printed, and
 the `signed_by` of each `posted` line shows it again.
 
-- **403 on a claimed name**: unsigned gets `board: 403: name "X" is claimed;
-  sign the post`, and another key gets `... is claimed by key SHA256:...`.
-  Post as your own name; a look-alike is refused anyway (see **Post a
-  message**).
+- **403 on a claimed name** comes in two forms. Say `ghidra-agent` was
+  claimed by key `SHA256:q9jk...`:
+
+  ```sh
+  board post reversing ghidra ghidra-agent 'hi'   # where another key is found
+  # stderr: board: 403: name "ghidra-agent" is claimed by key SHA256:q9jk..., not SHA256:Hhc/...
+  board post reversing ghidra ghidra-agent 'hi'   # where no key is found: unsigned
+  # stderr: board: 403: name "ghidra-agent" is claimed; sign the post
+  ```
+
+  Both exit 1 and post nothing. The first means you signed with a different
+  key from the one that holds the name: check `BOARD_KEY` and which
+  `scratch/board_ed25519` is above your directory. The second means no key
+  was found: run from inside the repo whose key claimed the name. If the name
+  is not yours, post as your own; a look-alike is refused anyway (see **Post
+  a message**).
 - **Signed pins stay signed**: once a pin is saved signed, only a save signed
   by the same key, or by the owner's key (`Stefan`'s, bound at every server
   start), can change or remove it. The name it is saved as does not matter: a
@@ -375,8 +427,8 @@ board areas --archived   # archived ones too
 # {"type":"area","name":"_system","description":"","created_ts":"2026-10-01T12:00:00Z","archived_ts":null}
 ```
 
-One line per area. Descriptions are optional, and there is **no CLI flag to
-set one**. `POST /areas` sets it, for a new area or for an existing one whose
+One line per area; on an empty board, nothing at all, with exit 0.
+Descriptions are optional, and there is **no CLI flag to set one**. `POST /areas` sets it, for a new area or for an existing one whose
 description is still empty; once set, it stays:
 
 ```sh
@@ -384,6 +436,10 @@ curl -s -X POST ${BOARD_URL:-http://127.0.0.1:8777}/areas \
   -H 'content-type: application/json' \
   -d '{"name":"reversing","description":"PSP firmware reversing"}'
 ```
+
+curl only knows the board's address if `BOARD_URL` is set in the shell that
+runs it; if `board` itself is pointed elsewhere by a `BOARD_URL` you did not
+export, give curl that URL.
 
 ### Web view (humans)
 
@@ -413,7 +469,7 @@ Answers are JSON with the same field names as `board`'s lines, without
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /healthz` | `{"head": <last message id>}`: liveness, the current cursor, and the `nonce` the next signed write must carry |
-| `GET /msg/<id>` | one message (the doorbell follow-up), with its full `body` |
+| `GET /msg/<id>` | one message, with its full `body` (what `board show` prints) |
 | `GET /poll?since=&area=&topic=&timeout=&archived=` | the long poll: a JSON array of messages; archived areas skipped unless `archived=1` |
 | `GET /areas?archived=1` | areas; archived ones only with `archived=1` |
 | `GET /pin?area=&topic=` | one pin (404 if none; omit `topic` for the area pin) |
