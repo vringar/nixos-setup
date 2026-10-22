@@ -148,17 +148,29 @@ def test_background_processes_end_with_the_sandbox():
 
 
 def fake_podman(tmp_path):
-    """Stands in for podman: notes its pid in podman.pids next to itself,
-    creates the socket file it is asked to serve on, then serves nothing
-    until it is stopped."""
+    """Stands in for podman, noting each call in podman.calls next to itself.
+
+    `system service` notes its pid in podman.pids, creates the socket file it
+    is asked to serve on, then serves nothing until it is stopped. `unshare`
+    runs its command, and anything else does nothing.
+    """
     path = tmp_path / "podman"
     path.write_text(textwrap.dedent(f"""\
         #!{sys.executable}
-        import os, sys, time
-        with open(os.path.realpath(__file__) + ".pids", "a") as pids:
-            print(os.getpid(), file=pids)
-        open(sys.argv[-1].removeprefix("unix://"), "w").close()
-        time.sleep(3600)
+        import json, os, sys, time
+        me = os.path.realpath(__file__)
+        args = sys.argv[1:]
+        while args[0].startswith("--"):  # --root and --runroot, with a value each
+            args = args[2:]
+        with open(me + ".calls", "a") as calls:
+            print(json.dumps(sys.argv[1:]), file=calls)
+        if args[:2] == ["system", "service"]:
+            with open(me + ".pids", "a") as pids:
+                print(os.getpid(), file=pids)
+            open(args[-1].removeprefix("unix://"), "w").close()
+            time.sleep(3600)
+        elif args[0] == "unshare":
+            os.execv(args[1], args[1:])
     """))
     path.chmod(0o755)
     return path
@@ -167,6 +179,11 @@ def fake_podman(tmp_path):
 def podman_pids(podman):
     pids = Path(f"{podman}.pids")
     return [int(pid) for pid in pids.read_text().split()] if pids.exists() else []
+
+
+def podman_calls(podman):
+    calls = Path(f"{podman}.calls")
+    return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
 
 
 # Starts Podman as the launcher does, reports its pid, then waits for the test
@@ -242,6 +259,7 @@ class Launcher:
             "@python3_bin_dir@": os.path.dirname(sys.executable),
             "@ssh_agent@": shutil.which("ssh-agent"),
             "@ssh_add@": shutil.which("ssh-add"),
+            "@rm@": shutil.which("rm"),
         }.items():
             text = text.replace(placeholder, value)
         self.script = tmp_path / "claude-sandbox"
@@ -270,6 +288,15 @@ class Launcher:
 
     def leftovers(self):
         return sorted(self.tmpdir.iterdir())
+
+
+def launcher_warnings(stderr):
+    """The launcher's warnings, bar the one about the forge key, which the
+    throwaway home never has."""
+    return [
+        line for line in stderr.splitlines()
+        if line.startswith("claude-sandbox:") and "no forge key" not in line
+    ]
 
 
 def children(pid):
@@ -370,3 +397,94 @@ def test_a_failed_start_still_cleans_up(tmp_path):
     [podman_pid] = podman_pids(podman)
     assert_all_gone([podman_pid])
     assert launcher.leftovers() == []
+
+
+# --- the temp dir -------------------------------------------------------------
+
+
+def test_a_killed_launchers_temp_dir_is_removed_by_the_next_launch(tmp_path):
+    podman = fake_podman(tmp_path)
+    launcher = Launcher(tmp_path, podman=podman)
+    sleep = sleeper()
+    proc = launcher.popen(*sleep)
+    try:
+        wait_until_running(sleep, proc)
+    finally:
+        proc.kill()  # no cleanup code of the launcher's gets to run
+        proc.wait()
+    [leftover] = launcher.leftovers()
+    _, storage_root, run_root = sandbox.podman_paths(str(leftover))
+
+    result = launcher.run(shutil.which("true"))
+    assert result.returncode == 0, result.stderr
+    assert launcher_warnings(result.stderr) == []
+    assert launcher.leftovers() == []
+    # Its Podman's containers and storage went through podman.
+    calls = podman_calls(podman)
+    assert ["--root", storage_root, "--runroot", run_root,
+            "rm", "--all", "--force", "--time", "0"] in calls
+    assert ["--root", storage_root, "--runroot", run_root,
+            "unshare", shutil.which("rm"), "-rf", storage_root, run_root] in calls
+
+
+def test_a_live_sandboxs_temp_dir_is_left_alone(tmp_path):
+    launcher = Launcher(tmp_path)
+    sleep = sleeper()
+    proc = launcher.popen(*sleep)
+    try:
+        wait_until_running(sleep, proc)
+        [live] = launcher.leftovers()
+        assert launcher.run(shutil.which("true")).returncode == 0
+        assert launcher.leftovers() == [live]
+        assert proc.poll() is None
+        assert pids_running(sleep)
+    finally:
+        proc.terminate()
+        proc.wait()
+    assert launcher.leftovers() == []
+
+
+def test_only_unlocked_dirs_of_this_launcher_are_removed(tmp_path):
+    def sandbox_dir(name, lock=True):
+        path = tmp_path / name
+        path.mkdir()
+        if lock:
+            (path / sandbox.OWNER_LOCK).touch()
+        return path
+
+    dead = sandbox_dir("claude-sandbox-dead-1234")
+    unlocked_other = sandbox_dir("crosslink-sandbox-dead-1234")
+    being_set_up = sandbox_dir("claude-sandbox-new-1234", lock=False)
+    (tmp_path / "claude-sandbox-link").symlink_to(being_set_up)
+    live, holder = sandbox.make_sandbox_tmp(str(tmp_path / "claude-sandbox-live-"))
+    try:
+        # The lock is per open file, so this process's own lock blocks too.
+        assert sandbox.remove_leftovers("claude-sandbox-", tmp_root=tmp_path) == []
+    finally:
+        holder.close()
+
+    assert not dead.exists()
+    assert unlocked_other.exists()
+    assert being_set_up.exists()
+    assert (tmp_path / "claude-sandbox-link").is_symlink()
+    assert Path(live).exists()
+
+
+def test_what_cannot_be_deleted_is_reported(tmp_path):
+    launcher = Launcher(tmp_path)
+    try:
+        # A directory the launcher cannot empty: no write permission.
+        result = launcher.run(sys.executable, "-c", textwrap.dedent("""\
+            import os
+            os.mkdir("/tmp/stuck")
+            open("/tmp/stuck/file", "w").close()
+            os.chmod("/tmp/stuck", 0o500)
+        """))
+        assert result.returncode == 0, result.stderr
+        assert "could not delete" in result.stderr
+        assert "Permission denied" in result.stderr
+        [leftover] = launcher.leftovers()
+        assert sorted(p.name for p in leftover.iterdir()) == ["stuck"]
+    finally:
+        for leftover in launcher.leftovers():
+            (leftover / "stuck").chmod(0o700)

@@ -3,6 +3,7 @@
 
 import argparse
 import ctypes
+import fcntl
 import glob
 import os
 import select
@@ -21,6 +22,7 @@ BASH = "@bash@"
 PYTHON3_BIN_DIR = "@python3_bin_dir@"
 SSH_AGENT = "@ssh_agent@"
 SSH_ADD = "@ssh_add@"
+RM = "@rm@"
 
 # Default launch commands per script name (when no command is given after --)
 DEFAULT_COMMANDS = {
@@ -144,12 +146,23 @@ def die_with_launcher(sig):
     return preexec
 
 
+# Written into the sandbox's Podman dir once the service is up. From then on
+# the storage can hold files only Podman's user namespace can delete, and
+# containers that keep running after the service stops.
+PODMAN_SERVED = "served"
+
+
+def podman_paths(sandbox_tmp):
+    """The Podman dir under sandbox_tmp, and its storage and run roots."""
+    podman_dir = os.path.join(sandbox_tmp, "podman")
+    return podman_dir, os.path.join(podman_dir, "storage"), os.path.join(podman_dir, "run")
+
+
 def start_podman_service(sandbox_tmp, podman=None):
     """Start a per-sandbox rootless Podman service.
 
-    Storage is kept under sandbox_tmp so images are cached between runs of the
-    same project but fully isolated from other sandboxes.  The runtime root is
-    wiped on each start to avoid stale lock files from a previous crashed run.
+    Its storage is kept under sandbox_tmp, so it is isolated from every other
+    sandbox and goes with the sandbox's temp dir (see remove_sandbox_tmp).
 
     Returns (proc, socket_path) on success, (None, None) if Podman is absent.
     The socket is placed inside sandbox_tmp, which is already bind-mounted as
@@ -164,20 +177,10 @@ def start_podman_service(sandbox_tmp, podman=None):
     if not podman:
         return None, None
 
-    podman_dir = os.path.join(sandbox_tmp, "podman")
-    storage_root = os.path.join(podman_dir, "storage")
-    run_root = os.path.join(podman_dir, "run")
+    podman_dir, storage_root, run_root = podman_paths(sandbox_tmp)
     socket_path = os.path.join(podman_dir, "podman.sock")
-
-    # Wipe runtime state to avoid stale locks from a previous crash.
-    # Leave storage intact so pulled images are reused across runs.
-    if os.path.exists(run_root):
-        shutil.rmtree(run_root)
-    os.makedirs(run_root, exist_ok=True)
-    os.makedirs(storage_root, exist_ok=True)
-
-    if os.path.exists(socket_path):
-        os.unlink(socket_path)
+    os.makedirs(run_root)
+    os.makedirs(storage_root)
 
     proc = subprocess.Popen(
         [podman, "--root", storage_root, "--runroot", run_root,
@@ -201,7 +204,104 @@ def start_podman_service(sandbox_tmp, podman=None):
             return None, None
         time.sleep(0.05)
 
+    open(os.path.join(podman_dir, PODMAN_SERVED), "x").close()
     return proc, socket_path
+
+
+def remove_podman_storage(sandbox_tmp, podman):
+    """Remove the containers and storage of a sandbox's Podman, once stopped.
+
+    Containers started through the service outlive it, so they are removed
+    first, which also unmounts their file systems. Image layers hold files
+    owned by the subordinate uids of Podman's user namespace, which the
+    launcher cannot delete, so rm runs in that namespace, through `podman
+    unshare`. Returns warnings.
+    """
+    _, storage_root, run_root = podman_paths(sandbox_tmp)
+    podman_cmd = [podman, "--root", storage_root, "--runroot", run_root]
+    warnings = []
+    for args in (
+        ["rm", "--all", "--force", "--time", "0"],
+        ["unshare", RM, "-rf", storage_root, run_root],
+    ):
+        done = subprocess.run(
+            podman_cmd + args, stdin=subprocess.DEVNULL, capture_output=True, text=True
+        )
+        if done.returncode != 0:
+            warnings.append(f"podman {args[0]} failed ({one_line(done.stderr)})")
+    return warnings
+
+
+def remove_tree(path):
+    """shutil.rmtree, returning what it could not delete as warnings."""
+    failed = []
+
+    def note(_function, failed_path, error):
+        if not isinstance(error, FileNotFoundError):  # gone is what we want
+            failed.append(f"{failed_path}: {error.strerror or error}")
+
+    shutil.rmtree(path, onexc=note)
+    if not failed:
+        return []
+    return [f"could not delete {len(failed)} path(s) under {path}, first {failed[0]}"]
+
+
+def remove_sandbox_tmp(sandbox_tmp, podman=None):
+    """Delete a sandbox's temp dir, Podman's storage included. Returns warnings."""
+    warnings = []
+    podman_dir, _, _ = podman_paths(sandbox_tmp)
+    podman = podman or shutil.which("podman")
+    if podman and os.path.exists(os.path.join(podman_dir, PODMAN_SERVED)):
+        warnings += remove_podman_storage(sandbox_tmp, podman)
+    return warnings + remove_tree(sandbox_tmp)
+
+
+# A file in each sandbox's temp dir, locked by its launcher for as long as
+# the sandbox lives. A dir whose lock can be taken has lost its launcher.
+OWNER_LOCK = ".claude-sandbox.lock"
+
+
+def make_sandbox_tmp(prefix):
+    """A new temp dir for one sandbox, and the lock file holding it.
+
+    The lock is taken before the file gets its name, so a launcher clearing
+    leftovers can never take it from a dir that is still being set up.
+    """
+    sandbox_tmp = tempfile.mkdtemp(prefix=prefix)
+    staging = os.path.join(sandbox_tmp, OWNER_LOCK + ".new")
+    lock = open(staging, "x")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    os.rename(staging, os.path.join(sandbox_tmp, OWNER_LOCK))
+    return sandbox_tmp, lock
+
+
+def remove_leftovers(prefix, tmp_root=None, podman=None):
+    """Delete the temp dirs that launchers killed outright left behind.
+
+    A launcher that is SIGKILLed cannot clean up; the kernel takes care of
+    its sandbox and helpers, but its temp dir stays. Returns warnings.
+    """
+    tmp_root = tmp_root or tempfile.gettempdir()
+    warnings = []
+    for entry in os.scandir(tmp_root):
+        if not entry.name.startswith(prefix) or not entry.is_dir(follow_symlinks=False):
+            continue
+        try:
+            if entry.stat(follow_symlinks=False).st_uid != os.getuid():
+                continue
+            lock = open(os.path.join(entry.path, OWNER_LOCK))
+        except FileNotFoundError:
+            continue  # being set up, or another launcher just cleared it
+        except OSError as e:
+            warnings.append(f"cannot tell whether {entry.path} is in use: {e}")
+            continue
+        with lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue  # its launcher is alive
+            warnings += remove_sandbox_tmp(entry.path, podman)
+    return warnings
 
 
 def crossbridge_socket_root():
@@ -832,9 +932,11 @@ def main():
         inner_cmd = launch_command(args.launch_cmd, project_dir, args.nix_file)
         banner = f"Starting sandboxed {args.launch_cmd.split()[0]} in {project_dir}"
 
-    project_name = os.path.basename(project_dir)
     script_name = get_script_name()
-    sandbox_tmp = tempfile.mkdtemp(prefix=f"{script_name}-{project_name}-")
+    for warning in remove_leftovers(f"{script_name}-"):
+        print(f"claude-sandbox: {warning}", file=sys.stderr)
+    project_name = os.path.basename(project_dir)
+    sandbox_tmp, lock = make_sandbox_tmp(f"{script_name}-{project_name}-")
 
     # The host-side processes serving this sandbox (its SSH agent, Podman),
     # stopped once it exits.
@@ -882,7 +984,9 @@ def main():
         for proc in helpers:
             proc.terminate()
             proc.wait()
-        shutil.rmtree(sandbox_tmp, ignore_errors=True)
+        for warning in remove_sandbox_tmp(sandbox_tmp):
+            print(f"claude-sandbox: {warning}", file=sys.stderr)
+        lock.close()
 
     sys.exit(status)
 

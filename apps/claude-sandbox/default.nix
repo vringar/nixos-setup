@@ -38,7 +38,8 @@ in
         --replace-fail '@python3@' '${python3}/bin/python3' \
         --replace-fail '@python3_bin_dir@' '${python3}/bin' \
         --replace-fail '@ssh_agent@' '${pkgs.openssh}/bin/ssh-agent' \
-        --replace-fail '@ssh_add@' '${pkgs.openssh}/bin/ssh-add'
+        --replace-fail '@ssh_add@' '${pkgs.openssh}/bin/ssh-add' \
+        --replace-fail '@rm@' '${pkgs.coreutils}/bin/rm'
     '';
 
     checkPhase = ''
