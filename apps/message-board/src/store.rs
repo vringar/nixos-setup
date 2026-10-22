@@ -38,7 +38,7 @@ use std::path::Path;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTimeError};
 
-use rusqlite::types::Value;
+use rusqlite::types::{Value, ValueRef};
 use rusqlite::{Connection, ErrorCode, OptionalExtension as _, Row, params, params_from_iter};
 use serde::Serialize;
 
@@ -396,15 +396,28 @@ fn check_reserved(name: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// A text column as text, whatever another program left in it: bytes
+/// that are not UTF-8 as U+FFFD, a number as its digits, NULL as empty.
+/// Read strictly, one such row failed every read that covered it -- every
+/// poll past it, for every watcher, for ever.
+fn text(row: &Row<'_>, column: usize) -> rusqlite::Result<String> {
+    Ok(match row.get_ref(column)? {
+        ValueRef::Null => String::new(),
+        ValueRef::Integer(n) => n.to_string(),
+        ValueRef::Real(x) => x.to_string(),
+        ValueRef::Text(bytes) | ValueRef::Blob(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+    })
+}
+
 fn message(row: &Row<'_>) -> rusqlite::Result<Message> {
     let signed_by: Option<String> = row.get(6)?;
     Ok(Message {
         id: row.get(0)?,
-        ts: row.get(1)?,
-        area: row.get(2)?,
-        topic: row.get(3)?,
-        sender: row.get(4)?,
-        body: row.get(5)?,
+        ts: text(row, 1)?,
+        area: text(row, 2)?,
+        topic: text(row, 3)?,
+        sender: text(row, 4)?,
+        body: text(row, 5)?,
         verified: signed_by.is_some(),
         signed_by,
     })
@@ -463,11 +476,11 @@ fn get_identity(conn: &Connection, name: &str) -> rusqlite::Result<Option<Identi
         [name],
         |r| {
             Ok(Identity {
-                name: r.get(0)?,
-                pubkey: r.get(1)?,
-                fingerprint: r.get(2)?,
-                source: r.get(3)?,
-                registered_ts: r.get(4)?,
+                name: text(r, 0)?,
+                pubkey: text(r, 1)?,
+                fingerprint: text(r, 2)?,
+                source: text(r, 3)?,
+                registered_ts: text(r, 4)?,
             })
         },
     )
@@ -477,7 +490,7 @@ fn get_identity(conn: &Connection, name: &str) -> rusqlite::Result<Option<Identi
 fn near_claims(conn: &Connection, name: &str) -> rusqlite::Result<Vec<String>> {
     let claimed: Vec<String> = conn
         .prepare("SELECT name FROM identities ORDER BY name")?
-        .query_map([], |r| r.get(0))?
+        .query_map([], |r| text(r, 0))?
         .collect::<rusqlite::Result<_>>()?;
     Ok(claimed.into_iter().filter(|c| c != name && looks_alike(name, c)).collect())
 }
@@ -582,7 +595,7 @@ fn set_archived_row(conn: &Connection, now: &str, name: &str, archived: bool) ->
 /// late agent can never write into an area nobody can see.
 fn ensure_area(conn: &Connection, now: &str, name: &str, description: &str) -> rusqlite::Result<()> {
     let row: Option<(String, Option<String>)> = conn
-        .query_row("SELECT description, archived_ts FROM areas WHERE name=?", [name], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row("SELECT description, archived_ts FROM areas WHERE name=?", [name], |r| Ok((text(r, 0)?, r.get(1)?)))
         .optional()?;
     match row {
         None => {
@@ -615,12 +628,12 @@ fn get_pin(conn: &Connection, area: &str, topic: &str) -> rusqlite::Result<Optio
         |r| {
             let signed_by: Option<String> = r.get(6)?;
             Ok(Pin {
-                area: r.get(0)?,
-                topic: r.get(1)?,
-                body: r.get(2)?,
+                area: text(r, 0)?,
+                topic: text(r, 1)?,
+                body: text(r, 2)?,
                 version: r.get(3)?,
-                editor: r.get(4)?,
-                ts: r.get(5)?,
+                editor: text(r, 4)?,
+                ts: text(r, 5)?,
                 verified: signed_by.is_some(),
                 signed_by,
             })
@@ -633,7 +646,7 @@ fn list_areas(conn: &Connection, include_archived: bool) -> rusqlite::Result<Vec
     let filter = if include_archived { "" } else { " WHERE archived_ts IS NULL" };
     conn.prepare(&format!("SELECT name, description, created_ts, archived_ts FROM areas{filter} ORDER BY created_ts"))?
         .query_map([], |r| {
-            Ok(Area { name: r.get(0)?, description: r.get(1)?, created_ts: r.get(2)?, archived_ts: r.get(3)? })
+            Ok(Area { name: text(r, 0)?, description: text(r, 1)?, created_ts: text(r, 2)?, archived_ts: r.get(3)? })
         })?
         .collect()
 }
@@ -764,7 +777,7 @@ impl Board {
             if let Some(key) = new.key {
                 let earlier: Option<(i64, String, String, String, String)> = conn
                     .query_row("SELECT id, area, topic, sender, body FROM messages WHERE client_key=?", [key], |r| {
-                        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+                        Ok((r.get(0)?, text(r, 1)?, text(r, 2)?, text(r, 3)?, text(r, 4)?))
                     })
                     .optional()?;
                 if let Some((id, area, topic, sender, body)) = earlier {
@@ -1096,7 +1109,7 @@ impl Board {
             sql.push_str(" ORDER BY area, topic");
             let keys: Vec<(String, String)> = conn
                 .prepare(&sql)?
-                .query_map(params_from_iter(args), |r| Ok((r.get(0)?, r.get(1)?)))?
+                .query_map(params_from_iter(args), |r| Ok((text(r, 0)?, text(r, 1)?)))?
                 .collect::<rusqlite::Result<_>>()?;
             let mut pins = Vec::with_capacity(keys.len());
             for (area, topic) in keys {
@@ -1116,7 +1129,7 @@ impl Board {
                 "SELECT topic FROM messages WHERE area=? UNION
                  SELECT topic FROM pins WHERE area=? AND topic<>'' ORDER BY 1",
             )?
-            .query_map([area, area], |r| r.get(0))?
+            .query_map([area, area], |r| text(r, 0))?
             .collect()
         })
     }
@@ -1149,7 +1162,7 @@ impl Board {
             let areas = list_areas(conn, true)?;
             let counts: Vec<(String, i64)> = conn
                 .prepare("SELECT area, COUNT(*) FROM messages GROUP BY area")?
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .query_map([], |r| Ok((text(r, 0)?, r.get(1)?)))?
                 .collect::<rusqlite::Result<_>>()?;
             Ok(areas
                 .into_iter()
@@ -1168,7 +1181,7 @@ impl Board {
     pub fn topic_counts(&self, area: &str) -> Result<Vec<(String, i64)>, DbError> {
         self.read(|conn| {
             conn.prepare("SELECT topic, COUNT(*) FROM messages WHERE area=? GROUP BY topic ORDER BY topic")?
-                .query_map([area], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .query_map([area], |r| Ok((text(r, 0)?, r.get(1)?)))?
                 .collect()
         })
     }
@@ -1181,7 +1194,7 @@ impl Board {
         self.read(|conn| {
             conn.prepare("SELECT id, ts, sender, body FROM messages WHERE area=? AND topic=? ORDER BY id")?
                 .query_map([area, topic], |r| {
-                    Ok(Listed { id: r.get(0)?, ts: r.get(1)?, sender: r.get(2)?, body: r.get(3)? })
+                    Ok(Listed { id: r.get(0)?, ts: text(r, 1)?, sender: text(r, 2)?, body: text(r, 3)? })
                 })?
                 .collect()
         })
@@ -1213,7 +1226,7 @@ impl Board {
         self.read(|conn| {
             let names: Vec<String> = conn
                 .prepare("SELECT name FROM identities ORDER BY name")?
-                .query_map([], |r| r.get(0))?
+                .query_map([], |r| text(r, 0))?
                 .collect::<rusqlite::Result<_>>()?;
             let mut identities = Vec::with_capacity(names.len());
             for name in names {

@@ -562,6 +562,29 @@ def test_activity_unarchives(board):
     assert ann.count("area unarchived: **reversing**") == 2
 
 
+def test_a_row_another_program_left_odd_does_not_stop_the_board(board):
+    """Text that is not UTF-8, or an area named NULL, cannot come from the
+    board, but another program writing the file can leave it. Read
+    strictly, every poll past such a row failed with 500, for every
+    watcher, for good; and one NULL area name broke the area list and the
+    web page."""
+    board.post("x", "t", "a", "before")
+    board.sql("INSERT INTO messages(ts, area, topic, sender, body)"
+              " VALUES('2026-09-01T00:00:00Z', 'x', 't', 'old', CAST(x'6869ff' AS TEXT))")
+    board.sql("INSERT INTO areas(name, description, created_ts) VALUES(NULL, '', '2026-09-01T00:00:00Z')")
+    assert [m["body"] for m in board.query_since(0, "x")] == ["before", "hi\ufffd"]
+    watch = Watch("--area", "x")
+    try:
+        assert watch.line().endswith("[x/t] a: before")
+        assert watch.line().endswith("[x/t] old: hi\ufffd")
+        board.post("x", "t", "a", "after")
+        assert watch.line().endswith("[x/t] a: after")
+    finally:
+        watch.stop()
+    assert "" in [a["name"] for a in board.list_areas()]
+    assert board.get("/").status == 200
+
+
 @pytest.mark.parametrize("area,topic", [("", "t"), ("x", ""), ("x\ny", "t"), ("x", "t\r"), ("x", "a\x1b[2J")])
 def test_unaddressable_places_are_refused(board, area, topic):
     """An empty area or topic means "all of them" in every read, so a

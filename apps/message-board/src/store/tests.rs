@@ -282,6 +282,29 @@ fn a_page_stops_at_about_a_megabyte_of_text() -> TestResult {
 }
 
 #[test]
+fn rows_another_program_left_odd_still_read() -> TestResult {
+    let f = fixture()?;
+    post(&f.board, "x", "t", "a", "fine")?;
+    let other = Connection::open(&f.path)?;
+    other.execute_batch(
+        "INSERT INTO messages(ts, area, topic, sender, body)
+             VALUES('2026-01-01T00:00:00Z', 'x', 't', CAST(x'ff' AS TEXT), CAST(x'6869ff' AS TEXT));
+         INSERT INTO messages(ts, area, topic, sender, body) VALUES('2026-01-01T00:00:00Z', 'x', 7, 'b', 8);
+         INSERT INTO areas(name, description, created_ts) VALUES(NULL, '', '2026-01-01T00:00:00Z');",
+    )?;
+    let log = f.board.query(&scope("x", ""), 10)?;
+    assert_eq!(bodies(&log), ["fine", "hi\u{fffd}", "8"]);
+    assert_eq!(log.get(1).map(|m| m.sender.as_str()), Some("\u{fffd}"));
+    assert!(f.board.list_areas(false)?.iter().any(|a| a.name.is_empty()));
+    assert_eq!(f.board.list_topics("x")?, ["7", "t"]);
+    // and board-admin, the tool to delete such a row, can list it
+    let listed = f.board.messages_in("x", "t")?;
+    assert_eq!(listed.iter().map(|m| m.body.as_str()).collect::<Vec<_>>(), ["fine", "hi\u{fffd}"]);
+    assert!(f.board.area_counts()?.iter().any(|(name, _, _)| name.is_empty()));
+    Ok(())
+}
+
+#[test]
 fn recent_is_the_newest_messages_oldest_first() -> TestResult {
     let f = fixture()?;
     for i in 0..5 {
