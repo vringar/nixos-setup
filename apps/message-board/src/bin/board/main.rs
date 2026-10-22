@@ -3,8 +3,9 @@
 //! ```text
 //! board keygen --from NAME                 create this repo's signing key
 //! board post <area> <topic> <from> <body>  post a markdown message
-//! board watch [--area A] [--topic T]       long-poll -> one line per message
+//! board watch [--area A]                   long-poll -> one line per message
 //!             [--since ID|head]            'head' = only messages from now on
+//!             [--mention NAME] [--topic T] only those @NAME, or in T (both repeatable)
 //!             [--not-from NAME]            skip NAME's own messages
 //! board show <id>                          one message, its full body
 //! board read --area A [--topic T]          one-shot: pins + full backlog, then exit
@@ -60,7 +61,7 @@ use serde_json::{Value, json};
 use signal_hook::consts::SIGINT;
 
 use message_board::sign::{self, Kind, MESSAGE, PIN, PrivateKey, SignatureError};
-use message_board::store::{check_name, check_place};
+use message_board::store::{PIN_TOPIC, check_name, check_place};
 use message_board::text::one_line;
 
 use crate::client::{Client, HttpError};
@@ -124,8 +125,18 @@ enum Command {
     Watch {
         #[arg(long)]
         area: Option<String>,
-        #[arg(long)]
-        topic: Option<String>,
+        #[arg(
+            long,
+            value_name = "TOPIC",
+            help = "only messages in TOPIC (repeatable), and area pin updates; with --mention, those too"
+        )]
+        topic: Vec<String>,
+        #[arg(
+            long,
+            value_name = "NAME",
+            help = "only messages whose body says @NAME (repeatable); with --topic, those too"
+        )]
+        mention: Vec<String>,
         #[arg(
             long,
             value_name = "ID|head",
@@ -275,7 +286,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
     match cli.command {
         Command::Keygen { sender } => keygen(&sender),
         Command::Post { area, topic, sender, body } => post(&client, &area, &topic, &sender, &body.join(" ")),
-        Command::Watch { area, topic, since, timeout, not_from } => {
+        Command::Watch { area, topic, mention, since, timeout, not_from } => {
             let since = match since {
                 Some(since) => since,
                 None => match setting("BOARD_SINCE")? {
@@ -290,11 +301,14 @@ fn run(cli: Cli) -> Result<(), Failure> {
                 },
             };
             let area = area.map_or_else(|| setting("BOARD_AREA"), |a| Ok(Some(a)))?.unwrap_or_default();
-            let topic = topic.map_or_else(|| setting("BOARD_TOPIC"), |t| Ok(Some(t)))?.unwrap_or_default();
-            for name in &not_from {
+            let mut topics: Vec<String> = topic.into_iter().filter(|t| !t.is_empty()).collect();
+            if topics.is_empty() {
+                topics.extend(setting("BOARD_TOPIC")?.filter(|t| !t.is_empty()));
+            }
+            for name in mention.iter().chain(&not_from) {
                 checked_name(name)?;
             }
-            watch(&client, &area, &topic, since, timeout, &not_from)
+            watch(&client, &area, since, timeout, &Filter { topics: &topics, mentions: &mention, not_from: &not_from })
         }
         Command::Show { id } => show(&client, id),
         Command::Read { area, topic, since, archived } => {
@@ -929,17 +943,56 @@ fn archive(client: &Client, area: &str, archived: bool) -> Result<(), Failure> {
     emit(&if archived { Line::Archived { area, changed } } else { Line::Unarchived { area, changed } })
 }
 
+/// Which messages a watch prints.
+struct Filter<'a> {
+    /// Only those in these topics (and the area pin's doorbells) ...
+    topics: &'a [String],
+    /// ... or that @-mention one of these; neither: all of them.
+    mentions: &'a [String],
+    /// Never these senders' own.
+    not_from: &'a [String],
+}
+
+impl Filter<'_> {
+    fn wants(&self, message: &WireMessage) -> bool {
+        if self.not_from.contains(&message.from) {
+            return false;
+        }
+        if self.topics.is_empty() && self.mentions.is_empty() {
+            return true;
+        }
+        // An area pin outranks the log: its doorbells reach every filtered
+        // watch, as they reach a topic-scoped one.
+        message.topic == PIN_TOPIC
+            || self.topics.contains(&message.topic)
+            || self.mentions.iter().any(|name| mentions(&message.body, name))
+    }
+
+    /// The one topic the board can scope the poll to, if that is all the
+    /// filter wants; otherwise the poll covers the area, and `wants` picks.
+    fn board_topic(&self) -> &str {
+        match (self.topics, self.mentions.is_empty()) {
+            ([topic], true) => topic,
+            _ => "",
+        }
+    }
+}
+
+/// Whether `body` says `@name`, not as the start of a longer name
+/// (`@ghidra` is not in `@ghidra-agent`).
+fn mentions(body: &str, name: &str) -> bool {
+    let tag = format!("@{name}");
+    body.match_indices(&tag).any(|(at, _)| {
+        let next = body.get(at.saturating_add(tag.len())..).and_then(|rest| rest.chars().next());
+        !next.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    })
+}
+
 /// Long-poll and print one line per new message (its first line only: a
 /// doorbell), or per failed poll: a Monitor event stream. Never ends on its
 /// own: `timeout` is the length of one poll.
-fn watch(
-    client: &Client,
-    area: &str,
-    topic: &str,
-    since: Since,
-    timeout: i64,
-    not_from: &[String],
-) -> Result<(), Failure> {
+fn watch(client: &Client, area: &str, since: Since, timeout: i64, filter: &Filter<'_>) -> Result<(), Failure> {
+    let topic = filter.board_topic();
     let mut since = match since {
         Since::Id(id) => id,
         // Retry rather than fail: a persistent watcher is routinely started
@@ -970,9 +1023,9 @@ fn watch(
             }
         };
         let page: Vec<WireMessage> = parse("/poll", &text)?;
-        // one line per message -> one event each, but none for the
-        // watcher's own; the cursor moves past those all the same
-        for message in page.iter().filter(|m| !not_from.contains(&m.from)) {
+        // one line per message it wants -> one event each; the cursor moves
+        // past the rest all the same
+        for message in page.iter().filter(|m| filter.wants(m)) {
             emit(&message.line(false))?;
         }
         if let Some(last) = page.last() {
@@ -1025,6 +1078,17 @@ mod tests {
         assert_eq!(back.get("verified"), Some(&Value::Bool(false)));
         assert_eq!(back.get("summary"), None);
         Ok(())
+    }
+
+    #[test]
+    fn a_mention_is_the_name_and_not_a_longer_one() {
+        assert!(mentions("hi @ghidra, look", "ghidra"));
+        assert!(mentions("@ghidra", "ghidra"));
+        assert!(mentions("ask @ghidra-agent then @ghidra.", "ghidra"));
+        assert!(!mentions("ask @ghidra-agent", "ghidra"));
+        assert!(!mentions("@ghidra_2 and @ghidraX", "ghidra"));
+        assert!(!mentions("ghidra without the at", "ghidra"));
+        assert!(mentions("é@ghidraé", "ghidra"));
     }
 
     #[test]

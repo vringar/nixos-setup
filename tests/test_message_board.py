@@ -416,8 +416,57 @@ def test_watch_skips_the_watchers_own_messages(board, proxy):
         watch.stop()
 
 
-def test_watch_refuses_a_not_from_that_is_no_name(board, proxy):
-    run = cli("watch", "--not-from", "my agent")
+def test_watch_mentions_and_topics_wake_only_whom_they_concern(board, proxy):
+    """With --mention and --topic a watch prints a message that @-mentions
+    the name anywhere in its body or is in one of the topics, and the area
+    pin's doorbells; never one --not-from names. That is what each agent's
+    board-poll.py did by polling `board read` every 20 s."""
+    watch = Watch("--area", "x", "--since", str(board.head_id()), "--timeout", "1",
+                  "--mention", "aspfuzz", "--topic", "emu", "--topic", "lab", "--not-from", "aspfuzz")
+    try:
+        for topic, sender, body in [
+                ("general", "other", "hi @aspfuzz, look"),
+                ("general", "other", "first line\n\nand then @aspfuzz"),
+                ("general", "other", "@aspfuzzer is someone else"),
+                ("general", "other", "nothing for you"),
+                ("emu", "other", "emu news"),
+                ("lab", "other", "lab news"),
+                ("emu", "aspfuzz", "@aspfuzz my own, in my topic")]:
+            board.post("x", topic, sender, body)
+        board.set_pin("x", "", "other", "rules")
+        board.set_pin("x", "general", "other", "general rules")  # its doorbell is in general
+        board.post("x", "general", "other", "@aspfuzz, done")
+        got = []
+        while not got or got[-1][3] != "@aspfuzz, done":
+            got.append(bell(watch.event()))
+    finally:
+        watch.stop()
+    assert got == [
+        ("x", "general", "other", "hi @aspfuzz, look"),
+        ("x", "general", "other", "first line"),
+        ("x", "emu", "other", "emu news"),
+        ("x", "lab", "other", "lab news"),
+        ("x", PIN_TOPIC, "other", "pin updated: x v1 — see `board pin x`"),
+        ("x", "general", "other", "@aspfuzz, done")]
+    # more than one topic, or a mention: one poll over the area, picked here
+    assert {ex.query.get("topic", "") for ex in proxy.seen if ex.route == "/poll"} == {""}
+
+
+def test_watch_on_one_topic_is_scoped_by_the_board(board, proxy):
+    watch = Watch("--area", "x", "--since", "0", "--timeout", "1", "--topic", "emu", "--not-from", "me")
+    try:
+        board.post("x", "general", "other", "elsewhere")
+        board.post("x", "emu", "me", "mine")
+        board.post("x", "emu", "other", "emu news")
+        assert bell(watch.event()) == ("x", "emu", "other", "emu news")
+    finally:
+        watch.stop()
+    assert {ex.query.get("topic") for ex in proxy.seen if ex.route == "/poll"} == {"emu"}
+
+
+@pytest.mark.parametrize("option", ["--not-from", "--mention"])
+def test_watch_refuses_a_name_that_is_no_name(board, proxy, option):
+    run = cli("watch", option, "my agent")
     assert run.code == 1 and run.err.startswith('board: sender name "my agent" is not allowed')
     assert proxy.seen == []
 
