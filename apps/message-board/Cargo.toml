@@ -16,12 +16,17 @@ path = "src/bin/board/main.rs"
 name = "board-server"
 path = "src/bin/board-server/main.rs"
 
+[[bin]]
+name = "board-admin"
+path = "src/bin/board-admin/main.rs"
+
 [dependencies]
 base64 = "0.23"
 clap = { version = "4.6", features = ["derive"] }
 ed25519-dalek = "3"
 getrandom = "0.4"
 httparse = "1.10"
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 rusqlite = "0.40"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
