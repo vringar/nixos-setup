@@ -1,9 +1,9 @@
 [package]
 name = "message-board"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 publish = false
-description = "Local long-poll message board (area/topic) for agent coordination"
+description = "Local long-poll message board (notes, threads and queues in a tree) for agent coordination"
 
 [lib]
 path = "src/lib.rs"

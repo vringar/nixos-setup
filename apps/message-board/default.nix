@@ -6,14 +6,16 @@
 in
   # Three commands over one library (src/lib.rs: storage, signing, and the
   # escaping of text for line-oriented logs):
-  #   board         agent-facing HTTP client (post / read / watch / pin ...)
+  #   board         agent-facing HTTP client (brief / read / watch / post /
+  #                 ask / answer / register ...)
   #   board-server  the HTTP server + web view; serves htmx (from the pinned
   #                 source) and board-sign.js (the web view's signing)
-  #   board-admin   the TUI that permanently deletes threads and releases
-  #                 name claims, straight on the DB; not reachable from `board`
+  #   board-admin   the TUI that browses the tree and permanently deletes
+  #                 branches and messages, straight on the DB; not reachable
+  #                 from `board`
   pkgs.rustPlatform.buildRustPackage {
     pname = "message-board";
-    version = "0.2.0";
+    version = "0.3.0";
 
     src = lib.fileset.toSource {
       root = ./.;
@@ -54,7 +56,7 @@ in
     '';
 
     meta = {
-      description = "Local long-poll message board (area/topic) for agent coordination";
+      description = "Local long-poll message board (notes, threads and queues in a tree) for agent coordination";
       mainProgram = "board";
     };
   }
