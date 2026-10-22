@@ -1139,11 +1139,12 @@ def test_a_planted_jj_config_does_not_reach_the_host(tmp_path):
     def host_jj(*args):
         return subprocess.run(
             [jj, "--repository", str(launcher.project), "--ignore-working-copy", *args],
-            env=env, check=True, capture_output=True, text=True,
+            env=env, check=True, capture_output=True, text=True, cwd=tmp_path,
         ).stdout
 
+    # From outside any repository, whose own config jj would otherwise load.
     subprocess.run([jj, "git", "init", str(launcher.project)], env=env, check=True,
-                   capture_output=True)
+                   capture_output=True, cwd=tmp_path)
     pager = host_jj("config", "get", "ui.pager")
     repo = launcher.project / ".jj" / "repo"
     assert not (repo / "config-id").exists()

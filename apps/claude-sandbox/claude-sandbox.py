@@ -685,7 +685,9 @@ def pin_jj_repo_config(worktree, jj_repo):
     try:
         subprocess.run(
             ["jj", "--repository", worktree, "--ignore-working-copy", "config", "path", "--repo"],
-            capture_output=True, text=True, check=True,
+            # From inside the work tree: jj reads the config of the repository
+            # it is started in, too, and that may be another one.
+            capture_output=True, text=True, check=True, cwd=worktree,
         )
     except (OSError, subprocess.CalledProcessError) as e:
         reason = one_line(getattr(e, "stderr", None) or str(e))
