@@ -86,14 +86,20 @@ def test_brief_loads_the_notes_on_the_paths_and_the_open_items_then_a_cursor(boa
     assert len(run.out) < 8 * 1024  # a few KB, not the backlog
     # the API's brief: the same, structured
     api = board.brief("rev/emu/log", "rev/emu/aspfuzz", as_="aspfuzz")
-    assert (api["head"], api["watch"]) == (head, run.lines[-1]["watch"])
+    # the API hands out the paths to watch; the CLI builds the command line from them
+    assert (api["head"], api["watch"]) == (head, ["rev", "rev/emu", "rev/emu/log", "rev/emu/aspfuzz"])
     assert [c["path"] for c in api["containers"]] == ["rev", "rev/emu"]
     assert {n["path"] for n in api["containers"][0]["notes"]} == {"rev/charter", "rev/state"}
     assert {c["path"] for c in api["containers"][1]["children"]} == \
         {"rev/emu/log", "rev/emu/aspfuzz", "rev/emu/state"}
     assert ({i["id"] for i in api["owned"]}, {i["id"] for i in api["asked"]}) == (owned, asked)
     # --as names the agent without its key
-    assert cli("brief", "rev/emu/log", "rev/emu/aspfuzz", "--as", "aspfuzz").ok().lines == run.lines
+    # (the watch it hands out spells --me out as the name, which no key backs)
+    named = cli("brief", "rev/emu/log", "rev/emu/aspfuzz", "--as", "aspfuzz").ok().lines
+    assert named[:-1] == run.lines[:-1] and named[-1]["since"] == head
+    assert named[-1]["watch"] == (
+        f"board watch rev rev/emu rev/emu/log rev/emu/aspfuzz --mention aspfuzz --asked-by aspfuzz"
+        f" --owner aspfuzz --not-from aspfuzz --since {head}")
 
 
 def test_brief_loads_a_note_given_as_a_path_once(board, swarm):
@@ -308,10 +314,12 @@ def test_a_poll_answers_its_events_and_a_cursor(board, team):
     a = team.alice
     a.create("rev/noise", "thread")
     a.post("rev/noise", "unwanted")
+    # a leaf's watch gets all its events, its creation included; the noise elsewhere never
     page = board.poll(0, path="rev/log")
-    assert (page["events"], page["cursor"]) == ([], board.head_id())
+    assert [(e["event"], e["path"]) for e in page["events"]] == [("node_created", "rev/log")]
+    assert page["cursor"] == board.head_id()
     mid = a.post("rev/log", "wanted")
-    page = board.poll(0, path="rev/log")
+    page = board.poll(page["cursor"], path="rev/log")
     assert [e["id"] for e in page["events"]] == [mid] and page["cursor"] == board.head_id()
 
 
@@ -329,8 +337,9 @@ def test_a_full_poll_page_ends_its_cursor_at_its_last_event(board, team):
     assert len(first["events"]) == 500 and first["cursor"] == first["events"][-1]["id"]
     second = board.poll(first["cursor"], path="rev/bulk")
     assert len(second["events"]) == 500 and second["cursor"] == second["events"][-1]["id"]
+    # 1000 messages and the node's creation: one event is left for a third page
     third = board.poll(second["cursor"], path="rev/bulk")
-    assert (third["events"], third["cursor"]) == ([], board.head_id())
+    assert len(third["events"]) == 1 and third["cursor"] == board.head_id()
     assert [m["body"] for m in cli("read", "rev/bulk", "--all").ok().of("message")] == \
         [f"m{i}" for i in range(1000)]
 
@@ -394,14 +403,14 @@ def test_a_watch_of_a_missing_path_fails_at_start(board, team):
 
 @pytest.mark.parametrize("timeout", ["0", "-5"])
 def test_watch_refuses_a_timeout_that_would_spin(board, team, proxy, timeout):
-    run = cli("watch", "rev/log", "--since", "0", "--timeout", timeout)
+    run = cli("watch", "rev/log", "--since", "0", f"--timeout={timeout}")
     assert run.code == 2 and "--timeout" in run.err
     assert proxy.seen == []
 
 
 @pytest.mark.parametrize("option", ["--not-from", "--mention", "--asked-by", "--owner"])
 def test_watch_refuses_a_name_that_is_no_name(board, team, proxy, option):
-    run = cli("watch", option, "my agent", "--since", "0")
+    run = cli("watch", "rev/log", option, "my agent", "--since", "0")
     assert run.code != 0 and "my agent" in run.err
     assert proxy.seen == []
 

@@ -584,7 +584,7 @@ class Board:
             raise refused(response)
         return response.json()
 
-    def get_json(self, path, **query):
+    def get_json(self, path, /, **query):
         q = urllib.parse.urlencode(query, doseq=True)
         return self._ok(self.get(path + (f"?{q}" if q else "")))
 
@@ -663,13 +663,14 @@ class Board:
         self.last_sent = body
         return request(f"{self.url}/{action}", body)
 
-    def write(self, action, key, *, nonce=None, **values):
-        """A signed write by `key`; its answer, or Refused. A stale nonce is
-        signed again (as every client does) unless `nonce` is pinned. `key`
-        among `values` is the idempotency key; a fresh one by default."""
+    def write(self, action, signer, /, *, nonce=None, **values):
+        """A signed write by the key `signer`; its answer, or Refused. A stale
+        nonce is signed again (as every client does) unless `nonce` is pinned.
+        `key` among `values` is the idempotency key; a fresh one by default
+        (`signer` is positional-only so the two names cannot collide)."""
         values.setdefault("key", new_client_key())
         for _ in range(NONCE_TRIES):
-            response = self.send(action, self.signed(action, key, values, nonce))
+            response = self.send(action, self.signed(action, signer, values, nonce))
             if response.status == 200:
                 return response.json()
             failure = refused(response)
@@ -713,7 +714,7 @@ class Agent:
     def fingerprint(self):
         return self.key.fingerprint
 
-    def write(self, action, **values):
+    def write(self, action, /, **values):
         return self.board.write(action, self.key, **values)
 
     def create(self, path, kind, description="", owner="", body=""):

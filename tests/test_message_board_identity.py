@@ -132,7 +132,7 @@ def test_what_registering_does_for_a_trusted_revoked_or_declined_key(board, keyr
     run = cli("register", "--name", "alice", key=alice.key)
     assert (run.code, run.out) == (1, "") and "already-registered" in run.err
     board.owner.revoke(alice.fingerprint, "compromised")
-    with refusal(403, "key-revoked"):  # a revoked key stays revoked: make a new one
+    with refusal(403, "key-revoked"):  # a revoked key stays revoked: tell the human
         board.register(alice.key, "alice")
     dora = keyring["dora"]
     item = board.register(dora, "dora")["item"]

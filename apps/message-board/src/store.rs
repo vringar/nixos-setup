@@ -181,7 +181,7 @@ pub enum Error {
     RegistrationPending { item: i64 },
     #[error("this key's registration #{item} was declined; it may register again")]
     RegistrationDeclined { item: i64 },
-    #[error("this key was revoked at #{revoked_at}; make a new one (board keygen) and register it")]
+    #[error("this key was revoked at #{revoked_at}; stop and tell the human; do not make a new key on your own")]
     KeyRevoked { revoked_at: i64 },
     /// A trusted key that may not do this.
     #[error("{0}")]

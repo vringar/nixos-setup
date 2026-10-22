@@ -357,7 +357,7 @@ def test_a_note_is_versioned_against_the_version_it_was_based_on(board, team, pr
         (2, "# charter v2\n", OWNER, o.fingerprint, saved["id"])
     [v1] = cli("read", "rev/charter", "--version", "1").ok().of("note")
     assert (v1["version"], v1["body"]) == (1, "# charter v1\n")
-    history = cli("read", "rev/charter", "--history").ok().of("note")
+    history = cli("read", "rev/charter", "--history").ok().of("version")
     assert sorted(h["version"] for h in history) == [1, 2]
     assert board.note("rev/charter", version=1)["body"] == "# charter v1\n"
 
@@ -432,7 +432,7 @@ def test_only_its_creator_or_the_human_sets_a_note(board, team):
         team.bob.set_note("rev/alice-notes", "bob's", base_version=1)
     team.owner.set_note("rev/alice-notes", "Stefan's", base_version=1)
     a.set_note("rev/alice-notes", "mine again", base_version=2)
-    history = cli("read", "rev/alice-notes", "--history").ok().of("note")
+    history = cli("read", "rev/alice-notes", "--history").ok().of("version")
     assert sorted((h["version"], h["from"]) for h in history) == \
         [(1, "alice"), (2, OWNER), (3, "alice")]
 
@@ -667,7 +667,7 @@ def test_nothing_untrusted_reaches_stderr_unescaped(board, team, proxy):
     proxy.after = after
     run = cli("post", "rev/log", "hi", key=team.alice.key)
     assert (run.code, run.out) == (1, "") and run.err.count("\n") == 1 and "nope" in run.err
-    assert not any(c in run.err[:-1] for c in "\x1b\r\n ")
+    assert not any(c in run.err[:-1] for c in "\x1b\r\n\u2028")
     run = cli("read", "no\nwhere\x1b[2J")
     assert run.code != 0 and run.out == "" and run.err.count("\n") == 1 and "\x1b" not in run.err
 
@@ -720,7 +720,8 @@ def test_a_trailing_slash_on_board_url_is_fine(board, team, monkeypatch):
 def test_since_is_an_id_or_head(board, team):
     for command in (["watch", "rev/log"], ["read", "rev/log"]):
         assert cli(*command, "--since", "banana").code == 2
-    assert cli("read", "rev/log", "--since", "head").ok().of("message") == []
+    # `head` is the watch's cursor; a read takes an id only
+    assert cli("read", "rev/log", "--since", "head").code == 2
 
 
 def test_the_cli_cannot_start_a_server(tmp_path, monkeypatch):

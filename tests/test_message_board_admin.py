@@ -146,7 +146,7 @@ def test_a_wrong_confirmation_deletes_nothing(populated, tmp_path):
 
 def test_a_message_nothing_points_to_can_be_deleted(populated, tmp_path):
     run = drive_tui(_env(tmp_path), [Wait(TOP), Pick("proj"), Pick("chatter"),
-                                     Pick(f"#{populated.free}"), Wait(DELETE_ONE), b"y",
+                                     Pick(f"#{populated.free}"), b"d", Wait(DELETE_ONE), b"y",
                                      *back_out()])
     assert run.code == 0
     assert _events(populated.db, populated.free, populated.through, populated.ref) == \
@@ -162,7 +162,7 @@ def test_a_message_a_note_or_an_answer_points_to_is_kept(populated, tmp_path, wh
     mid = getattr(populated, which)
     before = digest(populated.db)
     run = drive_tui(_env(tmp_path), [Wait(TOP), Pick("proj"), Pick("design"), Pick(f"#{mid}"),
-                                     b"y", *back_out()])
+                                     b"d", b"y", *back_out()])
     assert run.code == 0
     assert _events(populated.db, mid) == [mid]
     assert digest(populated.db) == before
@@ -172,7 +172,7 @@ def test_a_message_a_note_or_an_answer_points_to_is_kept(populated, tmp_path, wh
 def test_the_audit_log_records_every_deletion(populated, tmp_path):
     log = tmp_path / "state" / "admin-deletions.log"  # its directory does not exist yet
     env = _env(tmp_path, BOARD_ADMIN_LOG=str(log))
-    for steps in ([Pick("proj"), Pick("chatter"), Pick(f"#{populated.free}"), Wait(DELETE_ONE),
+    for steps in ([Pick("proj"), Pick("chatter"), Pick(f"#{populated.free}"), b"d", Wait(DELETE_ONE),
                    b"y"],
                   delete_branch("other")):
         assert drive_tui(env, [Wait(TOP), *steps, *back_out()]).code == 0
@@ -192,7 +192,7 @@ def test_a_deletion_the_audit_log_cannot_take_is_named(populated, tmp_path):
     try:
         run = drive_tui(_env(tmp_path, BOARD_ADMIN_LOG=str(locked / "audit.log")), [
             Wait(TOP), Pick("proj"), Pick("chatter"), Pick(f"#{populated.free}"),
-            Wait(DELETE_ONE), b"y", *back_out()], cols=400)
+            b"d", Wait(DELETE_ONE), b"y", *back_out()], cols=400)
     finally:
         locked.chmod(0o700)
     assert run.code == 1
@@ -211,7 +211,7 @@ def test_a_watcher_cursor_from_before_a_deletion_gets_exactly_the_next_post(tmp_
         cursor = alice.post("proj/chatter", "two")  # a watcher has seen up to here
         b.server.stop()
         run = drive_tui(_env(tmp_path), [Wait(TOP), Pick("proj"), Pick("chatter"),
-                                         Pick(f"#{cursor}"), Wait(DELETE_ONE), b"y", *back_out()])
+                                         Pick(f"#{cursor}"), b"d", Wait(DELETE_ONE), b"y", *back_out()])
         assert run.code == 0 and _events(db, cursor) == []
         b.server.start(**owner_env(keyring["owner"]))
         assert b.head_id() >= cursor  # `brief` and `watch --since head` assume ids only grow

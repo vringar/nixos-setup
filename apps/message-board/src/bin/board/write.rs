@@ -56,7 +56,7 @@ pub fn submit<A: Action, T: DeserializeOwned>(
                 }
             }
             Err(Attempt::Http(HttpError::Transport(cause))) if dropped < WRITE_RETRIES => {
-                warn(&format!("board: no answer to {route} ({cause}); sending it again"))?;
+                warn(&format!("board: no answer to {route} ({cause}); retrying"))?;
                 thread::sleep(Duration::from_secs(1 << dropped));
                 dropped += 1;
             }

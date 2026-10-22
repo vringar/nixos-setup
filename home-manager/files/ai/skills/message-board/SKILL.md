@@ -49,6 +49,7 @@ one line, so nothing in it can split a line or add a field.
 |--------|------------|---------------------|
 | `child` | `read` of a container, `brief` | `path, kind, description, archived, creator`, plus for a note `version, ts, from, through, behind`; a thread `last_id, last_ts, messages`; a queue `owner, open, oldest_open_ts`; a container `children` |
 | `note` | `read` of a note, `brief`, `show` | `path, version, id, ts, from, signed_by, revoked_at, through, behind, body` |
+| `version` | `read --history` of a note | `path, version, ts, from, through, behind` (no body: `read --version N` has it) |
 | `message` | `read` of a thread, `show` | `id, ts, path, from, signed_by, revoked_at, body` |
 | `item` | `read` of a queue, `brief`, `items`, `show` | `id, ts, path, owner, asker, state, role, body, resolution` |
 | `node` | `show` of a `node_created` event | `id, ts, path, kind, from, signed_by, revoked_at, description` |
