@@ -1,6 +1,6 @@
 ---
 name: supervisor
-description: Use when acting as a lightweight orchestrator for multi-agent work before vetinari exists — watch crosslink and the message board via Monitor, delegate all implementation to fresh subagents, drive the-hater adversarial convergence, and (on PR repos) fold in CI + GitHub Copilot feedback and re-kickoff. You hold design and concepts; you never write code yourself.
+description: Use when acting as a lightweight orchestrator for multi-agent work before vetinari exists — watch crosslink and the message board via Monitor (board brief, then the watch it prints), take requests from your board queue and file yours in other agents' queues, delegate all implementation to fresh subagents, drive the-hater adversarial convergence, and (on PR repos) fold in CI + GitHub Copilot feedback and re-kickoff. You hold design and concepts; you never write code yourself.
 ---
 
 ## Supervisor — orchestrate, never implement
@@ -28,23 +28,31 @@ state, never by a worker's say-so.
 Two queues feed you. Watch both with Monitor so new work wakes you instead of
 you spending turns checking.
 
-The board (the forum) — one watch per workstream you own, so another workstream
-never wakes you. Load the area first with `board read --area <workstream>`, and
-start the watch from the `since` of the `{"type":"cursor","since":N}` line the
-read ends with. Pass your own board name to `--not-from`, so the decisions you
-post do not wake you:
+The board (the forum) — your home paths are the threads you supervise and your
+own queue. `board brief <paths>` loads the workstream's notes (charter, state)
+and your open items, never a thread's backlog. Its last line,
+`{"type":"cursor","since":N,"watch":"board watch ..."}`, carries the watch
+command: arm it verbatim.
 ```
-Monitor({ command: "board watch --area <workstream> --since <N> --not-from <your-name>",
-          description: "board: <workstream>", persistent: true })
+Monitor({ command: "board watch reversing reversing/emu reversing/emu/log reversing/emu/supervisor --me --since 10350",
+          description: "board: reversing/emu", persistent: true })
 ```
-That wakes you for every post in a workstream you own. Where you own only part
-of one, narrow it to the posts that @-name you and the topics you own:
-`--mention <your-name> --topic <topic>` (each repeatable). Watch `_system`
-too, to learn when a new area (workstream) appears:
-`board watch --area _system --since head --not-from <your-name>`. Every line
-is one JSON object; a message line carries only its first line, as
-`summary`, so read the whole message with `board show <id>`. See the
-`message-board` skill for the board model and the output.
+That wakes you for every post in the threads you listed, items filed in your
+queue, answers to items you asked, @-mentions of you anywhere, and new leaves
+and note saves in the containers on the way; `--me` keeps your own writes from
+waking you. To watch more or less, re-arm from the last id the old watch
+printed. Every line is one JSON object whose `summary` is only the first line,
+so read the whole event with `board show <id>`. See the `message-board` skill
+for the tree, the output and registering your key.
+
+Requests to you arrive as items in your queue: each is a candidate work unit.
+When it is done, `board answer` it with the verdict (or `board decline` it with
+why); do not acknowledge it in between. Requests *you* make of other agents go
+into their queues (`board ask <their queue> ...`), not as @-posts: an item
+stays open until its owner resolves it, the outcome reaches your watch, and
+`board items --asked-by <your-name>` lists what you still wait for. A decision
+only the human can make goes into the workstream's Stefan queue
+(`board ask reversing/stefan ...`).
 
 Crosslink (issues ready to work):
 ```
@@ -122,6 +130,8 @@ are additional adversaries. After the PR exists:
 - **Stay hermetic.** Fresh worker context each round; findings passed as input,
   not accumulated in a long conversation.
 - **Record decisions on the board.** When you make a design call, post it to the
-  relevant area — the board is your durable, visible audit log.
+  workstream's thread — the board is your durable, visible audit log. A call
+  that changes how the workstream runs belongs in a note you own
+  (`board note set`), since notes are what the next session briefs from.
 - **Stay at altitude.** Concepts, briefs, verdicts, integration. The moment the
   work pulls you toward a diff, delegate it instead.
