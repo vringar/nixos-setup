@@ -201,3 +201,114 @@ def test_exit_status_follows_the_shell_convention():
     assert sandbox.exit_status(3) == 3
     assert sandbox.exit_status(-signal.SIGTERM) == 128 + signal.SIGTERM
     assert sandbox.exit_status(-signal.SIGKILL) == 128 + signal.SIGKILL
+
+
+# --- the launcher end to end --------------------------------------------------
+
+
+class Launcher:
+    """The launcher as default.nix builds it, from the tools on PATH, run
+    against a throwaway home, project and temp dir."""
+
+    def __init__(self, tmp_path, podman=None):
+        self.home = tmp_path / "home"
+        for path in (".config/git", ".config/jj", ".nix-profile", ".local/state/nix"):
+            (self.home / path).mkdir(parents=True)
+        (self.home / ".zshrc").touch()
+        self.project = tmp_path / "project"
+        self.project.mkdir()
+        self.tmpdir = tmp_path / "tmp"
+        self.tmpdir.mkdir()
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        if podman:
+            (bin_dir / "podman").symlink_to(podman)
+
+        text = SCRIPT.read_text()
+        for placeholder, value in {
+            "@python3@": sys.executable,
+            "@bwrap@": BWRAP,
+            "@nix_shell@": "/nonexistent/nix-shell",
+            "@nix@": "/nonexistent/nix",
+            "@bash@": shutil.which("bash"),
+            "@python3_bin_dir@": os.path.dirname(sys.executable),
+            "@ssh_agent@": shutil.which("ssh-agent"),
+            "@ssh_add@": shutil.which("ssh-add"),
+        }.items():
+            text = text.replace(placeholder, value)
+        self.script = tmp_path / "claude-sandbox"
+        self.script.write_text(text)
+        self.script.chmod(0o755)
+
+        # Nothing of the caller's: no agent, no Claude config, and no GIT_*,
+        # which would aim the launcher's git at the repository under test.
+        self.env = {
+            k: v for k, v in os.environ.items()
+            if not k.startswith(("GIT_", "CLAUDE_", "CROSSBRIDGE_", "SSH_"))
+        }
+        # PATH holds podman, if anything: commands are given by absolute path.
+        self.env.update(HOME=str(self.home), TMPDIR=str(self.tmpdir), PATH=str(bin_dir))
+
+    def popen(self, *command, **kwargs):
+        return subprocess.Popen(
+            [str(self.script), "--project-dir", str(self.project), "--", *command],
+            env=self.env, **kwargs,
+        )
+
+    def run(self, *command):
+        return subprocess.run(
+            [str(self.script), "--project-dir", str(self.project), "--", *command],
+            env=self.env, capture_output=True, text=True,
+        )
+
+
+def children(pid):
+    return [int(c) for c in Path(f"/proc/{pid}/task/{pid}/children").read_text().split()]
+
+
+def bwrap_child(launcher):
+    [pid] = [
+        c for c in children(launcher.pid)
+        if Path(f"/proc/{c}/cmdline").read_bytes().split(b"\0")[0] == os.fsencode(BWRAP)
+    ]
+    return pid
+
+
+def wait_until_running(argv, proc, timeout=10):
+    deadline = time.monotonic() + timeout
+    while not pids_running(argv):
+        assert proc.poll() is None, "the launcher exited before the sandbox was up"
+        assert time.monotonic() < deadline, f"{argv} never started"
+        time.sleep(0.02)
+
+
+@needs_bwrap
+def test_project_under_tmp_is_not_covered_by_the_sandbox_tmp(tmp_path):
+    """The sandbox's own /tmp is bound over the host's; a project kept in the
+    host's /tmp has to be bound after it to stay visible."""
+    launcher = Launcher(tmp_path)
+    assert str(launcher.project).startswith("/tmp/")
+    (launcher.project / "marker").write_text("here\n")
+    result = launcher.run(shutil.which("cat"), "marker")
+    assert result.returncode == 0, result.stderr
+    assert "here" in result.stdout.splitlines()
+
+
+@needs_bwrap
+def test_launcher_passes_on_the_exit_code(tmp_path):
+    result = Launcher(tmp_path).run(shutil.which("sh"), "-c", "exit 3")
+    assert result.returncode == 3, result.stderr
+
+
+@needs_bwrap
+def test_sandbox_killed_by_a_signal_exits_128_plus_the_signal(tmp_path):
+    launcher = Launcher(tmp_path)
+    sleep = sleeper()
+    proc = launcher.popen(*sleep)
+    try:
+        wait_until_running(sleep, proc)
+        os.kill(bwrap_child(proc), signal.SIGTERM)
+        assert proc.wait(timeout=10) == 128 + signal.SIGTERM
+    finally:
+        proc.kill()
+        proc.wait()

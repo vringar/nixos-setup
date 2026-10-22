@@ -471,12 +471,9 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     )
     claude_dot_dir = os.path.join(home_dir, ".claude")
 
-    args = [
-        # Empty HOME
-        "--tmpfs", home_dir,
-        # Project directory (read-write)
-        "--bind", project_dir, project_dir,
-    ]
+    # Project directory (read-write). Bound after the system paths and /tmp
+    # below, which would otherwise cover a project kept under one of them.
+    project_args = ["--bind", project_dir, project_dir]
 
     # If inside a .workspace/ or .worktrees/ folder, expose parent project's
     # .jj and .git so that worktree gitlinks (and jj workspace pointers) can
@@ -487,11 +484,13 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
         jj_dir = os.path.join(repo_root, ".jj")
         git_dir = os.path.join(repo_root, ".git")
         if os.path.isdir(jj_dir):
-            args += ["--bind", jj_dir, jj_dir]
+            project_args += ["--bind", jj_dir, jj_dir]
         if os.path.isdir(git_dir):
-            args += ["--bind", git_dir, git_dir]
+            project_args += ["--bind", git_dir, git_dir]
 
-    args += [
+    args = [
+        # Empty HOME
+        "--tmpfs", home_dir,
         # /bin/sh (needed by programs like Claude Code that spawn /bin/sh)
         "--symlink", BASH, "/bin/sh",
         # Ensure tools inside the sandbox see a usable shell path
@@ -564,6 +563,7 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
         # Work inside the project directory
         "--chdir", project_dir,
     ]
+    args += project_args
 
     # Claude config and auth (read-write)
     if os.path.isdir(claude_config_dir):
