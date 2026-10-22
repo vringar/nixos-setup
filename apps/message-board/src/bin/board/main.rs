@@ -1,0 +1,851 @@
+//! board: the agents' client for the local message board.
+//!
+//! ```text
+//! board keygen --from NAME                 create this repo's signing key
+//! board post <area> <topic> <from> <body>  post a markdown message
+//! board watch [--area A] [--topic T]       long-poll -> one line per message
+//!             [--since ID|head]            'head' = only messages from now on
+//! board read [--area A] [--topic T]        one-shot: pins + full backlog, then exit
+//! board pin <area> [topic] [--set]         show a pinned note, or replace it from stdin
+//! board areas [--archived]                 list areas
+//! board archive|unarchive <area>           hide/restore an area (nothing is deleted)
+//! ```
+//!
+//! The address is two levels: the *area* is a whole workstream and the
+//! isolation boundary (a watcher subscribed to one area never sees
+//! another); the *topic* is a channel within it.
+//!
+//! `post` and `pin --set` sign with the repo's key when there is one:
+//! `$BOARD_KEY`, else the nearest `scratch/board_ed25519` above the current
+//! directory (`board keygen` creates it). Without a key they go out
+//! unsigned, which the server refuses for a name someone has claimed by
+//! signing. A signature covers the board's head as its nonce, so it is good
+//! for one write; when another write lands first, they read the head again
+//! and re-sign.
+//!
+//! A sender name is 1-64 ASCII letters, digits, '_' and '-'; anything else
+//! is refused here, before anything is signed or sent.
+//!
+//! This only speaks HTTP to `board-server`; it cannot start one or touch
+//! the database.
+//!
+//! Config via env: `BOARD_PORT` (8777), `BOARD_URL` (endpoint, default
+//! <http://127.0.0.1:BOARD_PORT>), `BOARD_AREA` / `BOARD_TOPIC` /
+//! `BOARD_SINCE` (defaults for watch and read), `BOARD_KEY` (signing key
+//! path).
+
+mod client;
+
+use std::ffi::OsString;
+use std::fs::{self, OpenOptions};
+use std::io::{self, ErrorKind, Read as _, Write};
+use std::os::unix::fs::OpenOptionsExt as _;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::thread;
+use std::time::Duration;
+
+use clap::{CommandFactory as _, Parser, Subcommand, error::ErrorKind as ClapErrorKind};
+use serde::Deserialize;
+use serde_json::{Value, json};
+use signal_hook::consts::SIGINT;
+
+use message_board::py;
+use message_board::sign::{self, Kind, MESSAGE, PIN, PrivateKey, SignatureError};
+use message_board::store::check_name;
+
+use crate::client::{Client, HttpError};
+
+/// A post's key makes resending it harmless, so a post survives a slow or
+/// flapping server: wait longer, then retry with the same key.
+const POST_TIMEOUT: Duration = Duration::from_secs(30);
+const POST_RETRIES: u32 = 3;
+/// Every other request's timeout.
+const TIMEOUT: Duration = Duration::from_secs(10);
+/// Signed writes in a row that may go stale (another write landed between
+/// reading the head and this one arriving) before giving up.
+const NONCE_TRIES: u32 = 5;
+/// Where `board keygen` puts the key, below the repository root.
+const KEY_FILE: &str = "scratch/board_ed25519";
+
+#[derive(Parser)]
+#[command(name = "board", about = "local long-poll message board", infer_long_args = true)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+/// `--since`: a message id, or `head` for "only what happens next".
+#[derive(Clone, Copy, Debug)]
+enum Since {
+    Head,
+    Id(i64),
+}
+
+fn since_arg(value: &str) -> Result<Since, String> {
+    if value == "head" {
+        return Ok(Since::Head);
+    }
+    py::int(value).map(Since::Id).ok_or_else(|| "expected a message id or 'head'".to_owned())
+}
+
+fn int_arg(value: &str) -> Result<i64, String> {
+    py::int(value).ok_or_else(|| format!("invalid int value: {}", py::repr(value)))
+}
+
+// The help texts are attributes rather than doc comments, so that --help
+// shows them as plain text.
+#[derive(Subcommand)]
+enum Command {
+    #[command(about = "create this repo's signing key (scratch/board_ed25519)")]
+    Keygen {
+        #[arg(long = "from", value_name = "SENDER", help = "the name this key will post as (recorded in its comment)")]
+        sender: String,
+    },
+    #[command(about = "post a markdown message")]
+    Post {
+        area: String,
+        topic: String,
+        #[arg(value_name = "from")]
+        sender: String,
+        #[arg(required = true, num_args = 1.., allow_negative_numbers = true)]
+        body: Vec<String>,
+    },
+    #[command(about = "long-poll one area/topic (Monitor stream)")]
+    Watch {
+        #[arg(long)]
+        area: Option<String>,
+        #[arg(long)]
+        topic: Option<String>,
+        #[arg(
+            long,
+            value_name = "ID|head",
+            value_parser = since_arg,
+            allow_negative_numbers = true,
+            help = "start after this message id, or 'head' for only new messages"
+        )]
+        since: Option<Since>,
+        #[arg(long, default_value = "50", value_parser = int_arg, allow_negative_numbers = true)]
+        timeout: i64,
+    },
+    #[command(about = "print the full backlog of an area/topic and exit")]
+    Read {
+        #[arg(long)]
+        area: Option<String>,
+        #[arg(long)]
+        topic: Option<String>,
+        #[arg(
+            long,
+            value_name = "ID|head",
+            value_parser = since_arg,
+            allow_negative_numbers = true,
+            default_value = "0",
+            help = "start after this message id (default: everything)"
+        )]
+        since: Since,
+        #[arg(long, help = "emit a JSON object")]
+        json: bool,
+        #[arg(long, help = "include archived areas (needed to read one by name)")]
+        archived: bool,
+    },
+    #[command(about = "show an area/topic pin, or --set it from stdin")]
+    Pin {
+        area: String,
+        #[arg(default_value = "", help = "omit for the area-wide pin")]
+        topic: String,
+        #[arg(long, help = "replace the pin with stdin (empty stdin removes it)")]
+        set: bool,
+        #[arg(long = "from", value_name = "SENDER")]
+        sender: Option<String>,
+    },
+    #[command(about = "list areas")]
+    Areas {
+        #[arg(long, help = "include archived areas")]
+        archived: bool,
+    },
+    #[command(about = "hide an area from listings and unscoped reads")]
+    Archive { area: String },
+    #[command(about = "bring an archived area back")]
+    Unarchive { area: String },
+}
+
+/// Why a command failed, as it says so on stderr.
+#[derive(Debug, thiserror::Error)]
+enum Failure {
+    /// One line as it is, exit 1.
+    #[error("{0}")]
+    Exit(String),
+    #[error("board: {0}")]
+    Signature(#[from] SignatureError),
+    /// The board answered with a refusal.
+    #[error("board: {status}: {reason}")]
+    Refused { status: u16, reason: String },
+    /// No answer from the board.
+    #[error("board: cannot reach {url}: {cause}")]
+    Unreachable { url: String, cause: String },
+    #[error("board: the board's answer to {what} is not what board expects: {cause}")]
+    BadAnswer { what: String, cause: String },
+    #[error("board: {what}: {cause}")]
+    Io { what: String, cause: io::Error },
+    /// A usage error, which clap words and exits 2 for.
+    #[error("{0}")]
+    Usage(clap::Error),
+}
+
+fn io_failure(what: impl Into<String>) -> impl FnOnce(io::Error) -> Failure {
+    let what = what.into();
+    move |cause| Failure::Io { what, cause }
+}
+
+fn main() -> ExitCode {
+    // Ctrl-C ends a command with 130, as it did the Python one; nothing
+    // needs cleaning up first.
+    if let Err(err) = signal_hook::flag::register_conditional_shutdown(SIGINT, 130, Arc::new(AtomicBool::new(true))) {
+        return report(&Failure::Io { what: "cannot handle Ctrl-C".to_owned(), cause: err });
+    }
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => return usage(&err),
+    };
+    match run(cli) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(Failure::Usage(err)) => usage(&err),
+        Err(err) => report(&err),
+    }
+}
+
+/// Print a clap error (or help) and exit as clap would.
+fn usage(err: &clap::Error) -> ExitCode {
+    let code = u8::try_from(err.exit_code()).unwrap_or(2);
+    match err.print() {
+        Ok(()) => ExitCode::from(code),
+        // stdout or stderr is gone: the status is all that is left to say it with
+        Err(_unprintable) => ExitCode::from(code.max(1)),
+    }
+}
+
+fn report(err: &Failure) -> ExitCode {
+    // If stderr is gone too, the exit status is the only report left.
+    let printed = writeln!(io::stderr().lock(), "{err}");
+    if printed.is_err() {
+        return ExitCode::from(74);
+    }
+    ExitCode::FAILURE
+}
+
+/// A text setting from the environment, `None` if unset.
+fn setting(name: &str) -> Result<Option<String>, Failure> {
+    match std::env::var_os(name).map(OsString::into_string) {
+        None => Ok(None),
+        Some(Ok(value)) => Ok(Some(value)),
+        Some(Err(raw)) => Err(Failure::Exit(format!("board: {name} is not valid UTF-8: {}", raw.display()))),
+    }
+}
+
+fn base_url() -> Result<String, Failure> {
+    if let Some(url) = setting("BOARD_URL")? {
+        return Ok(url);
+    }
+    let port = setting("BOARD_PORT")?.unwrap_or_else(|| "8777".to_owned());
+    let port =
+        py::int(&port).ok_or_else(|| Failure::Exit(format!("board: BOARD_PORT {} is not a port", py::repr(&port))))?;
+    Ok(format!("http://127.0.0.1:{port}"))
+}
+
+fn run(cli: Cli) -> Result<(), Failure> {
+    let client = Client { base: base_url()? };
+    match cli.command {
+        Command::Keygen { sender } => keygen(&sender),
+        Command::Post { area, topic, sender, body } => post(&client, &area, &topic, &sender, &body.join(" ")),
+        Command::Watch { area, topic, since, timeout } => {
+            let since = match since {
+                Some(since) => since,
+                None => match setting("BOARD_SINCE")? {
+                    // the env default is checked as if it were given
+                    Some(value) => since_arg(&value).map_err(|why| {
+                        Failure::Usage(Cli::command().error(
+                            ClapErrorKind::ValueValidation,
+                            format!("invalid value {} for '--since <ID|head>': {why}", py::repr(&value)),
+                        ))
+                    })?,
+                    None => Since::Id(0),
+                },
+            };
+            let area = area.map_or_else(|| setting("BOARD_AREA"), |a| Ok(Some(a)))?.unwrap_or_default();
+            let topic = topic.map_or_else(|| setting("BOARD_TOPIC"), |t| Ok(Some(t)))?.unwrap_or_default();
+            watch(&client, &area, &topic, since, timeout)
+        }
+        Command::Read { area, topic, since, json, archived } => {
+            let area = area.map_or_else(|| setting("BOARD_AREA"), |a| Ok(Some(a)))?.unwrap_or_default();
+            let topic = topic.map_or_else(|| setting("BOARD_TOPIC"), |t| Ok(Some(t)))?.unwrap_or_default();
+            read(&client, &area, &topic, since, json, archived)
+        }
+        Command::Pin { area, topic, set, sender } => {
+            if set {
+                let sender = match sender {
+                    Some(sender) => sender,
+                    None => setting("USER")?.unwrap_or_else(|| "anon".to_owned()),
+                };
+                set_pin(&client, &area, &topic, &sender)
+            } else {
+                show_pin(&client, &area, &topic)
+            }
+        }
+        Command::Areas { archived } => areas(&client, archived),
+        Command::Archive { area } => archive(&client, &area, true),
+        Command::Unarchive { area } => archive(&client, &area, false),
+    }
+}
+
+fn out(text: &str) -> Result<(), Failure> {
+    let mut stdout = io::stdout().lock();
+    writeln!(stdout, "{text}").and_then(|()| stdout.flush()).map_err(io_failure("cannot write the output"))
+}
+
+fn note(text: &str) -> Result<(), Failure> {
+    writeln!(io::stderr().lock(), "{text}").map_err(io_failure("cannot write to stderr"))
+}
+
+/// Refuse a bad sender name before anything is signed or sent.
+fn checked_name(name: &str) -> Result<(), Failure> {
+    check_name(name).map_err(|err| Failure::Exit(format!("board: {err}")))
+}
+
+/// A refusal the board answered with: its JSON error, else the status's
+/// reason phrase.
+fn refusal(status: u16, reason: &str, body: &str) -> Failure {
+    let error = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_owned));
+    Failure::Refused { status, reason: error.unwrap_or_else(|| reason.to_owned()) }
+}
+
+fn failure(client: &Client, err: HttpError) -> Failure {
+    match err {
+        HttpError::Status { status, reason, body, .. } => refusal(status, &reason, &body),
+        HttpError::Transport(cause) => Failure::Unreachable { url: client.base.clone(), cause: cause.to_string() },
+    }
+}
+
+fn parse<T: for<'de> Deserialize<'de>>(what: &str, text: &str) -> Result<T, Failure> {
+    serde_json::from_str(text).map_err(|err| Failure::BadAnswer { what: what.to_owned(), cause: err.to_string() })
+}
+
+fn get_json<T: for<'de> Deserialize<'de>>(client: &Client, path: &str) -> Result<T, Failure> {
+    let text = client.get(path, TIMEOUT).map_err(|err| failure(client, err))?;
+    parse(path, &text)
+}
+
+#[derive(Deserialize)]
+struct Health {
+    head: i64,
+}
+
+/// The board's head id: one request, no retry.
+fn head(client: &Client) -> Result<i64, HttpOrAnswer> {
+    let text = client.get("/healthz", TIMEOUT).map_err(HttpOrAnswer::Http)?;
+    let health: Health = serde_json::from_str(&text).map_err(|err| HttpOrAnswer::Answer(err.to_string()))?;
+    Ok(health.head)
+}
+
+/// A request that failed, or an answer that made no sense.
+enum HttpOrAnswer {
+    Http(HttpError),
+    Answer(String),
+}
+
+impl std::fmt::Display for HttpOrAnswer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Http(HttpError::Transport(err)) => write!(f, "{err}"),
+            Self::Http(HttpError::Status { status, reason, .. }) => write!(f, "HTTP Error {status}: {reason}"),
+            Self::Answer(why) => write!(f, "the board's head is not a number: {why}"),
+        }
+    }
+}
+
+/// The signing key to use: `$BOARD_KEY`, else the nearest
+/// `scratch/board_ed25519` above the current directory, else none (unsigned).
+fn find_key() -> Result<Option<PathBuf>, Failure> {
+    if let Some(key) = std::env::var_os("BOARD_KEY").filter(|k| !k.is_empty()) {
+        return Ok(Some(PathBuf::from(key)));
+    }
+    let here =
+        std::env::current_dir().and_then(fs::canonicalize).map_err(io_failure("cannot find the current directory"))?;
+    for dir in here.ancestors() {
+        let candidate = dir.join(KEY_FILE);
+        match fs::metadata(&candidate) {
+            Ok(meta) if meta.is_file() => return Ok(Some(candidate)),
+            Ok(_) => {}
+            Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {}
+            // e.g. a scratch/ it may not look into: say so rather than post unsigned
+            Err(err) => {
+                return Err(Failure::Io {
+                    what: format!("cannot look for a key at {}", candidate.display()),
+                    cause: err,
+                });
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// What a submit sends, besides the nonce and signature.
+struct Payload<'a> {
+    kind: &'a Kind,
+    /// The fields in the kind's signing order, but the nonce.
+    fields: [(&'static str, &'a str); 5],
+    /// Fields that are signed but not sent (a pin's empty `base_version`).
+    unsent: &'a [&'static str],
+}
+
+/// POST a payload, signed if there is a key; returns the answer's text.
+///
+/// The signature's nonce is the board's head, read just before signing. If
+/// another write lands before this one arrives, the board answers 409
+/// stale-nonce, and this reads the head, signs and sends again
+/// (`NONCE_TRIES` in all).
+///
+/// `retry` is for payloads with a key only: it also sends again after a
+/// timeout or a dropped connection (`POST_RETRIES` times, with backoff).
+/// The server dedupes on the key before it looks at the nonce, so a resend
+/// of a post that did land returns the original id instead of posting it
+/// twice.
+fn submit(client: &Client, path: &str, payload: &Payload<'_>, retry: bool) -> Result<String, Failure> {
+    let key: Option<PrivateKey> = find_key()?.map(|path| sign::load_private_key(&path)).transpose()?;
+    let mut stale = 0;
+    let mut dropped = 0;
+    loop {
+        let attempt = send_once(client, path, payload, key.as_ref(), retry);
+        match attempt {
+            Ok(text) => return Ok(text),
+            Err(Attempt::Http(HttpError::Status { status: 409, board_error: Some(code), .. }))
+                if code == "stale-nonce" =>
+            {
+                stale += 1;
+                if stale == NONCE_TRIES {
+                    return Err(Failure::Exit(format!(
+                        "board: gave up after {NONCE_TRIES} tries: each time, another write landed between \
+                         reading the board's head and this one arriving (stale-nonce)"
+                    )));
+                }
+            }
+            Err(Attempt::Http(HttpError::Transport(cause))) if retry && dropped < POST_RETRIES => {
+                note(&format!("board: post failed ({cause}); retrying"))?;
+                thread::sleep(Duration::from_secs(1 << dropped));
+                dropped += 1;
+            }
+            Err(Attempt::Http(err)) => return Err(failure(client, err)),
+            Err(Attempt::Failed(err)) => return Err(err),
+        }
+    }
+}
+
+enum Attempt {
+    Http(HttpError),
+    Failed(Failure),
+}
+
+fn send_once(
+    client: &Client,
+    path: &str,
+    payload: &Payload<'_>,
+    key: Option<&PrivateKey>,
+    retry: bool,
+) -> Result<String, Attempt> {
+    let mut data = serde_json::Map::new();
+    for (name, value) in payload.fields {
+        if !payload.unsent.contains(&name) {
+            data.insert(name.to_owned(), Value::String(value.to_owned()));
+        }
+    }
+    if let Some(key) = key {
+        let nonce = match head(client) {
+            Ok(head) => head.to_string(),
+            Err(HttpOrAnswer::Http(err)) => return Err(Attempt::Http(err)),
+            Err(HttpOrAnswer::Answer(why)) => {
+                return Err(Attempt::Failed(Failure::BadAnswer { what: "/healthz".to_owned(), cause: why }));
+            }
+        };
+        let [area, topic, from, body, fifth] = payload.fields.map(|(_, value)| value);
+        let signature = key
+            .sign(payload.kind, &[area, topic, from, body, fifth, &nonce])
+            .map_err(|err| Attempt::Failed(err.into()))?;
+        data.insert("nonce".to_owned(), Value::String(nonce));
+        data.insert("signature".to_owned(), Value::String(signature));
+    }
+    let timeout = if retry { POST_TIMEOUT } else { TIMEOUT };
+    client.post(path, &Value::Object(data), timeout).map_err(Attempt::Http)
+}
+
+/// A fresh random key for a post, formatted as Python's `uuid4().hex`.
+fn post_key() -> Result<String, Failure> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|err| Failure::Exit(format!("board: no random bytes for a post key: {err}")))?;
+    let [b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15] = bytes;
+    let uuid = [b0, b1, b2, b3, b4, b5, (b6 & 0x0f) | 0x40, b7, (b8 & 0x3f) | 0x80, b9, b10, b11, b12, b13, b14, b15];
+    Ok(uuid.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().concat())
+}
+
+fn post(client: &Client, area: &str, topic: &str, sender: &str, body: &str) -> Result<(), Failure> {
+    checked_name(sender)?;
+    let key = post_key()?;
+    let payload = Payload {
+        kind: &MESSAGE,
+        fields: [("area", area), ("topic", topic), ("from", sender), ("body", body), ("key", &key)],
+        unsent: &[],
+    };
+    out(&submit(client, "/post", &payload, true)?)
+}
+
+/// Create the repo's signing key under <repo root>/scratch/.
+fn keygen(sender: &str) -> Result<(), Failure> {
+    checked_name(sender)?;
+    let here =
+        std::env::current_dir().and_then(fs::canonicalize).map_err(io_failure("cannot find the current directory"))?;
+    let mut root = None;
+    for dir in here.ancestors() {
+        let marker = |name: &str| {
+            let path = dir.join(name);
+            path.try_exists().map_err(|cause| Failure::Io { what: format!("cannot check {}", path.display()), cause })
+        };
+        if marker(".jj")? || marker(".git")? {
+            root = Some(dir);
+            break;
+        }
+    }
+    let Some(root) = root else {
+        return Err(Failure::Exit(
+            "board: not inside a repository (no .jj or .git above the current directory)".to_owned(),
+        ));
+    };
+    let path = root.join(KEY_FILE);
+    let public = root.join(format!("{KEY_FILE}.pub"));
+    for existing in [&path, &public] {
+        if existing.try_exists().map_err(io_failure(format!("cannot check {}", existing.display())))? {
+            return Err(Failure::Exit(format!("board: {} already exists; not overwriting it", existing.display())));
+        }
+    }
+    let scratch = root.join("scratch");
+    match fs::create_dir(&scratch) {
+        Ok(()) => {}
+        Err(err) if err.kind() == ErrorKind::AlreadyExists && scratch.is_dir() => {}
+        Err(err) => return Err(Failure::Io { what: format!("cannot create {}", scratch.display()), cause: err }),
+    }
+    let ignore = scratch.join(".gitignore");
+    // scratch/ is never tracked; an existing .gitignore is the repo's own business
+    if !ignore.try_exists().map_err(io_failure(format!("cannot check {}", ignore.display())))? {
+        fs::write(&ignore, "*\n").map_err(io_failure(format!("cannot write {}", ignore.display())))?;
+    }
+    let generated = sign::generate(&format!("board:{sender}"))?;
+    write_new(&path, generated.private.as_bytes())?;
+    write_new(&public, generated.public.as_bytes())?;
+    out(&path.display().to_string())?;
+    out(&generated.fingerprint)?;
+    note(&format!(
+        "board: posts from inside {} are now signed; the first signed post as {sender} claims that name",
+        root.display()
+    ))
+}
+
+/// Write a file that must not exist yet, readable by its owner only.
+fn write_new(path: &Path, data: &[u8]) -> Result<(), Failure> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(io_failure(format!("cannot create {}", path.display())))?;
+    file.write_all(data).map_err(io_failure(format!("cannot write {}", path.display())))
+}
+
+/// A sender name, marked when the board verified its signature.
+fn who(name: &str, verified: bool) -> String {
+    if verified { format!("{name} ✓") } else { name.to_owned() }
+}
+
+#[derive(Deserialize)]
+struct WirePin {
+    area: String,
+    topic: String,
+    body: String,
+    version: i64,
+    editor: String,
+    ts: String,
+    #[serde(default)]
+    verified: bool,
+}
+
+fn pin_header(p: &WirePin) -> String {
+    let place = if p.topic.is_empty() { p.area.clone() } else { format!("{}/{}", p.area, p.topic) };
+    format!("=== pinned to {place} · v{} · {} · {} ===", p.version, who(&p.editor, p.verified), p.ts)
+}
+
+fn show_pin(client: &Client, area: &str, topic: &str) -> Result<(), Failure> {
+    let path = format!("/pin?{}", py::urlencode(&[("area", area), ("topic", topic)]));
+    let text = match client.get(&path, TIMEOUT) {
+        Ok(text) => text,
+        Err(HttpError::Status { status: 404, .. }) => {
+            let place = if topic.is_empty() { String::new() } else { format!("/{topic}") };
+            return Err(Failure::Exit(format!("board: no pin on {area}{place}")));
+        }
+        Err(err) => return Err(failure(client, err)),
+    };
+    let pin: WirePin = parse("/pin", &text)?;
+    out(&pin_header(&pin))?;
+    out(py::rstrip(&pin.body))
+}
+
+#[derive(Deserialize)]
+struct Saved {
+    version: i64,
+}
+
+/// Replace a pin with stdin; empty input removes it.
+fn set_pin(client: &Client, area: &str, topic: &str, sender: &str) -> Result<(), Failure> {
+    checked_name(sender)?;
+    let mut body = String::new();
+    io::stdin().read_to_string(&mut body).map_err(io_failure("cannot read the pin from stdin"))?;
+    let payload = Payload {
+        kind: &PIN,
+        fields: [("area", area), ("topic", topic), ("from", sender), ("body", &body), ("base_version", "")],
+        // no base_version sent: no stale check
+        unsent: &["base_version"],
+    };
+    let saved: Saved = parse("/pin", &submit(client, "/pin", &payload, false)?)?;
+    if py::strip(&body).is_empty() {
+        note("board: pin removed") // the board removes a pin saved empty
+    } else {
+        note(&format!("board: pin saved as v{}", saved.version))
+    }
+}
+
+#[derive(Deserialize)]
+struct WireMessage {
+    id: i64,
+    ts: String,
+    area: String,
+    topic: String,
+    #[serde(rename = "from")]
+    sender: String,
+    body: String,
+    #[serde(default)]
+    verified: bool,
+}
+
+#[derive(Deserialize)]
+struct WireArea {
+    name: String,
+    description: String,
+    created_ts: String,
+    archived_ts: Option<String>,
+}
+
+fn archived_param(archived: bool) -> &'static str {
+    if archived { "1" } else { "" }
+}
+
+/// Every message after `since`, oldest first, paging past the poll cap.
+fn read_all(client: &Client, since: i64, area: &str, topic: &str, archived: bool) -> Result<Vec<Value>, Failure> {
+    let mut all = Vec::new();
+    let mut since = since;
+    loop {
+        let since_text = since.to_string();
+        let params = py::urlencode(&[
+            ("since", &since_text),
+            ("area", area),
+            ("topic", topic),
+            ("timeout", "0"),
+            ("archived", archived_param(archived)),
+        ]);
+        let page: Vec<Value> = get_json(client, &format!("/poll?{params}"))?;
+        let Some(last) = page.last() else {
+            return Ok(all);
+        };
+        since = last.get("id").and_then(Value::as_i64).ok_or_else(|| Failure::BadAnswer {
+            what: "/poll".to_owned(),
+            cause: "a message without an id".to_owned(),
+        })?;
+        all.extend(page);
+    }
+}
+
+/// One-shot backlog read: full bodies for context, not doorbell lines.
+///
+/// Ends by reporting a resume cursor on stderr. The head is taken *before*
+/// reading, so `watch --since <cursor>` misses nothing posted after the
+/// read and repeats nothing the read already showed.
+fn read(client: &Client, area: &str, topic: &str, since: Since, as_json: bool, archived: bool) -> Result<(), Failure> {
+    if area.is_empty() {
+        // No silent "every area merged": area is the isolation boundary, and
+        // an unscoped read is exactly how an unrelated agent's first action
+        // used to pull in another workstream's pinned instructions.
+        return Err(Failure::Exit(
+            "board: no --area given; an unscoped read shows nothing. See `board areas`, then `board read --area <area>`."
+                .to_owned(),
+        ));
+    }
+    if !archived {
+        let areas: Vec<WireArea> = get_json(client, "/areas?archived=1")?;
+        if areas.iter().any(|a| a.archived_ts.is_some() && a.name == area) {
+            // say so, rather than print an empty read
+            return Err(Failure::Exit(format!("board: area {area} is archived; add --archived to read it")));
+        }
+    }
+    // one-shot: a down board fails fast instead of retrying
+    let head = head(client).map_err(|err| match err {
+        HttpOrAnswer::Http(err) => failure(client, err),
+        HttpOrAnswer::Answer(why) => Failure::BadAnswer { what: "/healthz".to_owned(), cause: why },
+    })?;
+    let since = match since {
+        Since::Head => head,
+        Since::Id(id) => id,
+    };
+    let scope = py::urlencode(&[("area", area), ("topic", topic), ("archived", archived_param(archived))]);
+    let pins: Vec<Value> = get_json(client, &format!("/pins?{scope}"))?;
+    let messages = read_all(client, since, area, topic, archived)?;
+    let cursor = messages.iter().filter_map(|m| m.get("id").and_then(Value::as_i64)).fold(head, i64::max);
+    if as_json {
+        let both = json!({ "pins": pins, "messages": messages });
+        let text = py::dumps_indented(&both)
+            .map_err(|err| Failure::BadAnswer { what: "/poll".to_owned(), cause: err.to_string() })?;
+        out(&text)?;
+    } else {
+        // standing instructions come before the log
+        for value in pins {
+            let pin: WirePin = serde_json::from_value(value)
+                .map_err(|err| Failure::BadAnswer { what: "/pins".to_owned(), cause: err.to_string() })?;
+            out(&pin_header(&pin))?;
+            out(py::rstrip(&pin.body))?;
+            out("")?;
+        }
+        for value in messages {
+            let m: WireMessage = serde_json::from_value(value)
+                .map_err(|err| Failure::BadAnswer { what: "/poll".to_owned(), cause: err.to_string() })?;
+            out(&format!("#{}  {}  [{}/{}] {}", m.id, m.ts, m.area, m.topic, who(&m.sender, m.verified)))?;
+            out(py::rstrip(&m.body))?;
+            out("")?;
+        }
+    }
+    note(&format!("board: read through id {cursor}; follow with --since {cursor}"))
+}
+
+fn areas(client: &Client, archived: bool) -> Result<(), Failure> {
+    let areas: Vec<WireArea> = get_json(client, &format!("/areas?archived={}", archived_param(archived)))?;
+    for a in areas {
+        let description = if a.description.is_empty() { String::new() } else { format!(" — {}", a.description) };
+        let mark = a.archived_ts.map(|ts| format!("  [archived {ts}]")).unwrap_or_default();
+        out(&format!("{}{description}  ({}){mark}", a.name, a.created_ts))?;
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct Changed {
+    changed: bool,
+}
+
+fn archive(client: &Client, area: &str, archived: bool) -> Result<(), Failure> {
+    let text = match client.post("/archive", &json!({ "area": area, "archived": archived }), TIMEOUT) {
+        Ok(text) => text,
+        Err(HttpError::Status { status: 400 | 404, reason, body, .. }) => {
+            let error = serde_json::from_str::<Value>(&body)
+                .ok()
+                .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_owned))
+                .unwrap_or(reason);
+            return Err(Failure::Exit(format!("board: {error}: {area}")));
+        }
+        Err(err) => return Err(failure(client, err)),
+    };
+    let result: Changed = parse("/archive", &text)?;
+    let state = if archived { "archived" } else { "unarchived" };
+    if result.changed {
+        note(&format!("board: {area} {state}"))
+    } else {
+        note(&format!("board: {area} was already {state}"))
+    }
+}
+
+/// Long-poll and print one line per new message: a Monitor event stream.
+fn watch(client: &Client, area: &str, topic: &str, since: Since, timeout: i64) -> Result<(), Failure> {
+    let mut since = match since {
+        Since::Id(id) => id,
+        // Retry rather than fail: a persistent watcher is routinely started
+        // before the service is up, and dying there would look like "no news".
+        Since::Head => loop {
+            match head(client) {
+                Ok(head) => break head,
+                Err(err) => {
+                    out(&format!("board-unreachable: {err}"))?;
+                    thread::sleep(Duration::from_secs(2));
+                }
+            }
+        },
+    };
+    let wait = Duration::from_secs(u64::try_from(timeout.saturating_add(10)).unwrap_or(0));
+    loop {
+        let since_text = since.to_string();
+        let timeout_text = timeout.to_string();
+        let params = py::urlencode(&[
+            ("since", &since_text),
+            ("area", area),
+            ("topic", topic),
+            ("timeout", &timeout_text),
+            ("format", "lines"),
+        ]);
+        let text = match client.get(&format!("/poll?{params}"), wait) {
+            Ok(text) => text,
+            Err(err) => {
+                // Emit on failure too: silence must never look like "no news".
+                // Back off so a down server doesn't spin.
+                out(&format!("board-unreachable: {}", HttpOrAnswer::Http(err)))?;
+                thread::sleep(Duration::from_secs(2));
+                continue;
+            }
+        };
+        // one line per message -> one event each
+        let lines: Vec<&str> = text.split('\n').filter(|line| !line.is_empty()).collect();
+        for line in &lines {
+            out(line)?;
+        }
+        if let Some(last) = lines.last() {
+            let id = last.split('\t').next().and_then(py::int);
+            since = id.ok_or_else(|| Failure::BadAnswer {
+                what: "/poll".to_owned(),
+                cause: format!("a watch line without an id: {}", py::repr(last)),
+            })?;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn since_is_an_id_or_head() {
+        assert!(matches!(since_arg("head"), Ok(Since::Head)));
+        assert!(matches!(since_arg(" 4_2 "), Ok(Since::Id(42))));
+        assert!(matches!(since_arg("-1"), Ok(Since::Id(-1))));
+        assert_eq!(since_arg("banana").err().as_deref(), Some("expected a message id or 'head'"));
+    }
+
+    #[test]
+    fn post_keys_are_uuid4_hex() -> Result<(), Failure> {
+        let key = post_key()?;
+        assert_eq!(key.len(), 32);
+        assert!(key.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
+        assert_eq!(key.get(12..13), Some("4"));
+        assert!(key.get(16..17).is_some_and(|variant| "89ab".contains(variant)));
+        assert_ne!(post_key()?, key);
+        Ok(())
+    }
+
+    #[test]
+    fn the_cli_definition_is_consistent() {
+        Cli::command().debug_assert();
+    }
+}
