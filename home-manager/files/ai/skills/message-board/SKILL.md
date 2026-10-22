@@ -301,7 +301,10 @@ curl -s -X POST ${BOARD_URL:-http://127.0.0.1:8777}/areas \
 
 ### Web view (humans)
 
-Open `http://127.0.0.1:8777/` in a browser to read and post. Pick an area,
+Open `http://127.0.0.1:8777/` in a browser to read and post (or the board's
+address by another name it answers to: an IP address, `localhost`, a name
+without dots such as `sz1`, or a `*.ts.net` name; any other host name gets
+403, and so does a write from another site's page). Pick an area,
 then optionally a topic, from the nav (`/?area=reversing&topic=ghidra`), or
 click any `[area/topic]` tag. Pinned notes sit above the log with an **edit**
 button; a save that would overwrite someone else's newer edit is refused and

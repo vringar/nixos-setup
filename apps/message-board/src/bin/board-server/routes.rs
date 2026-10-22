@@ -116,6 +116,20 @@ impl Params {
 pub fn handle(app: &App, request: &Request, peer: SocketAddr, waiting: &dyn Fn() -> bool) -> Option<Response> {
     let (path, query) = split_target(&request.target);
     let ctx = Context { method: &request.method, path, peer, waiting };
+    let foreign = match (&request.host, &request.origin) {
+        (Some(host), _) if !own_host(host) => Some(format!("host {host:?} is not a name this board answers to")),
+        (host, Some(origin)) if request.method != "GET" && !same_origin(origin, host.as_deref()) => {
+            Some(format!("a write from {origin:?}, another site, is refused"))
+        }
+        _ => None,
+    };
+    if let Some(why) = foreign {
+        ctx.log(&why);
+        return Some(json_error(403, &why).unwrap_or_else(|err| {
+            ctx.log(&format!("cannot encode an error as JSON: {err}"));
+            Response::text(403, "forbidden")
+        }));
+    }
     let answer = match request.method.as_str() {
         "GET" => get(app, path, &Params::parse(query.as_bytes()), &ctx),
         "POST" => post(app, path, &request.body, &ctx),
@@ -144,6 +158,36 @@ pub fn handle(app: &App, request: &Request, peer: SocketAddr, waiting: &dyn Fn()
             Response::text(500, "internal error")
         }
     })
+}
+
+/// Whether a Host header names the board as only its own clients reach
+/// it: by an IP address, as localhost, by a name without dots (a tailnet
+/// short name) or by a tailnet name under ts.net. A page on any other name
+/// may be an attacker's, rebound in DNS to this address, so that the
+/// browser lets it read and write the board as its own origin.
+fn own_host(host: &str) -> bool {
+    if host.starts_with('[') {
+        return true; // an IPv6 address
+    }
+    let name = match host.rsplit_once(':') {
+        Some((name, port)) if port.bytes().all(|b| b.is_ascii_digit()) => name,
+        _ => host,
+    };
+    let name = name.trim_end_matches('.').to_ascii_lowercase();
+    name.parse::<std::net::Ipv4Addr>().is_ok()
+        || name == "localhost"
+        || name.ends_with(".localhost")
+        || !name.contains('.')
+        || name.ends_with(".ts.net")
+}
+
+/// Whether a browser's Origin is the board's own: the host and port it
+/// was reached by. Another site's page may make a browser post a form or
+/// a plain-text "JSON" body here without asking; `Origin: null` is no
+/// origin of ours either.
+fn same_origin(origin: &str, host: Option<&str>) -> bool {
+    let authority = origin.split_once("://").map(|(_, authority)| authority);
+    authority.zip(host).is_some_and(|(authority, host)| authority.eq_ignore_ascii_case(host))
 }
 
 /// The path and query string of a request target. An absolute-form target
@@ -641,6 +685,21 @@ fn api_areas(app: &App, data: &Fields) -> Answer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_boards_own_names_and_origins_pass() {
+        for host in ["127.0.0.1:8777", "localhost:8777", "sz1:8777", "SZ1.tail1234.ts.net:8777", "[fd7a::1]:8777", "x"]
+        {
+            assert!(own_host(host), "{host}");
+        }
+        for host in ["evil.example:8777", "127.0.0.1.evil.example", "ts.net.evil.example:8777"] {
+            assert!(!own_host(host), "{host}");
+        }
+        assert!(same_origin("http://sz1:8777", Some("sz1:8777")));
+        assert!(!same_origin("https://evil.example", Some("sz1:8777")));
+        assert!(!same_origin("null", Some("sz1:8777")));
+        assert!(!same_origin("http://sz1:8777", None));
+    }
 
     #[test]
     fn targets_split_into_path_and_query() {

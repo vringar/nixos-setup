@@ -32,6 +32,9 @@ pub struct Request {
     pub body: Vec<u8>,
     /// Whether the connection ends after this request's response.
     pub close: bool,
+    /// The Host and Origin headers, if sent (the first of each).
+    pub host: Option<String>,
+    pub origin: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -156,9 +159,15 @@ pub fn read_request(reader: &mut impl BufRead, interim: &mut impl Write) -> Resu
     let mut length: Option<u64> = None;
     let mut close = !http11;
     let mut expect_continue = false;
+    let (mut host, mut origin) = (None, None);
     for header in parsed.headers.iter() {
         let value = String::from_utf8_lossy(header.value);
         let value = value.trim();
+        if header.name.eq_ignore_ascii_case("host") {
+            host.get_or_insert_with(|| value.to_owned());
+        } else if header.name.eq_ignore_ascii_case("origin") {
+            origin.get_or_insert_with(|| value.to_owned());
+        }
         if header.name.eq_ignore_ascii_case("content-length") {
             // Digits only: u64's parser also takes a leading '+'.
             let n = Some(value)
@@ -194,7 +203,7 @@ pub fn read_request(reader: &mut impl BufRead, interim: &mut impl Write) -> Resu
     if u64::try_from(body.len()).ok() != Some(length) {
         return Err(ProtocolError::Truncated);
     }
-    Ok(Some(Request { method, target, body, close }))
+    Ok(Some(Request { method, target, body, close, host, origin }))
 }
 
 fn reason(status: u16) -> &'static str {

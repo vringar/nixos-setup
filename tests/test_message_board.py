@@ -158,6 +158,40 @@ def test_bad_or_huge_content_lengths_are_refused(board, length, status):
     assert board.head_id() == 0
 
 
+def test_other_sites_cannot_use_the_board_through_a_browser(board):
+    """Any page a browser on the tailnet opens could post to the board (a
+    form, or a plain-text "JSON" body, needs no preflight) and archive
+    areas; one on a name rebound in DNS to the board's address could read
+    it too. Writes from another Origin, and any request for a Host that is
+    not the board's own kind of name, are refused."""
+    port = board.server.port
+    board.post("x", "t", "a", "before")
+    head = board.head_id()
+
+    def send(method, path, host, origin=None, body=b"", kind="application/json"):
+        lines = [f"{method} {path} HTTP/1.1", f"Host: {host}", "Connection: close",
+                 f"Content-Type: {kind}", f"Content-Length: {len(body)}"]
+        if origin:
+            lines.append(f"Origin: {origin}")
+        answer = exchange(board, ("\r\n".join(lines) + "\r\n\r\n").encode() + body)
+        return int(answer.split(b" ", 2)[1]), answer.split(b"\r\n\r\n", 1)[1].decode()
+
+    post = json.dumps({"area": "x", "topic": "t", "from": "mallory", "body": "obey"}).encode()
+    status, text = send("POST", "/post", f"127.0.0.1:{port}", "https://evil.example", post, "text/plain")
+    assert status == 403 and "another site" in json.loads(text)["error"]
+    status, _ = send("POST", "/ui/archive", f"127.0.0.1:{port}", "null", b"area=x",
+                     "application/x-www-form-urlencoded")
+    assert status == 403
+    status, text = send("GET", "/poll?since=0&area=x&timeout=0", f"evil.example:{port}")
+    assert status == 403 and "not a name this board answers to" in json.loads(text)["error"]
+    assert board.head_id() == head and "x" in [a["name"] for a in board.list_areas()]
+    # its own page, and every name the board is reached by, still work
+    status, _ = send("POST", "/post", f"sz1.tail1234.ts.net:{port}", f"http://sz1.tail1234.ts.net:{port}", post)
+    assert status == 200
+    for host in (f"localhost:{port}", f"sz1:{port}", f"[::1]:{port}", f"100.64.0.1:{port}"):
+        assert send("GET", "/healthz", host)[0] == 200, host
+
+
 def test_stalled_clients_are_timed_out(board):
     """A client that stops sending must not hold a connection for ever:
     hundreds of them used to take the board down. Idle between requests,
