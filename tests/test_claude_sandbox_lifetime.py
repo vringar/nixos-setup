@@ -142,3 +142,52 @@ def test_background_processes_end_with_the_sandbox():
     while (left := pids_running(sleep)) and time.monotonic() < deadline:
         time.sleep(0.02)
     assert_all_gone(left)
+
+
+# --- Podman -------------------------------------------------------------------
+
+
+def fake_podman(tmp_path):
+    """Stands in for podman: creates the socket file it is asked to serve on,
+    then serves nothing until it is stopped."""
+    path = tmp_path / "podman"
+    path.write_text(textwrap.dedent(f"""\
+        #!{sys.executable}
+        import sys, time
+        open(sys.argv[-1].removeprefix("unix://"), "w").close()
+        time.sleep(3600)
+    """))
+    path.chmod(0o755)
+    return path
+
+
+# Starts Podman as the launcher does, reports its pid, then waits for the test
+# to end it. It never stops Podman itself; only the lifetime mechanism can.
+PODMAN_LAUNCHER = textwrap.dedent("""\
+    import importlib.util, sys
+    spec = importlib.util.spec_from_file_location("claude_sandbox", sys.argv[1])
+    sandbox = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sandbox)
+    proc, _ = sandbox.start_podman_service(sys.argv[2], podman=sys.argv[3])
+    print(proc.pid, flush=True)
+    sys.stdin.read()
+""")
+
+
+def test_podman_dies_with_a_killed_launcher(tmp_path):
+    sandbox_tmp = tmp_path / "sandbox"
+    sandbox_tmp.mkdir()
+    launcher = subprocess.Popen(
+        [sys.executable, "-c", PODMAN_LAUNCHER, str(SCRIPT), str(sandbox_tmp),
+         str(fake_podman(tmp_path))],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+    )
+    try:
+        podman_pid = int(launcher.stdout.readline())
+    finally:
+        launcher.kill()  # no cleanup code of the launcher's gets to run
+        launcher.wait()
+        launcher.stdout.close()
+        launcher.stdin.close()
+
+    assert_all_gone([podman_pid])

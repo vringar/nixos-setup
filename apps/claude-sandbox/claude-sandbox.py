@@ -144,7 +144,7 @@ def die_with_launcher(sig):
     return preexec
 
 
-def start_podman_service(sandbox_tmp):
+def start_podman_service(sandbox_tmp, podman=None):
     """Start a per-sandbox rootless Podman service.
 
     Storage is kept under sandbox_tmp so images are cached between runs of the
@@ -155,8 +155,12 @@ def start_podman_service(sandbox_tmp):
     The socket is placed inside sandbox_tmp, which is already bind-mounted as
     /tmp inside the sandbox, so it appears at /tmp/podman/podman.sock there —
     no extra --bind is needed.
+
+    The launcher stops the service once the sandbox exits; should the launcher
+    die without getting to, the kernel sends the service SIGTERM, which podman
+    passes on to the copy of itself it re-runs inside its user namespace.
     """
-    podman = shutil.which("podman")
+    podman = podman or shutil.which("podman")
     if not podman:
         return None, None
 
@@ -180,6 +184,7 @@ def start_podman_service(sandbox_tmp):
          "system", "service", "--time=0", f"unix://{socket_path}"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        preexec_fn=die_with_launcher(signal.SIGTERM),
     )
 
     deadline = time.monotonic() + 10
