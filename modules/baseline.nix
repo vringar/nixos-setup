@@ -85,7 +85,7 @@ in {
     wget
     curl
     npins
-    (pkgs.callPackage "${sources.agenix}/pkgs/agenix.nix" { })
+    (pkgs.callPackage "${sources.agenix}/pkgs/agenix.nix" {})
     lixPackageSets.git.colmena
     git
     git-lfs
@@ -108,8 +108,6 @@ in {
     import ../user {pkgs = pkgs;}
     // {
       linger = true;
-      openssh.authorizedKeys.keyFiles = [
-        ../home-manager/files/ssh/github_key.pub
-      ];
+      openssh.authorizedKeys.keyFiles = import ../home-manager/files/ssh/login-keys.nix;
     };
 }

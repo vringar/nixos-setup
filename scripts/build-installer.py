@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Build installer-iso.nix with every SSH public key from ~/.ssh.
+"""Build installer-iso.nix and print the path of the ISO.
 
-The keys are authorized for root on the live system, so once it is on the LAN
-or the tailnet the install can be driven over SSH. Only *.pub files are read:
-private keys never go near the Nix store, which is world-readable.
+The ISO authorizes the hosts' login keys for root (the list in
+home-manager/files/ssh/login-keys.nix), so once it is on the LAN or the
+tailnet the install can be driven over SSH. It deliberately takes no keys from
+~/.ssh: that also holds keys that must never log in anywhere, like the forge
+key every sandbox can use.
 
-    scripts/build-installer.py [--ssh-dir DIR] [--out-link PATH]
-
-Prints the path of the ISO on success.
+    scripts/build-installer.py [--out-link PATH]
 """
 
 from __future__ import annotations
@@ -19,43 +19,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-# Key types sshd accepts in authorized_keys. A .pub file whose first field is
-# none of these is not an SSH key (~/.ssh/SZ1.pub is a bare WireGuard key).
-KEY_TYPES = frozenset(
-    {
-        "ssh-ed25519",
-        "ssh-rsa",
-        "ecdsa-sha2-nistp256",
-        "ecdsa-sha2-nistp384",
-        "ecdsa-sha2-nistp521",
-        "sk-ssh-ed25519@openssh.com",
-        "sk-ecdsa-sha2-nistp256@openssh.com",
-    }
-)
-
-
-def parse_public_keys(text: str) -> list[str]:
-    """The authorized_keys lines in a .pub file, dropping anything else."""
-    keys = []
-    for line in text.splitlines():
-        fields = line.split()
-        if fields and fields[0] in KEY_TYPES:
-            keys.append(line.strip())
-    return keys
-
-
-def collect_keys(ssh_dir: Path) -> tuple[list[str], list[Path]]:
-    """Keys from every *.pub in ssh_dir, plus the files that held none."""
-    keys: list[str] = []
-    skipped: list[Path] = []
-    for path in sorted(ssh_dir.glob("*.pub")):
-        found = parse_public_keys(path.read_text(encoding="utf-8"))
-        if found:
-            keys.extend(found)
-        else:
-            skipped.append(path)
-    return keys, skipped
-
 
 def find_iso(out_link: Path) -> Path:
     isos = sorted((out_link / "iso").glob("*.iso"))
@@ -66,26 +29,13 @@ def find_iso(out_link: Path) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--ssh-dir", type=Path, default=Path.home() / ".ssh")
     parser.add_argument("--out-link", type=Path, default=REPO / "result-installer")
     args = parser.parse_args()
-
-    keys, skipped = collect_keys(args.ssh_dir)
-    for path in skipped:
-        print(f"skipping {path}: no SSH public key in it", file=sys.stderr)
-    if not keys:
-        raise SystemExit(f"no SSH public keys in {args.ssh_dir}")
-    for key in keys:
-        key_type, _blob, *comment = key.split()
-        print(f"authorizing {key_type} {' '.join(comment)}", file=sys.stderr)
 
     subprocess.run(
         [
             "nix-build",
             str(REPO / "installer-iso.nix"),
-            "--argstr",
-            "authorizedKeys",
-            "\n".join(keys),
             "--out-link",
             str(args.out_link),
         ],

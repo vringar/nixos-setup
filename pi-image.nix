@@ -45,7 +45,7 @@ in
     users.users.vringar = {
       isNormalUser = true;
       extraGroups = ["wheel" "networkmanager"];
-      openssh.authorizedKeys.keyFiles = [./home-manager/files/ssh/github_key.pub];
+      openssh.authorizedKeys.keyFiles = import ./home-manager/files/ssh/login-keys.nix;
     };
 
     security.sudo.wheelNeedsPassword = false;
