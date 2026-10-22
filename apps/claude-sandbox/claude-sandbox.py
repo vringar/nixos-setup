@@ -703,28 +703,32 @@ def resolve_shell(home_dir):
     return BASH
 
 
+def run_sandbox(bwrap_args, inner_cmd, bwrap=BWRAP):
+    """Run inner_cmd under bwrap and wait for it; returns bwrap's returncode.
+
+    Through subprocess rather than a bare fork and exec, because Python
+    ignores SIGPIPE and SIGXFSZ and an ignored signal survives exec: the
+    sandbox would inherit that, and `yes | head -1` inside would fail with
+    "Broken pipe" instead of ending quietly. subprocess restores them.
+    """
+    return subprocess.Popen([bwrap] + bwrap_args + ["--"] + inner_cmd).wait()
+
+
 def exec_bwrap(bwrap_args, inner_cmd, helpers, tmpdir):
-    """Fork, exec bwrap in the child, then clean up in the parent on exit.
+    """Run the sandbox, then clean up after it.
 
     helpers are the host-side processes serving this sandbox (Podman, its SSH
     agent); they are stopped once it exits.
     """
-    full_cmd = [BWRAP] + bwrap_args + ["--"] + inner_cmd
-
-    pid = os.fork()
-    if pid == 0:
-        os.execvp(BWRAP, full_cmd)
-        sys.exit(1)  # unreachable unless execvp fails
-
     try:
-        _, status = os.waitpid(pid, 0)
+        returncode = run_sandbox(bwrap_args, inner_cmd)
     finally:
         for proc in helpers:
             proc.terminate()
             proc.wait()
         shutil.rmtree(tmpdir, ignore_errors=True)
 
-    sys.exit(os.waitstatus_to_exitcode(status))
+    sys.exit(returncode)
 
 
 def main():
