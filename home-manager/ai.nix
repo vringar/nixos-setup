@@ -97,7 +97,6 @@
     inherit pkgs sources;
     doCheck = config.my.crosslink.doCheck;
   };
-  crossbridge = import ../apps/crossbridge {inherit pkgs sources;};
   cpitd = import ../apps/crosslink/cpitd.nix {inherit pkgs sources;};
   rtk = import ../apps/rtk {inherit pkgs sources;};
   # Track Anthropic's release manifest directly rather than waiting on nixpkgs.
@@ -148,8 +147,6 @@
     mkdir -p $out
     cp -r ${nucleus}/skills/. $out/
     chmod -R u+w $out
-    cp -r ${sources.crossbridge}/skill/. $out/
-    chmod -R u+w $out
     cp -r ${skillsDir}/. $out/
   '';
   mergedSkills = pkgs.runCommand "merged-skills" {} ''
@@ -157,8 +154,6 @@
     cp -r ${nucleus}/skills/. $out/
     chmod -R u+w $out
     cp -r ${camundaSkills}/skills/. $out/
-    chmod -R u+w $out
-    cp -r ${sources.crossbridge}/skill/. $out/
     chmod -R u+w $out
     cp -r ${skillsDir}/. $out/
     chmod -R u+w $out
@@ -171,8 +166,6 @@
     cp -r ${customAgentsDir}/. $out/
   '';
 in {
-  imports = [./crossbridge-supervisor.nix];
-
   options.my.work.enable = lib.mkEnableOption "work machine configuration";
 
   options.my.crosslink.doCheck = lib.mkOption {
@@ -182,8 +175,6 @@ in {
   };
 
   config = {
-    services.crossbridge-supervisor.enable = true;
-
     home.sessionVariables =
       {
         CLAUDE_CONFIG_DIR = "\${XDG_CONFIG_HOME:-$HOME/.config}/claude";
@@ -212,11 +203,6 @@ in {
     programs.bash.shellAliases = {xl = "crosslink";};
     programs.zsh.shellAliases = {xl = "crosslink";};
 
-    # crossbridge ships a direnv helper exposing the `crossbridge_up`
-    # function; loading it into the user's direnvrc lets any crosslink
-    # repo's .envrc bootstrap a per-repo server with a single line.
-    programs.direnv.stdlib = builtins.readFile "${sources.crossbridge}/nix/direnvrc.sh";
-
     xdg.configFile =
       lib.genAttrs
       [
@@ -243,7 +229,6 @@ in {
     home.packages =
       [
         crosslink
-        crossbridge
         cpitd
         rtk
         pkgs.jq

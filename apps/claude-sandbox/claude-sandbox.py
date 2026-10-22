@@ -362,64 +362,6 @@ def remove_leftovers(prefix, tmp_root=None, podman=None):
     return warnings
 
 
-def crossbridge_socket_root():
-    """Mirror crossbridge's socket-root precedence:
-    $CROSSBRIDGE_SOCKET_ROOT > $XDG_RUNTIME_DIR/crossbridge > /run/crossbridge.
-    """
-    root = os.environ.get("CROSSBRIDGE_SOCKET_ROOT")
-    if root:
-        return root
-    xdg = os.environ.get("XDG_RUNTIME_DIR")
-    if xdg:
-        return os.path.join(xdg, "crossbridge")
-    return "/run/crossbridge"
-
-
-def crossbridge_own_slug(project_dir):
-    """Derive the repo's crossbridge slug the way crossbridge-client does:
-    $CROSSBRIDGE_OWN_SLUG, else the last path segment of the origin remote URL
-    with an optional .git suffix stripped. Returns None if it can't be found.
-
-    Must stay in lockstep with crossbridge-client's slug.rs — if the launcher
-    and the in-sandbox client disagree, the bound directory won't match the
-    path the client looks up.
-    """
-    slug = os.environ.get("CROSSBRIDGE_OWN_SLUG", "").strip()
-    if slug:
-        return slug
-
-    url = None
-    if os.path.isdir(os.path.join(project_dir, ".jj")):
-        try:
-            out = subprocess.run(
-                # Reading the remotes must not first record the project's
-                # changed files as an operation in its log, on every launch.
-                ["jj", "--repository", project_dir, "--ignore-working-copy",
-                 "git", "remote", "list"],
-                capture_output=True, text=True, check=True,
-            ).stdout
-            for line in out.splitlines():
-                parts = line.split()
-                if len(parts) >= 2 and parts[0] == "origin":
-                    url = parts[1]
-                    break
-        except (OSError, subprocess.SubprocessError):
-            pass
-    if not url:
-        try:
-            url = subprocess.run(
-                ["git", "-C", project_dir, "remote", "get-url", "origin"],
-                capture_output=True, text=True, check=True,
-            ).stdout
-        except (OSError, subprocess.SubprocessError):
-            return None
-
-    # Last segment after the final '/' or ':', '.git' suffix stripped.
-    last = url.strip().replace(":", "/").rsplit("/", 1)[-1]
-    last = last[:-4] if last.endswith(".git") else last
-    return last or None
-
-
 # Environment variable naming a dedicated ssh-agent socket for the sandbox —
 # one holding only keys the sandbox is meant to have.
 SANDBOX_SSH_SOCK_ENV = "CLAUDE_SANDBOX_SSH_AUTH_SOCK"
@@ -808,19 +750,6 @@ def build_bwrap_args(project_dir, home_dir, sandbox_tmp, histfile, shell_path):
     # service manager run anything outside it (systemd-run --user), and read
     # every secret in the keyring. gh's token comes in as GH_TOKEN instead
     # (see gh_token).
-
-    # Crossbridge: expose only this repo's own per-peer socket directory
-    # (<root>/<own-slug>/), read-only. The crossbridge server and orchestrator
-    # run outside the sandbox; the sandboxed agent is a client only, so a
-    # read-only bind is enough — connect() does not write the filesystem.
-    # Binding just this repo's own-slug dir keeps every other repo's sockets
-    # hidden, and the isdir() guard doubles as a readiness gate: the directory
-    # exists only once the orchestrator and server for this repo are up.
-    crossbridge_slug = crossbridge_own_slug(project_dir)
-    if crossbridge_slug:
-        crossbridge_dir = os.path.join(crossbridge_socket_root(), crossbridge_slug)
-        if os.path.isdir(crossbridge_dir):
-            args += ["--ro-bind", crossbridge_dir, crossbridge_dir]
 
     # c8ctl config (read-only): plugins and profiles for preprod debugging
     c8ctl_plugins_dir = os.path.join(home_dir, ".config", "c8ctl", "plugins")
