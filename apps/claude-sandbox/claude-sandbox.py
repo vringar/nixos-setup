@@ -197,6 +197,13 @@ def podman_view_args(sandbox_tmp):
     ]
 
 
+# How long the Podman service gets to come up, in seconds.
+PODMAN_START_TIMEOUT = 10
+
+# How many of its last log lines a service that did not come up is quoted with.
+PODMAN_LOG_LINES = 8
+
+
 def start_podman_service(sandbox_tmp, view_args, podman=None, bwrap=BWRAP):
     """Start a per-sandbox rootless Podman service that sees what the sandbox sees.
 
@@ -240,34 +247,41 @@ def start_podman_service(sandbox_tmp, view_args, podman=None, bwrap=BWRAP):
 
     store = podman_store_args(sandbox_tmp)
     # Its log goes to a file rather than the terminal, and says why when the
-    # service does not come up.
+    # service does not come up. At level info both podmans log the steps of
+    # their start, which shows where a start that never ends got to.
     log_path = os.path.join(base, "service.log")
+    log_level = "--log-level=info"
     with open(log_path, "w") as log:
         proc = subprocess.Popen(
-            [podman, *store, "unshare",
+            [podman, log_level, *store, "unshare",
              bwrap, "--die-with-parent", *view_args, *podman_view_args(sandbox_tmp), "--",
-             podman, *store, "system", "service", "--time=0", f"unix://{socket_path}"],
+             podman, log_level, *store, "system", "service", "--time=0", f"unix://{socket_path}"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=log,
             preexec_fn=die_with_launcher(signal.SIGTERM),
         )
 
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + PODMAN_START_TIMEOUT
     while not os.path.exists(socket_path):
         if time.monotonic() > deadline:
             proc.terminate()
             proc.wait()
-            failure = "did not start in time"
+            failure = f"did not start within {PODMAN_START_TIMEOUT} s"
         elif proc.poll() is not None:
             failure = f"exited with status {proc.returncode}"
         else:
             time.sleep(0.05)
             continue
-        with open(log_path) as log:
-            last = [line for line in log.read().splitlines() if line.strip()][-1:]
-        print(f"claude-sandbox: the Podman service {failure} ({' '.join(last) or 'no output'}); "
-              "containers are unavailable.", file=sys.stderr)
+        with open(log_path, errors="replace") as log:
+            tail = [line for line in log.read().splitlines() if line.strip()][-PODMAN_LOG_LINES:]
+        # The sandbox sees its temp dir as /tmp.
+        inner_log = "/tmp" + log_path[len(sandbox_tmp):]
+        print(f"claude-sandbox: the Podman service {failure}; containers are unavailable. "
+              f"Its whole log is {inner_log} in the sandbox, until it exits; it ends:",
+              file=sys.stderr)
+        for line in tail or ["(nothing)"]:
+            print(f"  {line}", file=sys.stderr)
         return None, None
 
     open(os.path.join(base, PODMAN_SERVED), "x").close()

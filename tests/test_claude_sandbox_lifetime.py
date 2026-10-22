@@ -160,8 +160,13 @@ def fake_podman(directory):
         #!{sys.executable}
         import json, os, subprocess, sys, time
         args = sys.argv[1:]
-        while args[0].startswith("--"):  # --root, --runroot, --tmpdir, each with a value
-            args = args[2:]
+        options = {{}}
+        while args[0].startswith("--"):  # --log-level=..., or --root etc. with a value
+            if "=" in args[0]:
+                args = args[1:]
+            else:
+                options[args[0]] = args[1]
+                args = args[2:]
         try:
             with open(os.path.realpath(__file__) + ".calls", "a") as calls:
                 print(json.dumps(sys.argv[1:]), file=calls)
@@ -504,6 +509,8 @@ def test_a_podman_service_that_fails_says_why(tmp_path, capsys):
     podman.write_text(textwrap.dedent(f"""\
         #!{sys.executable}
         import sys
+        for line in range(1, 11):
+            print(f"line {{line}}", file=sys.stderr)
         print("Error: no such file or directory", file=sys.stderr)
         sys.exit(125)
     """))
@@ -512,7 +519,11 @@ def test_a_podman_service_that_fails_says_why(tmp_path, capsys):
     sandbox_tmp.mkdir()
 
     assert sandbox.start_podman_service(str(sandbox_tmp), [], podman=str(podman)) == (None, None)
-    assert "exited with status 125 (Error: no such file or directory)" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "exited with status 125" in err
+    assert "/tmp/podman/service.log" in err
+    quoted = [line.strip() for line in err.splitlines()[1:]]
+    assert quoted == [f"line {n}" for n in range(4, 11)] + ["Error: no such file or directory"]
 
 
 # --- the temp dir -------------------------------------------------------------
