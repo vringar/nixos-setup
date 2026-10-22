@@ -78,10 +78,16 @@ impl Context<'_> {
         log::line(&format!("board: {} {} from {}: {what}", self.method, self.path, self.peer));
     }
 
-    /// Log a database fault and say how to answer it.
+    /// Log a database fault and say how to answer it. A fatal one ends the
+    /// server, with status 1, for systemd to restart it: it would fail
+    /// every request from now on.
     fn db_failed(&self, err: &DbError) -> (u16, String) {
         let (status, message) = db_failure(err);
         self.log(&message);
+        if err.is_fatal() {
+            log::line("board: the database cannot be used any more; exiting");
+            std::process::exit(1);
+        }
         (status, message)
     }
 }

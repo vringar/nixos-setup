@@ -125,8 +125,10 @@ const LIVE: &str = " AND area NOT IN (SELECT name FROM areas WHERE archived_ts I
 pub enum DbError {
     #[error("{0}")]
     Sqlite(#[from] rusqlite::Error),
-    #[error("{cause}; rolling back failed too: {rollback}")]
-    Rollback { cause: Box<Error>, rollback: rusqlite::Error },
+    /// The connection is closed after this: see [`DbError::is_fatal`].
+    #[error("{cause}; rolling back failed too: {rollback}; the database is closed now{}",
+            .closing.as_ref().map(|err| format!(", and closing it failed: {err}")).unwrap_or_default())]
+    Rollback { cause: Box<Error>, rollback: rusqlite::Error, closing: Option<rusqlite::Error> },
     #[error("the database is closed")]
     Closed,
     #[error("the database lock is poisoned: {0}")]
@@ -148,6 +150,15 @@ impl DbError {
             Self::Rollback { cause, .. } => matches!(cause.as_ref(), Error::Db(db) if db.is_busy()),
             _ => false,
         }
+    }
+
+    /// The board cannot go on: a transaction that would not roll back
+    /// (its connection is closed now), or a lock a panic left poisoned.
+    /// Every later operation would fail; a program serving the board
+    /// should exit so that it is restarted.
+    #[must_use]
+    pub fn is_fatal(&self) -> bool {
+        matches!(self, Self::Rollback { .. } | Self::Poisoned(_))
     }
 }
 
@@ -730,7 +741,7 @@ impl Board {
     /// or a no-op also needs the lock, so on a locked or read-only file it
     /// fails as a write would.
     fn write<T>(&self, op: impl FnOnce(&Connection, &str) -> Result<T, Error>) -> Result<T, Error> {
-        let guard = self.lock()?;
+        let mut guard = self.lock()?;
         let conn = guard.as_ref().ok_or(DbError::Closed)?;
         // Taken with the lock held, so timestamps follow the order of ids.
         let now = timefmt::now()?;
@@ -747,7 +758,13 @@ impl Board {
             Err(err) if conn.is_autocommit() => Err(err),
             Err(err) => match conn.execute_batch("ROLLBACK") {
                 Ok(()) => Err(err),
-                Err(rollback) => Err(Error::Db(DbError::Rollback { cause: Box::new(err), rollback })),
+                Err(rollback) => {
+                    // Still in the transaction, every later write would fail
+                    // and the file would stay locked to every other program.
+                    // Closing the connection rolls it back.
+                    let closing = guard.take().and_then(|conn| conn.close().err()).map(|(_unclosed, err)| err);
+                    Err(Error::Db(DbError::Rollback { cause: Box::new(err), rollback, closing }))
+                }
             },
         }
     }

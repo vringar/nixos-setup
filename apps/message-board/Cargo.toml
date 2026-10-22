@@ -56,3 +56,8 @@ map_err_ignore = "deny"
 # println!/eprintln! panic when the stream is gone; write to locked handles instead
 print_stdout = "deny"
 print_stderr = "deny"
+
+[profile.release]
+# A panic ends the process: no thread dies holding the board's lock and
+# leaves the rest serving errors, and systemd restarts the server.
+panic = "abort"
