@@ -125,6 +125,25 @@ def parse_args():
     return args
 
 
+PR_SET_PDEATHSIG = 1  # <linux/prctl.h>
+
+
+def die_with_launcher(sig):
+    """A preexec_fn having the kernel send sig to the child when the launcher
+    dies, however it dies: SIGKILL included, where no cleanup of its own runs.
+    """
+    prctl = ctypes.CDLL(None, use_errno=True).prctl
+    launcher = os.getpid()
+
+    def preexec():
+        if prctl(PR_SET_PDEATHSIG, sig) != 0:
+            raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG)")
+        if os.getppid() != launcher:  # it died before prctl took effect
+            os._exit(1)
+
+    return preexec
+
+
 def start_podman_service(sandbox_tmp):
     """Start a per-sandbox rootless Podman service.
 
@@ -253,8 +272,6 @@ FORGE_KEY_ENV = "CLAUDE_SANDBOX_FORGE_KEY"
 # sandbox sees that dir as /tmp, so it reaches the agent at /tmp/<name>.
 FORGE_AGENT_SOCK = "ssh-agent.sock"
 
-PR_SET_PDEATHSIG = 1  # <linux/prctl.h>
-
 
 def forge_key_path(env, home_dir):
     path = env.get(FORGE_KEY_ENV)
@@ -358,15 +375,6 @@ def start_forge_agent(key_path, sandbox_tmp, ssh_agent=SSH_AGENT, ssh_add=SSH_AD
     # failure.
     env["SSH_ASKPASS_REQUIRE"] = "never"
 
-    prctl = ctypes.CDLL(None, use_errno=True).prctl
-    launcher = os.getpid()
-
-    def die_with_launcher():
-        if prctl(PR_SET_PDEATHSIG, signal.SIGTERM) != 0:
-            raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG)")
-        if os.getppid() != launcher:  # it died before prctl took effect
-            os._exit(1)
-
     try:
         proc = subprocess.Popen(
             [ssh_agent, "-D", "-a", FORGE_AGENT_SOCK],
@@ -376,7 +384,7 @@ def start_forge_agent(key_path, sandbox_tmp, ssh_agent=SSH_AGENT, ssh_add=SSH_AD
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
-            preexec_fn=die_with_launcher,
+            preexec_fn=die_with_launcher(signal.SIGTERM),
         )
     except (OSError, subprocess.SubprocessError) as e:
         return None, f"could not start ssh-agent ({e}); continuing with no SSH agent."
@@ -710,8 +718,20 @@ def run_sandbox(bwrap_args, inner_cmd, bwrap=BWRAP):
     ignores SIGPIPE and SIGXFSZ and an ignored signal survives exec: the
     sandbox would inherit that, and `yes | head -1` inside would fail with
     "Broken pipe" instead of ending quietly. subprocess restores them.
+
+    The sandbox never outlives the launcher, which has to clean up after it.
+    bwrap is killed the moment the launcher dies, and --die-with-parent passes
+    that on: the sandbox's pid 1 dies with bwrap, and the kernel kills
+    everything left in a pid namespace whose pid 1 is gone. That includes
+    processes the command left running in the background, which would
+    otherwise carry on after bwrap returns, against a temp dir and helpers
+    that are about to go.
     """
-    return subprocess.Popen([bwrap] + bwrap_args + ["--"] + inner_cmd).wait()
+    return subprocess.Popen(
+        [bwrap, "--die-with-parent"] + bwrap_args + ["--"] + inner_cmd,
+        # bwrap sets this itself only once the sandbox is already set up.
+        preexec_fn=die_with_launcher(signal.SIGKILL),
+    ).wait()
 
 
 def exec_bwrap(bwrap_args, inner_cmd, helpers, tmpdir):

@@ -2,11 +2,14 @@
 
 import importlib.util
 import json
+import os
 import shutil
 import signal
 import subprocess
 import sys
 import textwrap
+import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -51,3 +54,91 @@ def test_sandbox_does_not_inherit_ignored_sigpipe():
     ignored = int(out.split()[1], 16)
     for sig in (signal.SIGPIPE, signal.SIGXFSZ):
         assert not ignored & (1 << (sig - 1)), sig.name
+
+
+# --- the sandbox never outlives the launcher ----------------------------------
+
+
+def sleeper():
+    """A sleep command with an argument no other process has, to find it by."""
+    return [shutil.which("sleep"), f"3600.{uuid.uuid4().int % 10**12}"]
+
+
+def pids_running(argv):
+    """The pids of every process whose argv is exactly argv."""
+    wanted = b"\0".join(os.fsencode(a) for a in argv) + b"\0"
+    pids = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            if Path(f"/proc/{entry}/cmdline").read_bytes() == wanted:
+                pids.append(int(entry))
+        except OSError:
+            continue  # gone meanwhile
+    return pids
+
+
+def is_gone(pid, timeout=5):
+    """True once pid has exited (a zombie awaiting its reaper counts)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except FileNotFoundError:
+            return True
+        if state == "Z":
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def assert_all_gone(pids):
+    left = [pid for pid in pids if not is_gone(pid)]
+    for pid in left:
+        os.kill(pid, signal.SIGKILL)  # do not leave it behind for the next run
+    assert left == []
+
+
+def wait_for(path, proc, timeout=10):
+    deadline = time.monotonic() + timeout
+    while not path.exists():
+        assert proc.poll() is None, "the launcher exited before the sandbox was up"
+        assert time.monotonic() < deadline, f"{path} never appeared"
+        time.sleep(0.02)
+
+
+@needs_bwrap
+def test_sandbox_dies_with_a_killed_launcher(tmp_path):
+    sleep = sleeper()
+    ready = tmp_path / "ready"
+    launcher = subprocess.Popen(launcher_cmd(
+        [shutil.which("sh"), "-c", f'touch {ready} && exec "$@"', "sh", *sleep],
+        BWRAP_ARGS + ["--bind", str(tmp_path), str(tmp_path)],
+    ))
+    try:
+        wait_for(ready, launcher)
+        in_sandbox = pids_running(sleep)
+        assert len(in_sandbox) == 1
+    finally:
+        launcher.kill()  # no cleanup code of the launcher's gets to run
+        launcher.wait()
+
+    assert_all_gone(in_sandbox)
+
+
+@needs_bwrap
+def test_background_processes_end_with_the_sandbox():
+    sleep = sleeper()
+    # The command returns as soon as its sleep is running in the background.
+    subprocess.run(
+        launcher_cmd([
+            shutil.which("sh"), "-c",
+            '"$@" & until grep -qa "$2" /proc/$!/cmdline; do :; done', "sh", *sleep,
+        ]),
+        check=True,
+    )
+    deadline = time.monotonic() + 5
+    while (left := pids_running(sleep)) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert_all_gone(left)
