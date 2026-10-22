@@ -1,4 +1,6 @@
-"""A black-box harness for the message board.
+"""A black-box harness for the message board, v2: a tree of containers,
+notes, threads and queues, and every write signed by a key the owner
+approved.
 
 It drives `board`, `board-server` and `board-admin` only as programs: through
 their argv, environment, stdio, HTTP, a terminal and the database file. It
@@ -11,6 +13,10 @@ lets another write race in; a fake `systemctl` first on PATH stands in for
 the user service manager; and the tests lock the database file or make it
 read-only themselves.
 
+Signatures are made by `ssh-keygen -Y sign` over this module's own copy of
+the canonical encoding (`canonical`, `KINDS`): the oracle the programs are
+held to, not a copy of theirs.
+
 The programs come from $BOARD_BIN_DIR if it is set, else from building the
 in-tree package (apps/message-board) with nix-build, so a plain `pytest`
 tests what this checkout would deploy.
@@ -19,14 +25,15 @@ tests what this checkout would deploy.
 import codecs
 import fcntl
 import functools
+import hashlib
 import http.client
 import http.server
 import json
 import os
 import pty
 import queue
-import re
 import select
+import shlex
 import signal
 import socket
 import sqlite3
@@ -40,9 +47,13 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -51,9 +62,19 @@ REPO = Path(__file__).resolve().parent.parent
 # fsync) has stalled for half a minute.
 HANG_TIMEOUT = 120
 
-RULE = "names are 1-64 ASCII letters, digits, '_' and '-'"
-SYSTEM_AREA = "_system"
-PIN_TOPIC = "_pin"
+# The v2 counter starts here, so that no v2 id can be mistaken for a v1 one.
+FIRST_ID = 10001
+# The name the test boards bind to the owner key: the human of the
+# permission matrix.
+OWNER = "Stefan"
+# Signed writes in a row that may go stale before a client gives up.
+NONCE_TRIES = 5
+# The line `board` prints for a v1 command form.
+V1_POINTER = "board: v2 has no areas; see the message-board skill (board brief)"
+# Exit status of `board` for an identity refusal (not registered, pending,
+# declined, revoked), so a launcher can tell it apart from other failures.
+IDENTITY_EXIT = 3
+IDENTITY_CODES = ("not-registered", "registration-pending", "registration-declined", "key-revoked")
 
 _PACKAGE = ("let sources = import ./npins; pkgs = import sources.nixpkgs {};"
             " in import ./apps/message-board {inherit pkgs sources;}")
@@ -101,13 +122,18 @@ def isolate(monkeypatch, tmp_path):
     `board` signs with the nearest scratch/board_ed25519 above the cwd, so the
     tests run in their own directory, where no key is."""
     for var in ("BOARD_KEY", "BOARD_AREA", "BOARD_TOPIC", "BOARD_SINCE", "BOARD_DB",
-                "BOARD_OWNER_NAME", "BOARD_OWNER_PUBKEY", "BOARD_ADMIN_LOG"):
+                "BOARD_OWNER_NAME", "BOARD_OWNER_PUBKEY", "BOARD_ADMIN_LOG", "BOARD_ADDR"):
         monkeypatch.delenv(var, raising=False)
     url = dead_url()
     monkeypatch.setenv("BOARD_URL", url)
     monkeypatch.setenv("BOARD_PORT", url.rsplit(":", 1)[1])
     monkeypatch.setenv("BOARD_ADMIN_SERVICE", "")
     monkeypatch.chdir(tmp_path)
+
+
+def digest(path):
+    """A file's sha256: to show a program left it alone."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 # --- HTTP ---------------------------------------------------------------------
@@ -151,8 +177,29 @@ def request(url, data=None, *, form=False, raw=None, timeout=HANG_TIMEOUT):
         return Response(e.code, e.headers, e.read().decode())
 
 
+def parse_answer(raw):
+    """A raw HTTP answer as (status, headers with lowercase names, body)."""
+    head, _, body = raw.partition(b"\r\n\r\n")
+    lines = head.decode("latin-1").split("\r\n")
+    headers = dict((k.strip().lower(), v.strip()) for k, _, v in
+                   (line.partition(":") for line in lines[1:]))
+    return int(lines[0].split(" ", 2)[1]), headers, body.decode()
+
+
+def error_answer(status, headers, body):
+    """The error code of a v2 error answer, checked to be one: JSON
+    `{"error": code, "message": text, ...}` and the code in Board-Error."""
+    value = json.loads(body)
+    assert isinstance(value.get("error"), str) and isinstance(value.get("message"), str), body
+    assert headers.get("board-error") == value["error"], (headers, body)
+    return value["error"]
+
+
 class Refused(Exception):
-    """The board answered with an error status."""
+    """The board answered with an error status. v2 errors are
+    `{"error": "<code>", "message": "...", ...}` plus `Board-Error: <code>`;
+    `code` is the body's code, `body` the whole object (its extra fields:
+    `head`, `version`, `item`, `revoked_at`, ...)."""
 
     def __init__(self, response):
         self.status, self.headers, self.text = response.status, response.headers, response.text
@@ -160,62 +207,63 @@ class Refused(Exception):
             self.body = json.loads(response.text)
         except ValueError:
             self.body = None
-        error = self.body.get("error") if isinstance(self.body, dict) else response.text
-        super().__init__(f"{response.status}: {error}")
-        self.error = error
+        if not isinstance(self.body, dict):
+            self.body = {}
+        self.code = self.body.get("error", response.text)
+        self.message = self.body.get("message", "")
+        super().__init__(f"{response.status} {self.code}: {self.message or response.text}")
+
+    def __getitem__(self, name):
+        return self.body[name]
 
 
-class BadRequest(Refused):
-    """400: a bad name, a bad signature, a malformed request."""
+def refused(response):
+    return Refused(response)
 
 
-class Forbidden(Refused):
-    """403: a claimed name without its key, a signed pin that is not theirs."""
-
-
-class NotFound(Refused):
-    """404."""
-
-
-class Conflict(Refused):
-    """409: a client key reused for a different message."""
-
-
-class StaleNonce(Conflict):
-    """409 with Board-Error: stale-nonce: the signed head is no longer the head."""
-
-    @property
-    def head(self):
-        return self.body["head"]
-
-
-class StalePin(Conflict):
-    """409: the pin changed since base_version."""
-
-    @property
-    def version(self):
-        return self.body["version"]
-
-
-class ServerError(Refused):
-    """5xx."""
-
-
-def refusal(response):
-    if response.status == 409:
-        if response.headers.get("Board-Error") == "stale-nonce":
-            return StaleNonce(response)
-        if "version" in (json.loads(response.text) if response.text.startswith("{") else {}):
-            return StalePin(response)
-        return Conflict(response)
-    cls = {400: BadRequest, 403: Forbidden, 404: NotFound}.get(response.status)
-    return (cls or (ServerError if response.status >= 500 else Refused))(response)
+@contextmanager
+def refusal(status, code=None):
+    """`with refusal(403, "forbidden") as r: ...`: the block must be refused
+    with that status (and code); `r.value` is the Refused."""
+    holder = SimpleNamespace(value=None)
+    try:
+        yield holder
+    except Refused as e:
+        holder.value = e
+        assert e.status == status, f"expected {status} {code}, got {e}"
+        if code is not None:
+            assert e.code == code, f"expected {status} {code}, got {e}"
+    else:
+        raise AssertionError(f"expected a {status} {code or ''} refusal, but it was accepted")
 
 
 # --- signing ------------------------------------------------------------------
 
-MESSAGE = ("board-message", ("area", "topic", "from", "body", "key", "nonce"))
-PIN = ("board-pin", ("area", "topic", "from", "body", "base_version", "nonce"))
+# Each write action: its SSHSIG namespace, and its fields in signing order.
+# `key` is the client's idempotency key, `nonce` the board's head at signing.
+KINDS = {
+    "create": ("board2-create", ("path", "kind", "description", "owner", "body", "key", "nonce")),
+    "post": ("board2-post", ("path", "body", "key", "nonce")),
+    "note": ("board2-note", ("path", "body", "base_version", "through", "key", "nonce")),
+    "file": ("board2-file", ("path", "body", "key", "nonce")),
+    "resolve": ("board2-resolve", ("item", "state", "body", "ref", "key", "nonce")),
+    "register": ("board2-register", ("name", "note", "repo", "key", "nonce")),
+    "approve": ("board2-approve", ("item", "name", "fingerprint", "key", "nonce")),
+    "revoke": ("board2-revoke", ("fingerprint", "reason", "key", "nonce")),
+}
+# The v1 kinds: a signature made for one of these must never verify in v2.
+V1_KINDS = {
+    "message": ("board-message", ("area", "topic", "from", "body", "key", "nonce")),
+    "pin": ("board-pin", ("area", "topic", "from", "body", "base_version", "nonce")),
+}
+
+# How a signed write travels: a JSON object of its signed fields, every one
+# a string exactly as signed ("" for an absent optional one), plus
+# "signature". The web view's forms carry the same fields.
+def wire(values):
+    """The JSON body for signed `values` (all text)."""
+    assert all(isinstance(v, str) for v in values.values()), values
+    return dict(values)
 
 
 def canonical(fields, values):
@@ -229,14 +277,26 @@ def canonical(fields, values):
     return out
 
 
+def text(value):
+    """A field's signed text: absent is ""."""
+    return "" if value is None else str(value)
+
+
+def new_client_key():
+    """A write's idempotency key, as `board` makes one."""
+    return uuid.uuid4().hex
+
+
 def ssh_keygen(*args, data=None, check=True):
-    return subprocess.run(["ssh-keygen", *map(str, args)], input=data,
+    # never the terminal's stdin: a prompt (an existing file to overwrite)
+    # fails instead of hanging the suite
+    return subprocess.run(["ssh-keygen", *map(str, args)], input=b"" if data is None else data,
                           capture_output=True, check=check)
 
 
-def armored_body(text):
+def armored_body(armored):
     """An armored SSH signature's base64, without the BEGIN/END lines."""
-    return "".join(line for line in text.splitlines() if not line.startswith("-----"))
+    return "".join(line for line in armored.splitlines() if not line.startswith("-----"))
 
 
 def fingerprint_of(pub_path):
@@ -252,6 +312,9 @@ class Key:
         self.public_line = " ".join(self.pub.read_text().split()[:2])
         self.fingerprint = fingerprint_of(self.pub)
 
+    def __repr__(self):
+        return f"Key({self.path.name}, {self.fingerprint})"
+
     @classmethod
     def make(cls, directory, name, kind="ed25519", passphrase=""):
         path = Path(directory) / name
@@ -262,6 +325,20 @@ class Key:
         """ssh-keygen's SSHSIG over `data`, as the board sends it."""
         out = ssh_keygen("-Y", "sign", "-f", self.path, "-n", namespace, *options, data=data)
         return armored_body(out.stdout.decode())
+
+
+class Keyring:
+    """Keys by name, made once per test session: a board's database is new
+    in every test, so the same key file can register afresh in each."""
+
+    def __init__(self, directory):
+        self.dir = Path(directory)
+        self.keys = {}
+
+    def __getitem__(self, name):
+        if name not in self.keys:
+            self.keys[name] = Key.make(self.dir, name)
+        return self.keys[name]
 
 
 def ssh_verify(directory, public_line, namespace, data, signature):
@@ -279,20 +356,13 @@ def ssh_verify(directory, public_line, namespace, data, signature):
     return out.returncode == 0
 
 
-@dataclass(frozen=True)
-class Signer:
-    """A key signing against one head: what a client holds between reading
-    /healthz and sending its write."""
-    key: Key
-    nonce: str
-
-    @property
-    def fingerprint(self):
-        return self.key.fingerprint
-
-    def sign(self, kind, values):
-        namespace, fields = kind
-        return self.key.sign(namespace, canonical(fields, {**values, "nonce": self.nonce}))
+def sent_signature_verifies(directory, key, action, sent):
+    """Whether a write body a client sent carries ssh-keygen-verifiable
+    SSHSIG over its own fields, in `action`'s namespace."""
+    namespace, fields = KINDS[action]
+    values = {name: text(sent.get(name)) for name in fields}
+    return ssh_verify(directory, key.public_line, namespace, canonical(fields, values),
+                      sent["signature"])
 
 
 def distance(a, b):
@@ -342,13 +412,46 @@ def sql_many(db, query, rows):
 
 
 def make_db(path, script):
-    """A database file as an older board left it."""
+    """A database file as another program left it."""
     conn = sqlite3.connect(path)
     try:
         conn.executescript(script)
         conn.commit()
     finally:
         conn.close()
+
+
+# A database as the v1 board left it: WAL, its tables, some history.
+V1_DB = """
+    PRAGMA journal_mode=WAL;
+    CREATE TABLE areas(name TEXT PRIMARY KEY, description TEXT NOT NULL DEFAULT '',
+                       created_ts TEXT NOT NULL, archived_ts TEXT);
+    CREATE TABLE messages(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
+                          area TEXT NOT NULL, topic TEXT NOT NULL, sender TEXT NOT NULL,
+                          body TEXT NOT NULL, client_key TEXT, signed_by TEXT, signature TEXT);
+    CREATE INDEX idx_messages_area ON messages(area, id);
+    CREATE UNIQUE INDEX idx_messages_client_key ON messages(client_key);
+    CREATE TABLE pins(area TEXT NOT NULL, topic TEXT NOT NULL, body TEXT NOT NULL,
+                      version INTEGER NOT NULL, editor TEXT NOT NULL, ts TEXT NOT NULL,
+                      signed_by TEXT, PRIMARY KEY(area, topic));
+    CREATE TABLE identities(name TEXT PRIMARY KEY, pubkey TEXT NOT NULL,
+                            fingerprint TEXT NOT NULL,
+                            source TEXT NOT NULL CHECK(source IN ('tofu', 'owner')),
+                            registered_ts TEXT NOT NULL);
+    CREATE TABLE pin_versions(id INTEGER PRIMARY KEY AUTOINCREMENT, area TEXT NOT NULL,
+                              topic TEXT NOT NULL, version INTEGER NOT NULL, body TEXT NOT NULL,
+                              editor TEXT NOT NULL, base_version INTEGER, signed_by TEXT,
+                              signature TEXT, ts TEXT NOT NULL);
+    INSERT INTO areas VALUES('reversing', '', '2026-09-01T00:00:00Z', NULL);
+    INSERT INTO messages(ts, area, topic, sender, body)
+        VALUES('2026-09-01T00:00:00Z', 'reversing', 'ghidra', 'Stefan', 'from the v1 era');
+    INSERT INTO pins VALUES('reversing', '', 'v1 rules', 1, 'Stefan', '2026-09-01T00:00:00Z', NULL);
+"""
+
+
+def make_v1_db(path):
+    make_db(path, V1_DB)
+    return path
 
 
 # --- the server -------------------------------------------------------------------
@@ -372,26 +475,31 @@ class Server:
         env.update(extra)
         return env
 
-    def start(self, **env):
-        """Start it with these extra env vars, and wait until it answers."""
+    def launch(self, **env):
+        """Start it with these extra env vars; don't wait for it."""
         self.starts += 1
         self.out_path = self.logs / f"server-{self.starts}.out"
         self.err_path = self.logs / f"server-{self.starts}.err"
         with open(self.out_path, "wb") as out, open(self.err_path, "wb") as err:
             self.proc = subprocess.Popen([program("board-server")], env=self._env(env),
                                          stdout=out, stderr=err)
+        return self.proc
+
+    def start(self, **env):
+        """Start it with these extra env vars, and wait until it answers."""
+        self.launch(**env)
         deadline = time.monotonic() + HANG_TIMEOUT
         while True:
             if self.proc.poll() is not None:
                 code, self.proc = self.proc.returncode, None
-                raise AssertionError(f"board-server exited with {code}:\n{self.err()}")
+                raise AssertionError(f"board-server exited with {code}:\n{self.out()}{self.err()}")
             try:
                 with urllib.request.urlopen(self.url + "/healthz", timeout=HANG_TIMEOUT) as r:
                     r.read()
                 return self
             except OSError:
                 if time.monotonic() > deadline:
-                    raise AssertionError(f"board-server never came up:\n{self.err()}")
+                    raise AssertionError(f"board-server never came up:\n{self.err()}") from None
                 time.sleep(0.1)
 
     def stop(self):
@@ -417,25 +525,45 @@ class Server:
     def err(self):
         return self.err_path.read_text()
 
+    def log(self):
+        """Everything it printed, both streams."""
+        return self.out() + self.err()
+
+
+def owner_env(key, name=OWNER):
+    """The env that makes board-server bind `name` to `key` at start."""
+    return {"BOARD_OWNER_NAME": name, "BOARD_OWNER_PUBKEY": str(key.pub)}
+
 
 @contextmanager
-def running(db, logs, **env):
-    """A Board on `db` for the length of a with-block."""
+def running(db, logs, owner_key=None, **env):
+    """A Board on `db` for the length of a with-block, its owner `owner_key`."""
     server = Server(db, logs)
     try:
-        server.start(**env)
-        yield Board(server)
+        server.start(**(owner_env(owner_key) if owner_key else {}), **env)
+        yield Board(server, owner_key)
     finally:
         server.stop()
 
 
+def items_of(answer):
+    """A list some endpoint answers, bare or as the one list in an object."""
+    if isinstance(answer, list):
+        return answer
+    lists = [v for v in answer.values() if isinstance(v, list)]
+    assert len(lists) == 1, answer
+    return lists[0]
+
+
 class Board:
     """A running board, through its HTTP API and its database file: what a
-    client and an operator can see and do."""
+    client and an operator can see and do. Writes are signed here, with the
+    suite's own canonical bytes and ssh-keygen."""
 
-    def __init__(self, server):
+    def __init__(self, server, owner_key=None, owner_name=OWNER):
         self.server = server
-        self.last_sent = None  # the payload of the last write, as sent
+        self.owner = Agent(self, owner_key, owner_name) if owner_key else None
+        self.last_sent = None  # the body of the last write, as sent
 
     @property
     def url(self):
@@ -453,111 +581,175 @@ class Board:
 
     def _ok(self, response):
         if response.status != 200:
-            raise refusal(response)
+            raise refused(response)
         return response.json()
 
+    def get_json(self, path, **query):
+        q = urllib.parse.urlencode(query, doseq=True)
+        return self._ok(self.get(path + (f"?{q}" if q else "")))
+
     # reads
+    def healthz(self):
+        return self.get_json("/healthz")
+
     def head_id(self):
-        return self._ok(self.get("/healthz"))["head"]
+        return self.healthz()["head"]
 
-    def poll(self, since=0, area="", topic="", timeout=0, include_archived=True):
-        q = urllib.parse.urlencode({"since": since, "area": area, "topic": topic,
-                                    "timeout": timeout,
-                                    "archived": "1" if include_archived else ""})
-        return self._ok(request(f"{self.url}/poll?{q}", timeout=timeout + HANG_TIMEOUT))
+    def node(self, path, **query):
+        """GET /n/<path>: container {node, children}, note {node, note},
+        thread {node, messages, earlier}, queue {node, items}."""
+        return self.get_json(f"/n/{path}", **query)
 
-    def query_since(self, since=0, area="", topic=""):
-        return self.poll(since, area, topic, 0)
+    def children(self, path=""):
+        """A container's children; "" is the top level ({node: null, children})."""
+        return self.node(path)["children"]
 
-    def list_areas(self, include_archived=False):
-        return self._ok(self.get(f"/areas?archived={'1' if include_archived else ''}"))
+    def messages(self, path, **query):
+        return self.node(path, **query)["messages"]
 
-    def get_pin(self, area, topic=""):
-        r = self.get("/pin?" + urllib.parse.urlencode({"area": area, "topic": topic}))
-        return None if r.status == 404 else self._ok(r)
+    def note(self, path, **query):
+        return self.node(path, **query)["note"]
 
-    def pins_for(self, area="", topic="", include_archived=True):
-        return self._ok(self.get("/pins?" + urllib.parse.urlencode({
-            "area": area, "topic": topic, "archived": "1" if include_archived else ""})))
+    def queue_items(self, path, **query):
+        return self.node(path, **query)["items"]
 
-    def list_topics(self, area):
-        """The topics the web view's topic nav offers for `area`."""
-        page = self.get("/?" + urllib.parse.urlencode({"area": area})).text
-        nav = page.split("topics: ", 1)[1].split("</nav>", 1)[0]
-        return [urllib.parse.unquote(t) for t in re.findall(r'&topic=([^"]*)"', nav)]
+    def event(self, eid):
+        return self.get_json(f"/event/{eid}")
+
+    def item(self, item):
+        return self.get_json(f"/item/{item}")
+
+    def items(self, **query):
+        return items_of(self.get_json("/items", **query))
+
+    def poll(self, since=0, timeout=0, **filters):
+        """GET /poll: {events, cursor}. Filters take a value or a list:
+        path, mention, not_from, asked_by, owner, item."""
+        q = {"since": since, "timeout": timeout}
+        q.update({k: v for k, v in filters.items() if v is not None})
+        query = urllib.parse.urlencode(q, doseq=True)
+        return self._ok(request(f"{self.url}/poll?{query}", timeout=timeout + HANG_TIMEOUT))
+
+    def brief(self, *paths, as_=None):
+        query = {"path": list(paths)}
+        if as_:
+            query["as"] = as_
+        return self.get_json("/brief", **query)
+
+    def keys(self):
+        return items_of(self.get_json("/keys"))
+
+    def key_info(self, fingerprint):
+        """GET /keys/<fp>, the fingerprint percent-encoded ('/', '+', ':')."""
+        return self.get_json(f"/keys/{urllib.parse.quote(fingerprint, safe='')}")
+
+    def trust_note(self):
+        return self.note("_board/trust")
 
     # writes
-    def signer(self, key):
-        """`key`, signing against the head as of now."""
-        return Signer(key, str(self.head_id()))
+    def signed(self, action, key, values, nonce=None):
+        """The body of a signed `action` with these field values (any not
+        given are ""), its nonce the head as of now unless given."""
+        namespace, fields = KINDS[action]
+        unknown = set(values) - set(fields)
+        assert not unknown, f"{action} has no fields {unknown}"
+        signed = {name: text(values.get(name)) for name in fields}
+        signed["nonce"] = text(self.head_id() if nonce is None else nonce)
+        body = wire(signed)
+        body["signature"] = key.sign(namespace, canonical(fields, signed))
+        return body
 
-    def post(self, area, topic, sender, body, key=None, signer=None):
-        data = {"area": area, "topic": topic, "from": sender, "body": body}
-        if key is not None:
-            data["key"] = key
-        if signer is not None:
-            data["nonce"] = signer.nonce
-            data["signature"] = signer.sign(MESSAGE, {
-                "area": area, "topic": topic, "from": sender, "body": body, "key": key or ""})
-        self.last_sent = data
-        return self._ok(request(self.url + "/post", data))["id"]
+    def send(self, action, body):
+        self.last_sent = body
+        return request(f"{self.url}/{action}", body)
 
-    def set_pin(self, area, topic, editor, body, base_version=None, signer=None):
-        data = {"area": area, "topic": topic, "from": editor, "body": body}
-        if base_version is not None:
-            data["base_version"] = base_version
-        if signer is not None:
-            data["nonce"] = signer.nonce
-            data["signature"] = signer.sign(PIN, {
-                "area": area, "topic": topic, "from": editor, "body": body,
-                "base_version": "" if base_version is None else str(base_version)})
-        self.last_sent = data
-        return self._ok(request(self.url + "/pin", data))["version"]
+    def write(self, action, key, *, nonce=None, **values):
+        """A signed write by `key`; its answer, or Refused. A stale nonce is
+        signed again (as every client does) unless `nonce` is pinned. `key`
+        among `values` is the idempotency key; a fresh one by default."""
+        values.setdefault("key", new_client_key())
+        for _ in range(NONCE_TRIES):
+            response = self.send(action, self.signed(action, key, values, nonce))
+            if response.status == 200:
+                return response.json()
+            failure = refused(response)
+            if failure.code != "stale-nonce" or nonce is not None:
+                raise failure
+        raise failure
 
-    def create_area(self, name, description=""):
-        self._ok(request(self.url + "/areas", {"name": name, "description": description}))
+    def as_key(self, key, name=None):
+        return Agent(self, key, name)
 
-    def set_archived(self, name, archived):
-        return self._ok(request(self.url + "/archive",
-                                {"area": name, "archived": archived}))["changed"]
+    def register(self, key, name, note="", repo=""):
+        return self.write("register", key, name=name, note=note, repo=repo)
 
-    def signed_message(self, signing_key, /, **fields):
-        """A signed /post payload, its nonce the current head."""
-        values = {"area": "x", "topic": "t", "from": "agent", "body": "hello",
-                  "key": "k1", "nonce": str(self.head_id()), **fields}
-        values["signature"] = signing_key.sign(MESSAGE[0], canonical(MESSAGE[1], values))
-        return values
+    def approve(self, item, name, fingerprint):
+        assert self.owner, "this board has no owner key"
+        return self.owner.write("approve", item=item, name=name, fingerprint=fingerprint)
 
-    def signed_pin(self, signing_key, /, **fields):
-        """A signed JSON /pin payload, its nonce the current head. base_version
-        is signed as text and sent as a number, or not at all when empty."""
-        values = {"area": "rev", "topic": "", "from": "agent", "body": "rules",
-                  "base_version": "", "nonce": str(self.head_id()), **fields}
-        signature = signing_key.sign(PIN[0], canonical(PIN[1], values))
-        base = values["base_version"]
-        return {**values, "base_version": int(base) if base else None, "signature": signature}
+    def trusted(self, key, name):
+        """`key`, registered as `name` and approved by the owner."""
+        item = self.register(key, name)["item"]
+        self.approve(item, name, key.fingerprint)
+        return Agent(self, key, name)
 
-    # the database file, as board-admin and an operator see it
+    # the database file
     def sql(self, query, *args):
         return sql(self.db, query, *args)
 
-    def get_identity(self, name):
-        rows = self.sql("SELECT name, pubkey, fingerprint, source, registered_ts"
-                        " FROM identities WHERE name=?", name)
-        return dict(zip(("name", "pubkey", "fingerprint", "source", "registered_ts"),
-                        rows[0])) if rows else None
+    def node_id(self, path):
+        [(nid,)] = self.sql("SELECT id FROM nodes WHERE path=?", path)
+        return nid
 
-    def list_identities(self):
-        return [self.get_identity(n) for (n,) in
-                self.sql("SELECT name FROM identities ORDER BY name")]
 
-    def delete_message(self, mid):
-        """What board-admin's per-message delete does to the file."""
-        return sql_changes(self.db, "DELETE FROM messages WHERE id=?", mid) > 0
+@dataclass
+class Agent:
+    """A key writing to a board: what one agent (or the owner) can do."""
+    board: Board
+    key: Key
+    name: str = None
 
-    def delete_identity(self, name):
-        """What board-admin's claim release does to the file."""
-        return sql_changes(self.db, "DELETE FROM identities WHERE name=?", name) > 0
+    @property
+    def fingerprint(self):
+        return self.key.fingerprint
+
+    def write(self, action, **values):
+        return self.board.write(action, self.key, **values)
+
+    def create(self, path, kind, description="", owner="", body=""):
+        return self.write("create", path=path, kind=kind, description=description, owner=owner,
+                          body=body)
+
+    def post(self, path, body):
+        """A thread message; its id."""
+        return self.write("post", path=path, body=body)["id"]
+
+    def set_note(self, path, body, base_version, through=""):
+        """A new note version: {version, id, ...}."""
+        return self.write("note", path=path, body=body, base_version=base_version,
+                          through=through)
+
+    def ask(self, path, body):
+        """File an item in a queue; the item id."""
+        return self.write("file", path=path, body=body)["item"]
+
+    def resolve(self, item, state, body="", ref=""):
+        return self.write("resolve", item=item, state=state, body=body, ref=ref)
+
+    def answer(self, item, body="done", ref=""):
+        return self.resolve(item, "answered", body, ref)
+
+    def decline(self, item, body="no"):
+        return self.resolve(item, "declined", body)
+
+    def cancel(self, item, body=""):
+        return self.resolve(item, "cancelled", body)
+
+    def approve(self, item, name, fingerprint):
+        return self.write("approve", item=item, name=name, fingerprint=fingerprint)
+
+    def revoke(self, fingerprint, reason=""):
+        return self.write("revoke", fingerprint=fingerprint, reason=reason)
 
 
 # --- a proxy: the network edge, where tests break the connection -------------------
@@ -574,6 +766,7 @@ class Exchange:
     status: int = None
     answer: bytes = b""
     headers: list = field(default_factory=list)
+    lost: Exception = None  # the board went away before it answered
 
     @property
     def route(self):
@@ -584,8 +777,16 @@ class Exchange:
         return {k: v[0] for k, v in
                 urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).items()}
 
+    @property
+    def queries(self):
+        """Every value of every query parameter."""
+        return urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+
     def json(self):
         return json.loads(self.body)
+
+    def answer_json(self):
+        return json.loads(self.answer)
 
 
 class Proxy:
@@ -593,17 +794,30 @@ class Proxy:
     `after` see each one: `before` returning DROP closes the connection
     without forwarding (a board that is down), `after` returning DROP
     closes it once the server has answered (an answer lost on the way back);
-    either may also wait or write to the board itself."""
+    either may also wait or write to the board itself.
+
+    Two drops are routine and quiet: the board going away mid-request (a
+    test stopped or restarted it; the client's connection is closed, as
+    the board's was, and `Exchange.lost` says why), and the client going
+    away before its answer (a watch that was stopped). Anything else that
+    fails in here -- a hook's own assertion, a write a hook made that the
+    board refused -- is a fault of the test: it lands in `errors`, which
+    the `proxy` fixture fails the test on, instead of a traceback on
+    stderr that fails nothing."""
 
     def __init__(self, upstream):
         self.upstream = urllib.parse.urlsplit(upstream)
         self.seen = []
+        self.errors = []
         self.before = lambda exchange: None
         self.after = lambda exchange: None
         proxy = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
+
+            def log_message(self, *args):
+                pass
 
             def _relay(self):
                 length = int(self.headers.get("Content-Length") or 0)
@@ -613,31 +827,45 @@ class Proxy:
                     self.close_connection = True
                     return
                 conn = http.client.HTTPConnection(proxy.upstream.hostname,
-                                                  proxy.upstream.port, timeout=HANG_TIMEOUT)
+                                                  proxy.upstream.port, timeout=HANG_TIMEOUT * 4)
                 try:
                     headers = {"Content-Type": self.headers["Content-Type"]} \
                         if self.headers.get("Content-Type") else {}
                     conn.request(self.command, self.path, body=ex.body or None, headers=headers)
                     resp = conn.getresponse()
                     ex.answer, ex.status, ex.headers = resp.read(), resp.status, resp.getheaders()
+                except OSError as e:  # http.client.RemoteDisconnected is one
+                    ex.lost = e
+                    self.close_connection = True
+                    return
                 finally:
                     conn.close()
                 if proxy.after(ex) == DROP:
                     self.close_connection = True
                     return
-                self.send_response(ex.status)
-                for name, value in ex.headers:
-                    if name.lower() in ("content-type", "board-error", "location",
-                                        "content-security-policy"):
-                        self.send_header(name, value)
-                self.send_header("Content-Length", str(len(ex.answer)))
-                self.end_headers()
-                self.wfile.write(ex.answer)
+                try:
+                    self.send_response(ex.status)
+                    for name, value in ex.headers:
+                        if name.lower() in ("content-type", "board-error", "location",
+                                            "content-security-policy"):
+                            self.send_header(name, value)
+                    self.send_header("Content-Length", str(len(ex.answer)))
+                    self.end_headers()
+                    self.wfile.write(ex.answer)
+                except OSError:  # the client left before its answer
+                    self.close_connection = True
 
             do_GET = do_POST = _relay
 
-        self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.httpd.daemon_threads = True
+        class Quiet(http.server.ThreadingHTTPServer):
+            daemon_threads = True
+
+            def handle_error(self, request, client_address):
+                error = sys.exc_info()[1]
+                if not isinstance(error, ConnectionError):  # a client that left: routine
+                    proxy.errors.append(error)
+
+        self.httpd = Quiet(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
 
@@ -647,6 +875,10 @@ class Proxy:
     def sent(self, route):
         """The JSON bodies POSTed to `route`."""
         return [ex.json() for ex in self.seen if ex.method == "POST" and ex.route == route]
+
+    def writes(self):
+        """Every POST that went through."""
+        return [ex for ex in self.seen if ex.method == "POST"]
 
     def close(self):
         self.httpd.shutdown()
@@ -676,8 +908,17 @@ class Run:
     def result(self):
         """The one object a command that is not a stream prints."""
         lines = self.lines
-        assert len(lines) == 1, self.out
+        assert len(lines) == 1, (self.out, self.err)
         return lines[0]
+
+    def of(self, kind):
+        """The lines of one type."""
+        return [line for line in self.lines if line["type"] == kind]
+
+    def ok(self):
+        """Itself, checked to have succeeded: exit 0, nothing on stderr."""
+        assert (self.code, self.err) == (0, ""), self
+        return self
 
 
 def json_line(line):
@@ -689,20 +930,29 @@ def json_line(line):
     return value
 
 
-def cli(*args, stdin="", env=None, timeout=HANG_TIMEOUT):
-    """Run `board` in the current directory with the current environment."""
-    done = subprocess.run([program("board"), *args], input=stdin.encode(), capture_output=True,
-                          cwd=os.getcwd(), env=dict(os.environ) if env is None else env,
+def _env(env, key):
+    env = dict(os.environ) if env is None else dict(env)
+    if key is not None:
+        env["BOARD_KEY"] = str(key.path if isinstance(key, Key) else key)
+    return env
+
+
+def cli(*args, stdin="", env=None, key=None, timeout=HANG_TIMEOUT):
+    """Run `board` in the current directory with the current environment,
+    signing with `key` (a Key or a path) if given."""
+    done = subprocess.run([program("board"), *map(str, args)], input=stdin.encode(),
+                          capture_output=True, cwd=os.getcwd(), env=_env(env, key),
                           timeout=timeout, check=False)
     return Run(done.returncode, done.stdout.decode(), done.stderr.decode())
 
 
-class Watch:
-    """A `board watch` process, read a line at a time."""
+class Process:
+    """A long-running `board` command (watch, wait), read a line at a time."""
 
-    def __init__(self, *args):
-        self.proc = subprocess.Popen([program("board"), "watch", *args], cwd=os.getcwd(),
-                                     env=dict(os.environ), stdout=subprocess.PIPE,
+    def __init__(self, *args, key=None, env=None):
+        self.args = [str(a) for a in args]
+        self.proc = subprocess.Popen([program("board"), *self.args], cwd=os.getcwd(),
+                                     env=_env(env, key), stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE)
         self.lines = queue.Queue()
         threading.Thread(target=self._read, daemon=True).start()
@@ -715,7 +965,8 @@ class Watch:
     def line(self, timeout=HANG_TIMEOUT):
         got = self.lines.get(timeout=timeout)
         if got is None:
-            raise AssertionError(f"board watch exited with {self.proc.wait()}:"
+            self.lines.put(None)
+            raise AssertionError(f"board {' '.join(self.args)} exited with {self.proc.wait()}:"
                                  f" {self.proc.stderr.read().decode()}")
         assert got.endswith("\n"), got
         return got[:-1]
@@ -724,10 +975,110 @@ class Watch:
         """The next line, parsed (see `json_line`)."""
         return json_line(self.line(timeout))
 
+    def nothing_for(self, seconds):
+        """Whether it printed nothing for this long."""
+        try:
+            got = self.lines.get(timeout=seconds)
+        except queue.Empty:
+            return True
+        self.lines.put(got)  # out of order now, but the caller is about to fail
+        return False
+
+    def wait(self, timeout=HANG_TIMEOUT):
+        """Its exit status, and its stderr."""
+        code = self.proc.wait(timeout=timeout)
+        return code, self.proc.stderr.read().decode()
+
+    def rest(self):
+        """The lines it printed until it exited."""
+        out = []
+        while (got := self.lines.get(timeout=HANG_TIMEOUT)) is not None:
+            out.append(json_line(got.rstrip("\n")))
+        self.lines.put(None)
+        return out
+
     def stop(self):
         if self.proc.poll() is None:
             self.proc.terminate()
         self.proc.wait(timeout=HANG_TIMEOUT)
+
+
+class Watch(Process):
+    """A `board watch` process."""
+
+    def __init__(self, *args, key=None, env=None):
+        super().__init__("watch", *args, key=key, env=env)
+
+    def events(self, n, timeout=HANG_TIMEOUT):
+        return [self.event(timeout) for _ in range(n)]
+
+
+@contextmanager
+def watching(*args, key=None, env=None):
+    watch = Watch(*args, key=key, env=env)
+    try:
+        yield watch
+    finally:
+        watch.stop()
+
+
+def run_command_line(command, key=None):
+    """A `board ...` command line the board handed out (brief's `watch`),
+    started as it is written."""
+    argv = shlex.split(command)
+    assert argv[0] == "board", command
+    return Process(*argv[1:], key=key)
+
+
+# --- fixtures the board's test files share ---------------------------------------------
+#
+# A test file imports these by name to use them.
+
+@pytest.fixture
+def isolated(tmp_path, monkeypatch):
+    isolate(monkeypatch, tmp_path)
+
+
+@pytest.fixture(scope="session")
+def keyring(tmp_path_factory):
+    return Keyring(tmp_path_factory.mktemp("keys"))
+
+
+@pytest.fixture
+def board(isolated, tmp_path, monkeypatch, keyring):
+    """A running board-server on a fresh database, its owner key bound to
+    OWNER; `board` the CLI talks to it."""
+    server = Server(tmp_path / "board-v2.db", tmp_path / "logs")
+    try:
+        server.start(**owner_env(keyring["owner"]))
+        monkeypatch.setenv("BOARD_URL", server.url)
+        yield Board(server, keyring["owner"])
+    finally:
+        server.stop()
+
+
+@pytest.fixture
+def proxy(board, monkeypatch):
+    """The board behind a proxy; `board` the CLI talks to the proxy (the
+    suite's own requests still go straight to the board)."""
+    p = Proxy(board.url)
+    monkeypatch.setenv("BOARD_URL", p.url)
+    yield p
+    p.close()
+    assert p.errors == [], f"the proxy failed (a test hook, not the board): {p.errors!r}"
+
+
+@pytest.fixture
+def team(board, keyring):
+    """The owner and three trusted agents, and a top-level container `rev`
+    the owner made, with a thread `rev/log` in it."""
+    t = SimpleNamespace(owner=board.owner,
+                        alice=board.trusted(keyring["alice"], "alice"),
+                        bob=board.trusted(keyring["bob"], "bob"),
+                        carol=board.trusted(keyring["carol"], "carol"))
+    t.owner.create("rev", "container", description="reversing")
+    t.alice.create("rev/log", "thread", description="the log")
+    return t
 
 
 # --- a user service manager stand-in --------------------------------------------------
@@ -1069,11 +1420,16 @@ class Wait:
 
 
 @dataclass
-class Pick:
-    """Wait for a list row containing `label`, then move down to it and select
-    it. A list starts on its first row (screen row 1, under the title) every
-    time it is shown."""
+class Select:
+    """Wait for a list row containing `label` and move down to it. A list
+    starts on its first row (screen row 1, under the title) every time it is
+    shown."""
     label: str
+
+
+@dataclass
+class Pick(Select):
+    """Select the row containing `label`, then choose it (Enter)."""
 
 
 @dataclass
@@ -1107,7 +1463,9 @@ def admin(env, timeout=HANG_TIMEOUT):
 
 def drive_tui(env, steps, rows=40, cols=120):
     """Run board-admin under a pty, feed it `steps` (keystrokes as bytes, or
-    Wait / Pick / Do) and wait for it to exit."""
+    Wait / Select / Pick / Do / Kill) and wait for it to exit. Keys sent
+    after it has exited are dropped, so a session may end with a few spare
+    `q`s to back out of wherever it is."""
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     proc = subprocess.Popen([program("board-admin")], stdin=slave, stdout=slave,
@@ -1132,6 +1490,14 @@ def drive_tui(env, steps, rows=40, cols=120):
                     return
                 term.feed(chunk)
 
+    def send(keys):
+        if proc.poll() is None:
+            try:
+                os.write(master, keys)
+            except OSError:
+                pass
+        drain(0.25)
+
     def wait_for(test, what):
         deadline = time.monotonic() + HANG_TIMEOUT
         while not test():
@@ -1149,14 +1515,12 @@ def drive_tui(env, steps, rows=40, cols=120):
         drain(0.2)
         for step in steps:
             if isinstance(step, bytes):
-                os.write(master, step)
-                drain(0.25)
+                send(step)
             elif isinstance(step, Wait):
                 wait_for(lambda: step.text in term.text(), step.text)
-            elif isinstance(step, Pick):
+            elif isinstance(step, Select):
                 wait_for(lambda: row_of(step.label) is not None, step.label)
-                os.write(master, b"j" * (row_of(step.label) - 1) + b"\r")
-                drain(0.25)
+                send(b"j" * (row_of(step.label) - 1) + (b"\r" if isinstance(step, Pick) else b""))
             elif isinstance(step, Do):
                 step.fn()
             elif isinstance(step, Kill):
