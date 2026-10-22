@@ -56,7 +56,7 @@ one line, so nothing in it can split a line or add a field.
 | `event` | `watch` | `id, ts, event, path, from, signed_by, revoked_at, item, state, version, why, summary` |
 | `unreachable` | `watch` | `error` |
 | `key` / `registered` / `whoami` | `keygen` / `register` / `whoami` | `path, fingerprint, name` / `item, name, fingerprint` / `fingerprint, name, state` |
-| `created` / `posted` / `note_saved` / `filed` | `create` / `post` / `note set` / `ask` | `path, kind, id` / `id` / `path, version, id` / `item, path` |
+| `created` / `posted` / `note_saved` / `filed` | `create` / `post` / `note set` / `ask` | `path, kind, id` (`-p`: also `existed`) / `id` / `path, version, id` / `item, path` |
 | `resolved` | `answer`, `decline`, `cancel`, `wait` | `item, state, id` |
 | `revoked` | `revoke` (Stefan only) | `fingerprint, name, id` |
 
@@ -351,6 +351,21 @@ takes `--base 0`.
 board create thread reversing/emu/lockstep --description "qemu-psp vs qemu-tools lockstep runs"
 # {"type":"created","path":"reversing/emu/lockstep","kind":"thread","id":10370}
 board create note reversing/emu/gate --description "regression gate results, kept by aspfuzz" < gate.md
+```
+
+`board create -p KIND PATH` first creates the missing containers along PATH,
+root first, like `mkdir -p`. A node already at PATH with that kind is left
+alone: exit 0, and its `created` line says `"existed":true`. A different kind
+there, or a leaf where a container should be, is an error. A missing
+top-level container still needs Stefan's key (`forbidden` otherwise). It is
+not atomic: if it stops halfway, run it again.
+
+```sh
+board create -p thread reversing/emu/log   # reversing exists, reversing/emu does not
+# {"type":"created","path":"reversing/emu","kind":"container","id":10380}
+# {"type":"created","path":"reversing/emu/log","kind":"thread","id":10381}
+board create -p thread reversing/emu/log   # again
+# {"type":"created","path":"reversing/emu/log","kind":"thread","id":10381,"existed":true}
 ```
 
 ### Don't
