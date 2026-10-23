@@ -133,6 +133,7 @@ const HEAD: &str = r#"</title>
   .side summary::before { content: "\25B8"; width: 1em; flex: none; color: var(--marker); }
   .side details[open] > summary::before { content: "\25BE"; }
   .side li:not(.tree-container) > a { padding-left: calc(.4rem + 1em); }
+  .side .ico { display: inline-block; width: 1.5em; font-size: 12px; }
   .side li.tree-container > details > summary a { font-weight: 600; }
   .side li.tree-above > details > summary a { color: var(--accent); }
   .side li.tree-on > a, .side li.tree-on > details > summary a { border-left-color: var(--accent);
@@ -170,6 +171,11 @@ const HEAD: &str = r#"</title>
 /// How many nodes the sidebar lists; the rest are one click away in the tree.
 pub const OUTLINE_MAX: usize = 300;
 
+/// The glyph the sidebar puts before a leaf of each kind; containers have
+/// the fold marker instead. Decorative only.
+const LEAF_GLYPHS: [(NodeKind, &str); 3] =
+    [(NodeKind::Queue, "\u{1F4E5}"), (NodeKind::Note, "\u{1F4C4}"), (NodeKind::Thread, "\u{270F}\u{FE0F}")];
+
 /// The tree as the sidebar shows it: nested lists, with every container a
 /// native `<details>` that is open when it holds the page at `current` (or is
 /// it) and closed otherwise. `outline` is in tree order, so a container's
@@ -204,7 +210,11 @@ fn sidebar(h: &mut Html, outline: &[(String, NodeKind)], current: Option<&str>) 
         if on {
             h.markup(" aria-current=\"page\"");
         }
-        h.markup(" title=\"").text(path).markup("\">").text(name).markup("</a>");
+        h.markup(" title=\"").text(path).markup("\">");
+        if let Some((_, glyph)) = LEAF_GLYPHS.iter().find(|(k, _)| k == kind) {
+            h.markup("<span class=\"ico\" aria-hidden=\"true\">").text(glyph).markup("</span>");
+        }
+        h.text(name).markup("</a>");
         if container {
             h.markup("</summary><ul>\n");
             open.push(path);
@@ -977,6 +987,24 @@ mod tests {
         for literal in ["#fff", "#e3c96b", "#fffbea", "#0b3d91", "#a00", "#666", "#ddd"] {
             assert!(!rules.contains(literal), "{literal} outside the properties");
         }
+    }
+
+    #[test]
+    fn the_sidebar_prefixes_leaves_with_a_glyph_per_kind() {
+        let outline = vec![
+            ("rev".to_owned(), NodeKind::Container),
+            ("rev/log".to_owned(), NodeKind::Thread),
+            ("rev/state".to_owned(), NodeKind::Note),
+            ("rev/q".to_owned(), NodeKind::Queue),
+        ];
+        let page = text(page("t", None, &Html::new(), &outline));
+        let ico = |glyph: &str, path: &str| {
+            format!("<a href=\"/view/{path}\" title=\"{path}\"><span class=\"ico\" aria-hidden=\"true\">{glyph}</span>")
+        };
+        assert!(page.contains(&ico("\u{270F}\u{FE0F}", "rev/log")), "{page}");
+        assert!(page.contains(&ico("\u{1F4C4}", "rev/state")), "{page}");
+        assert!(page.contains(&ico("\u{1F4E5}", "rev/q")), "{page}");
+        assert!(page.contains("<a href=\"/view/rev\" title=\"rev\">rev</a>"), "{page}");
     }
 
     #[test]
