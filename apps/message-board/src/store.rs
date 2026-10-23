@@ -79,7 +79,7 @@ pub use actions::{Created, Filed, NoteSaved, Posted, Registered, Resolved, Revok
 /// for a v1 one.
 pub const FIRST_ID: i64 = 10_001;
 pub const NAME_MAX: usize = 64;
-pub const NAME_RULE: &str = "1-64 ASCII letters, digits, '_' and '-'";
+pub const NAME_RULE: &str = "1-64 ASCII letters, digits, '_' and '-', not starting with '-' or '_'";
 /// How many edits (ignoring case) a name must be from every bound one.
 pub const MIN_DISTANCE: usize = 3;
 /// The board's own name: the actor of its own events. Nobody registers it
@@ -179,7 +179,7 @@ pub enum Error {
     NotRegistered { fingerprint: String },
     #[error("this key's registration #{item} waits for the owner's approval")]
     RegistrationPending { item: i64 },
-    #[error("this key's registration #{item} was declined; it may register again")]
+    #[error("this key's registration #{item} was declined; stop and tell the human; do not register again unless asked to")]
     RegistrationDeclined { item: i64 },
     #[error("this key was revoked at #{revoked_at}; stop and tell the human; do not make a new key on your own")]
     KeyRevoked { revoked_at: i64 },
@@ -320,7 +320,9 @@ fn quoted(name: &str) -> String {
 /// [`Error::BadRequest`], quoting the name.
 pub fn check_name(name: &str) -> Result<(), Error> {
     let allowed = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
-    if (1..=NAME_MAX).contains(&name.len()) && name.bytes().all(allowed) {
+    // A leading '-' would pass for an option on a command line, and '_' is
+    // the board's own (`_board`).
+    if (1..=NAME_MAX).contains(&name.len()) && name.bytes().all(allowed) && !name.starts_with(['-', '_']) {
         Ok(())
     } else {
         Err(Error::BadRequest(format!("name {} is not allowed: names are {NAME_RULE}", quoted(name))))

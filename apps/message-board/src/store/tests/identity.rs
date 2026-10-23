@@ -45,7 +45,13 @@ fn registering_is_idempotent_per_key_and_answers_a_trusted_one() -> TestResult {
     assert_eq!((first.name.as_str(), first.fingerprint.as_str()), ("agent", agent.fingerprint().as_str()));
     let head = f.board.head()?;
     assert_eq!(f.register(&agent, "agent")?, first);
-    assert_eq!(f.register(&agent, "another-name")?, first, "a waiting key gets its registration back");
+    let err = refused(f.register(&agent, "another-name"))?;
+    assert!(matches!(&err, Error::Conflict(m) if m.contains("another note or repo")), "{err}");
+    assert_eq!(err.status(), 409);
+    let other_note = submit!(f.board, &agent, register, Register { name: "agent", note: "else", repo: "/src/test" });
+    assert!(matches!(refused(other_note)?, Error::Conflict(_)));
+    let other_repo = submit!(f.board, &agent, register, Register { name: "agent", note: "for a test", repo: "/x" });
+    assert!(matches!(refused(other_repo)?, Error::Conflict(_)));
     assert_eq!(f.board.head()?, head);
     f.approve(first.item, "agent", &agent)?;
     let err = refused(f.register(&agent, "agent"))?;
@@ -66,7 +72,7 @@ fn names_are_checked_before_they_reach_the_owner() -> TestResult {
         let err = refused(f.register(&key(seed)?, name))?;
         assert!(matches!(err, Error::Forbidden(_)), "{name}: {err}");
     }
-    for name in ["", "two words", "na\u{ef}ve", &"x".repeat(NAME_MAX + 1)] {
+    for name in ["", "-flag", "_board", "two words", "na\u{ef}ve", &"x".repeat(NAME_MAX + 1)] {
         assert!(matches!(refused(f.register(&key(30)?, name))?, Error::BadRequest(_)), "{name:?}");
     }
     let big = "n".repeat(REGISTER_TEXT_MAX + 1);

@@ -154,12 +154,21 @@ fn listen(addr: &str, port: u16) -> Result<TcpListener, StartError> {
     TcpListener::bind(target).map_err(failed)
 }
 
+/// What a refused owner setting leaves: the owner of an earlier start
+/// (which stays, whatever the setting says now), or nobody.
+fn ownership(board: &Board) -> Result<String, StartError> {
+    Ok(match board.owner()? {
+        Some(owner) => format!("keeping the current owner {} ({})", owner.name, owner.fingerprint),
+        None => "the board has no owner".to_owned(),
+    })
+}
+
 /// Bind `BOARD_OWNER_NAME` to the key in `BOARD_OWNER_PUBKEY`, if both are
 /// set: the owner key, the human of the permission rules. Unchanged since
 /// the last start, nothing is written. A missing or unusable key file, or
-/// a name the board refuses, is logged and skipped: the board runs without
-/// an owner (it approves nothing then), and the key may simply not exist
-/// yet. Bound names that look like the owner's stay, with a warning:
+/// a name the board refuses, is logged and skipped: the board keeps the owner
+/// an earlier start bound, or runs without one (it approves nothing then),
+/// and the key may simply not exist yet. Bound names that look like the owner's stay, with a warning:
 /// revoking one is the owner's call, in the web view.
 fn bind_owner(board: &Board) -> Result<(), StartError> {
     let name = setting("BOARD_OWNER_NAME")?.unwrap_or_default();
@@ -171,7 +180,7 @@ fn bind_owner(board: &Board) -> Result<(), StartError> {
     let shown = path.display();
     let key = match fs::read_to_string(&path) {
         Err(err) if err.kind() == ErrorKind::NotFound => {
-            log::info(&format!("board: no owner key at {shown}; {name} is not bound"));
+            log::info(&format!("board: no owner key at {shown}; {name} is not bound; {}", ownership(board)?));
             return Ok(());
         }
         Err(err) => Err(err.to_string()),
@@ -180,7 +189,7 @@ fn bind_owner(board: &Board) -> Result<(), StartError> {
     let key = match key {
         Ok(key) => key,
         Err(why) => {
-            log::info(&format!("board: owner key {shown} unusable ({why}); {name} is not bound"));
+            log::info(&format!("board: owner key {shown} unusable ({why}); {name} is not bound; {}", ownership(board)?));
             return Ok(());
         }
     };
@@ -188,8 +197,9 @@ fn bind_owner(board: &Board) -> Result<(), StartError> {
         Ok(change) => change,
         Err(err @ (store::Error::BadRequest(_) | store::Error::Forbidden(_))) => {
             log::info(&format!(
-                "board: BOARD_OWNER_NAME {name:?} with {}: {err}; the board has no owner",
-                key.fingerprint
+                "board: BOARD_OWNER_NAME {name:?} with {}: {err}; {}",
+                key.fingerprint,
+                ownership(board)?
             ));
             return Ok(());
         }

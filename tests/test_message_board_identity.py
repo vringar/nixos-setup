@@ -112,16 +112,22 @@ def test_a_key_without_a_key_file_writes_nothing(board, team):
     assert board.head_id() == head
 
 
-def test_registering_again_while_pending_returns_the_same_item(board, keyring):
+def test_registering_again_while_pending_returns_the_same_item_for_the_same_data(board, keyring):
     key = keyring["newbie"]
     first = board.register(key, "newbie", note="first")
     head = board.head_id()
     assert board.register(key, "newbie", note="first")["item"] == first["item"]
-    assert board.register(key, "newbie-renamed")["item"] == first["item"]  # one open per key
+    for other in ({"name": "newbie-renamed", "note": "first"}, {"name": "newbie", "note": "second"},
+                  {"name": "newbie", "note": "first", "repo": "/elsewhere"}):
+        with refusal(409, "conflict"):  # one open per key, and it says what it was
+            board.register(key, **other)
     assert board.head_id() == head
     assert [i["id"] for i in board.queue_items("_board/register")] == [first["item"]]
-    again = cli("register", "--name", "newbie", key=key).ok().result
-    assert again["item"] == first["item"]
+    cli_first = cli("register", "--name", "cliagent", "--note", "n", key=keyring["dora"]).ok().result
+    again = cli("register", "--name", "cliagent", "--note", "n", key=keyring["dora"]).ok().result
+    assert again["item"] == cli_first["item"]
+    changed = cli("register", "--name", "cliagent", "--note", "m", key=keyring["dora"])
+    assert (changed.code, changed.out) == (1, "") and "conflict" in changed.err
 
 
 def test_what_registering_does_for_a_trusted_revoked_or_declined_key(board, keyring):
@@ -137,9 +143,25 @@ def test_what_registering_does_for_a_trusted_revoked_or_declined_key(board, keyr
     dora = keyring["dora"]
     item = board.register(dora, "dora")["item"]
     board.owner.decline(item, "who are you")
-    again = board.register(dora, "dora")["item"]  # declined may ask again
+    with refusal(403, "registration-declined") as declined:  # but it is told not to, unprompted
+        board.as_key(dora).post("rev/log", "hi")
+    assert "do not register again" in declined.value["message"]
+    again = board.register(dora, "dora")["item"]  # the store lets it, once the owner asked
     assert again != item
     assert [i["id"] for i in board.queue_items("_board/register")] == [again]
+
+
+def test_a_look_alike_of_a_name_bound_since_cannot_be_approved(board, keyring):
+    squatter = keyring["dora"]
+    item = board.register(squatter, "ghidr4")["item"]
+    board.trusted(keyring["alice"], "ghidra")
+    with refusal(403, "forbidden") as r:
+        board.approve(item, "ghidr4", squatter.fingerprint)
+    assert "too close" in r.value["message"]
+    run = cli("approve", item, key=board.owner.key)
+    assert run.code == 1 and "forbidden" in run.err and "too close" in run.err
+    assert board.key_info(squatter.fingerprint)["state"] == "pending"
+    board.owner.decline(item, "close to ghidra")
 
 
 NATO = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india",
@@ -372,6 +394,23 @@ def test_a_new_owner_key_in_the_config_revokes_the_old_one(board, team, keyring)
     board.restart(**owner_env(new_key))  # bound at every start; the same key changes nothing
     assert board.head_id() == head
     assert board.key_info(new_key.fingerprint)["state"] == "owner"
+
+
+def test_a_refused_owner_setting_says_which_owner_it_keeps(board, keyring, tmp_path):
+    """The log must not claim the board has no owner when an earlier start's
+    owner is still bound."""
+    first = board.owner.fingerprint
+    board.restart(BOARD_OWNER_NAME=OWNER, BOARD_OWNER_PUBKEY=str(tmp_path / "gone.pub"))
+    log = board.server.log()
+    assert f"keeping the current owner {OWNER} ({first})" in log and "the board has no owner" not in log
+    assert board.healthz()["owner"]["fingerprint"] == first
+    # a key revoked by an earlier rotation cannot come back as the owner
+    new_key = keyring["owner-2"]
+    board.restart(**owner_env(new_key))
+    board.restart(**owner_env(keyring["owner"]))
+    log = board.server.log()
+    assert "was revoked at" in log and f"keeping the current owner {OWNER} ({new_key.fingerprint})" in log
+    assert board.healthz()["owner"]["fingerprint"] == new_key.fingerprint
 
 
 def test_a_board_without_an_owner_key_starts_and_approves_nothing(tmp_path, keyring):

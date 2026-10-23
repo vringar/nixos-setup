@@ -47,7 +47,8 @@ pub enum KeyState {
     Pending,
     /// Approved: its name is bound to it.
     Trusted,
-    /// Its registration was declined; it may register again.
+    /// Its registration was declined; the store lets it register again once
+    /// the owner asks it to.
     Declined,
     /// No longer trusted, for good: a new key must register.
     Revoked,
@@ -315,6 +316,8 @@ impl Board {
     /// # Errors
     /// A refusal of the signature; [`Error::BadRequest`] for a name outside
     /// the rule or a note or repo over [`REGISTER_TEXT_MAX`];
+    /// [`Error::Conflict`] for a waiting key registering again with another
+    /// name, note or repo;
     /// [`Error::Forbidden`] for the board's or the owner's name and for one
     /// that looks like a bound name; [`Error::AlreadyRegistered`] for a
     /// trusted key; [`Error::KeyRevoked`]; [`Error::RegisterFull`].
@@ -333,7 +336,19 @@ impl Board {
             |conn, stamp, verified| {
                 let fingerprint = verified.fingerprint.as_str();
                 match get(conn, fingerprint)? {
-                    Some(key) if key.state == KeyState::Pending => return Ok(key.item.unwrap_or_default()),
+                    Some(key) if key.state == KeyState::Pending => {
+                        let same = (key.name.as_str(), key.note.as_str(), key.repo.as_str())
+                            == (register.name, register.note, register.repo);
+                        if !same {
+                            return Err(Error::Conflict(format!(
+                                "this key's registration #{} is waiting for {} with another note or repo; \
+                                 wait for the owner, or ask for it to be declined and register again",
+                                key.item.unwrap_or_default(),
+                                quoted(&key.name)
+                            )));
+                        }
+                        return Ok(key.item.unwrap_or_default());
+                    }
                     Some(key) if matches!(key.state, KeyState::Owner | KeyState::Trusted) => {
                         return Err(Error::AlreadyRegistered { name: key.name });
                     }
