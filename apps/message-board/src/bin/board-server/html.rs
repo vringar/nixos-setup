@@ -75,14 +75,14 @@ const HEAD: &str = r#"</title>
   :root { color-scheme: light dark;
     --bg: #fff; --fg: #1a1a1a; --muted: #666; --faint: #999; --head: #555;
     --border: #ddd; --rule: #eee; --rule-soft: #f0f0f0; --hover: #f2f2f2; --side-fg: #333; --marker: #777;
-    --note-bg: #fffbea; --note-border: #e3c96b;
+    --note-bg: #f7f7f7; --note-border: #ddd;
     --accent: #0b3d91; --accent-bg: #eef3fc;
     --error: #a00; --flag: #8a5a00;
     --field-bg: #fff; --field-fg: #1a1a1a; --field-border: #767676; }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #16181d; --fg: #e4e6eb; --muted: #a0a6b0; --faint: #8b919b; --head: #b4bac4;
       --border: #3a3f48; --rule: #2a2e36; --rule-soft: #262a31; --hover: #252932; --side-fg: #d0d4db; --marker: #9aa0aa;
-      --note-bg: #2a2619; --note-border: #6b5d2a;
+      --note-bg: #1e2128; --note-border: #3a3f48;
       --accent: #8ab4f8; --accent-bg: #1f2b44;
       --error: #ff8a80; --flag: #e0b252;
       --field-bg: #1e2128; --field-fg: #e4e6eb; --field-border: #5a606b; }
@@ -974,7 +974,7 @@ mod tests {
         );
         assert!(page.contains("--bg:") && page.contains("body { background: var(--bg); }"), "{page}");
         let (_, rules) = page.split_once("body { background").unwrap_or(("", ""));
-        for literal in ["#fff", "#e3c96b", "#0b3d91", "#a00", "#666", "#ddd"] {
+        for literal in ["#fff", "#e3c96b", "#fffbea", "#0b3d91", "#a00", "#666", "#ddd"] {
             assert!(!rules.contains(literal), "{literal} outside the properties");
         }
     }
