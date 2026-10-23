@@ -68,7 +68,7 @@ FIRST_ID = 10001
 # permission matrix.
 OWNER = "Stefan"
 # Signed writes in a row that may go stale before a client gives up.
-NONCE_TRIES = 5
+NONCE_TRIES = 8
 # The line `board` prints for a v1 command form.
 V1_POINTER = "board: v2 has no areas; see the message-board skill (board brief)"
 # Exit status of `board` for an identity refusal (not registered, pending,

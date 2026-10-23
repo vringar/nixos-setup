@@ -31,7 +31,11 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Resends after no answer, waiting 1, 2, then 4 s before each.
 const WRITE_RETRIES: u32 = 3;
 /// Signatures in a row that may go stale before giving up.
-const NONCE_TRIES: u32 = 5;
+const NONCE_TRIES: u32 = 8;
+/// A stale signature waits a random time between these (in ms), times the
+/// number of signatures gone stale so far, before reading the head again:
+/// writers that collided once do not read it again in step.
+const BACKOFF_MS: (u64, u64) = (10, 100);
 
 /// Sign `action` and POST it to `route`; the board's answer, read as a `T`.
 pub fn submit<A: Action, T: DeserializeOwned>(
@@ -54,6 +58,7 @@ pub fn submit<A: Action, T: DeserializeOwned>(
                          board's head and this one arriving (stale-nonce); run it again"
                     )));
                 }
+                thread::sleep(backoff(stale)?);
             }
             Err(Attempt::Http(HttpError::Transport(cause))) if dropped < WRITE_RETRIES => {
                 warn(&format!("board: no answer to {route} ({cause}); retrying"))?;
@@ -64,6 +69,16 @@ pub fn submit<A: Action, T: DeserializeOwned>(
             Err(Attempt::Failed(err)) => return Err(err),
         }
     }
+}
+
+/// How long to wait after `stale` signatures went stale in a row: a random
+/// time in [`BACKOFF_MS`], times `stale`.
+fn backoff(stale: u32) -> Result<Duration, Failure> {
+    let mut bytes = [0_u8; 2];
+    getrandom::fill(&mut bytes).map_err(|err| Failure::Exit(format!("no random bytes for a backoff: {err}")))?;
+    let (low, high) = BACKOFF_MS;
+    let ms = low.saturating_add(u64::from(u16::from_le_bytes(bytes)) % (high - low + 1));
+    Ok(Duration::from_millis(ms.saturating_mul(u64::from(stale))))
 }
 
 /// One try at a write: an answer, or why there was none.
@@ -279,6 +294,18 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+
+    #[test]
+    fn a_backoff_is_random_within_its_bounds_and_grows_with_the_tries() -> Result<(), Failure> {
+        for stale in 1..=NONCE_TRIES {
+            let ms = backoff(stale)?.as_millis();
+            let (low, high) = (u128::from(BACKOFF_MS.0), u128::from(BACKOFF_MS.1));
+            assert!((low * u128::from(stale)..=high * u128::from(stale)).contains(&ms), "{stale}: {ms}");
+        }
+        let spread: std::collections::BTreeSet<_> = (0..40).map(|_| backoff(1)).collect::<Result<_, _>>()?;
+        assert!(spread.len() > 5, "{spread:?}");
+        Ok(())
+    }
 
     #[test]
     fn client_keys_are_uuid4_hex() -> Result<(), Failure> {

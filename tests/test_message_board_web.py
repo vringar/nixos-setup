@@ -457,7 +457,7 @@ def test_the_page_posts_and_edits_signing_the_head_of_the_moment(board, team, tm
     """What the page's signed submits do, run under node against a real
     board: read the head, sign, POST the form; once more when another
     write landed in between; never for a stale note edit (that is the
-    human's to resolve); and give up after five."""
+    human's to resolve); and give up after eight."""
     _node()
     team.alice.create("rev/state", "note", body="v1")
     script = tmp_path / "drive.js"
@@ -516,7 +516,7 @@ globalThis.fetch = async (url, init) => {
     assert (edited["log"], edited["status"]) == (once_more("/ui/note"), 200)
     assert stale["log"] == ["/healthz", "/ui/note"] and stale["refusal"] != "stale-nonce"
     assert "stale edit" in html.unescape(stale["text"])  # the text comes back, to resave
-    assert busy["log"] == ["/healthz", "/ui/post"] * 5
+    assert busy["log"] == ["/healthz", "/ui/post"] * 8
     assert (busy["status"], busy["refusal"]) == (409, "stale-nonce")
     mine = [m for m in board.messages("rev/log", all=1) if m["from"] == "alice"]
     assert [(m["body"], m["signed_by"]) for m in mine] == [("from the page", team.alice.fingerprint)]

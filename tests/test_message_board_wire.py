@@ -194,15 +194,15 @@ def test_the_cli_signs_again_when_another_write_lands_first(board, team, proxy):
     assert mine["id"] == run.result["id"]
 
 
-def test_the_cli_gives_up_after_five_stale_signatures(board, team, proxy):
+def test_the_cli_gives_up_after_eight_stale_signatures(board, team, proxy):
     def after(ex):
         if ex.route == "/healthz":  # every head is stale by the time the post arrives
             team.bob.post("rev/log", "busy")
 
     proxy.after = after
     run = cli("post", "rev/log", "never lands", key=team.alice.key)
-    assert run.code == 1 and run.last_err.startswith("board: gave up after 5 tries")
-    assert len(proxy.sent("/post")) == 5
+    assert run.code == 1 and run.last_err.startswith("board: gave up after 8 tries")
+    assert len(proxy.sent("/post")) == 8
     assert "never lands" not in [m["body"] for m in cli("read", "rev/log", "--all").ok().of("message")]
 
 
@@ -297,19 +297,40 @@ def test_twelve_writers_at_once_all_land(board, team, keyring, proxy):
     def write(agent):
         runs[agent.name] = cli("post", "rev/log", f"from {agent.name}", key=agent.key)
 
-    # A write gives up after NONCE_TRIES stale signatures, and each round of a race has one
-    # winner: twelve at once can leave the last few empty-handed. Waves of four cannot.
-    for wave in range(0, len(writers), 4):
-        threads = [threading.Thread(target=write, args=(w,)) for w in writers[wave:wave + 4]]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(HANG_TIMEOUT)
+    threads = [threading.Thread(target=write, args=(w,)) for w in writers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(HANG_TIMEOUT)
     assert {name: run.code for name, run in runs.items()} == {name: 0 for name in WRITERS}
     landed = sorted(m["body"] for m in cli("read", "rev/log", "--all").ok().of("message"))
     assert landed == sorted(f"from {name}" for name in WRITERS)
     stale = [ex for ex in proxy.seen if ex.route == "/post" and ex.status == 409]
     assert stale and all(dict(ex.headers).get("Board-Error") == "stale-nonce" for ex in stale)
+
+
+def test_twelve_writers_posting_five_times_each_all_land(board, team, keyring):
+    """The jittered backoff spreads colliding writers out: 60 posts from 12
+    processes at once, none of them given up on."""
+    writers = [board.trusted(keyring[name], name) for name in WRITERS]
+    runs = []
+    lock = threading.Lock()
+
+    def write(agent):
+        for n in range(5):
+            run = cli("post", "rev/log", f"{agent.name} {n}", key=agent.key)
+            with lock:
+                runs.append((agent.name, n, run.code, run.err))
+
+    threads = [threading.Thread(target=write, args=(w,)) for w in writers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(HANG_TIMEOUT * 4)
+    failed = [r for r in runs if r[2] != 0]
+    assert len(runs) == 60 and not failed, failed[:3]
+    landed = sorted(m["body"] for m in cli("read", "rev/log", "--all").ok().of("message"))
+    assert landed == sorted(f"{name} {n}" for name in WRITERS for n in range(5))
 
 
 # --- errors -------------------------------------------------------------------------------

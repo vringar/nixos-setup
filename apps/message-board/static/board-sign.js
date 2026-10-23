@@ -26,8 +26,10 @@
     approve: ["board2-approve", ["item", "name", "fingerprint", "key", "nonce"]],
     revoke: ["board2-revoke", ["fingerprint", "reason", "key", "nonce"]],
   };
-  // Signed submits in a row that may go stale before giving up, as `board` does.
-  const NONCE_TRIES = 5;
+  // Signed submits in a row that may go stale before giving up, as `board` does,
+  // and the random wait (ms) before each new try, times the tries so far.
+  const NONCE_TRIES = 8;
+  const BACKOFF_MS = [10, 100];
 
   const bytes = (x) => (typeof x === "string" ? enc.encode(x) : x);
   const concat = (...parts) => {
@@ -116,7 +118,8 @@
   // the board's head, read right before signing rather than when the form
   // was rendered, since someone may type for minutes. If another write lands
   // in between, the board answers stale-nonce: read, sign and send again,
-  // NONCE_TRIES times in all, then hand back the refusal.
+  // NONCE_TRIES times in all (after a random wait that grows with the tries),
+  // then hand back the refusal.
   async function postSigned(signer, kind, url, values, init = {}) {
     const healthz = new URL("/healthz", new URL(url, globalThis.location?.href));
     for (let attempt = 1; ; attempt++) {
@@ -127,6 +130,9 @@
       if (attempt === NONCE_TRIES || response.headers.get("Board-Error") !== "stale-nonce") {
         return response;
       }
+      const [low, high] = BACKOFF_MS;
+      const wait = (low + Math.floor(Math.random() * (high - low + 1))) * attempt;
+      await new Promise((resolve) => setTimeout(resolve, wait));
     }
   }
 
