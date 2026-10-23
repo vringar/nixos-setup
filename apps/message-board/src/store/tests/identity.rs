@@ -163,6 +163,26 @@ fn the_inbox_flags_look_alike_names() -> TestResult {
 }
 
 #[test]
+fn a_name_bound_since_makes_a_waiting_look_alike_unapprovable() -> TestResult {
+    let f = fixture()?;
+    let squatter = key(2)?;
+    let waiting = f.register(&squatter, "ghidr4")?;
+    f.agent(3, "ghidra")?;
+    let flagged: Vec<_> = f.board.registrations()?.into_iter().map(|r| (r.name, r.look_alikes)).collect();
+    assert_eq!(flagged, [("ghidr4".to_owned(), vec!["ghidra".to_owned()])]);
+    let err = refused(f.approve(waiting.item, "ghidr4", &squatter))?;
+    assert!(matches!(&err, Error::Forbidden(m) if m.contains("too close") && m.contains("ghidra")), "{err}");
+    assert_eq!(f.board.key(&squatter.fingerprint())?.map(|k| k.state), Some(KeyState::Pending));
+    // a replacement under the bound name itself is no look-alike of it
+    let session = f.agent(4, "session")?;
+    let other = key(5)?;
+    let replacement = f.register(&other, "session")?;
+    f.approve(replacement.item, "session", &other)?;
+    assert_eq!(f.board.key(&session.fingerprint())?.map(|k| k.state), Some(KeyState::Revoked));
+    Ok(())
+}
+
+#[test]
 fn only_the_owner_key_approves_and_revokes() -> TestResult {
     let f = fixture()?;
     let agent = f.agent(2, "agent")?;

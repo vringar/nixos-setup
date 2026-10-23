@@ -493,7 +493,7 @@ fn registration(h: &mut Html, r: &Registration) {
         h.markup("<p class=\"flag\">replaces <code>").text(old).markup("</code>: approving revokes it</p>\n");
     }
     if !r.look_alikes.is_empty() {
-        h.markup("<p class=\"flag\">looks like the waiting ").text(&r.look_alikes.join(", ")).markup("</p>\n");
+        h.markup("<p class=\"flag\">looks like the name ").text(&r.look_alikes.join(", ")).markup("</p>\n");
     }
     h.markup("<div>repo <code>")
         .text(&r.repo)

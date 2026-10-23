@@ -118,7 +118,8 @@ pub struct Registration {
     pub note: String,
     /// The key bound to `name` now, which approving this one revokes.
     pub replaces: Option<String>,
-    /// Other names waiting that look like this one: a squatter, or a typo.
+    /// Other names, waiting or bound, that look like this one: a squatter,
+    /// or a typo. Approving is refused while a bound name is among them.
     pub look_alikes: Vec<String>,
 }
 
@@ -286,6 +287,7 @@ impl Board {
                 let ts = conn.query_row("SELECT ts FROM events WHERE id=?", [item], |r| text(r, 0)).optional()?;
                 let mut look_alikes: Vec<String> = pending
                     .iter()
+                    .chain(&bound)
                     .filter(|other| other.name != key.name && looks_alike(&other.name, &key.name))
                     .map(|other| other.name.clone())
                     .collect();
@@ -393,9 +395,10 @@ impl Board {
     ///
     /// # Errors
     /// A refusal of the signature or key; [`Error::Forbidden`] unless the
-    /// owner key signed; [`Error::NotFound`]; [`Error::BadRequest`] for an
-    /// item that is not a registration, or one for another name or key than
-    /// signed; [`Error::ItemNotOpen`].
+    /// owner key signed, and for a name that looks like another bound name;
+    /// [`Error::NotFound`]; [`Error::BadRequest`] for an item that is not a
+    /// registration, or one for another name or key than signed;
+    /// [`Error::ItemNotOpen`].
     pub fn approve(&self, signed: &Signed<'_, Approve<'_>>) -> Result<Resolved, Error> {
         let approve = &signed.action;
         self.signed(
@@ -426,6 +429,14 @@ impl Board {
                     return Err(Error::Forbidden(format!(
                         "name {} is the board owner's, bound by the configured owner key",
                         quoted(&key.name)
+                    )));
+                }
+                // A name bound since the registration may now be too close.
+                if let Some(close) = bound(conn)?.iter().find(|b| b.name != key.name && looks_alike(&b.name, &key.name)) {
+                    return Err(Error::Forbidden(format!(
+                        "name {} is too close to the bound name {}; decline this registration",
+                        quoted(&key.name),
+                        quoted(&close.name)
                     )));
                 }
                 let queue = nodes::require(conn, REGISTER_QUEUE)?;
