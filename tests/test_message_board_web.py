@@ -898,9 +898,10 @@ def test_a_queue_page_offers_answer_and_decline_on_each_open_item(board, team):
     team.bob.answer(done, "ok")
     page = board.get("/view/rev/bob").text
     resolves = [f for f in re.findall(r"<form[^>]*/ui/resolve.*?</form>", page, re.S)]
-    assert len(resolves) == 2 and all("hx-target=\"#queue-items\"" in f for f in resolves)
+    assert len(resolves) == 3 and all("hx-target=\"#queue-items\"" in f for f in resolves)
     assert all(f'name="item" value="{open_one}"' in f for f in resolves)  # none for the answered one
-    assert sorted(re.findall(r'name="state" value="(\w+)"', page)) == ["answered", "declined"]
+    assert sorted(re.findall(r'name="state" value="(\w+)"', page)) == \
+        ["answered", "cancelled", "declined"]
     controls = _Controls()
     controls.feed(page)
     assert controls.shown == [], controls.shown
@@ -942,3 +943,30 @@ def test_the_page_shows_resolve_controls_to_the_key_the_store_lets_use_them(boar
         [False, True, False, True, True, True]
     assert _stand_in_gate(board, tmp_path, team.carol.key.path, controls) == \
         [False, False, False, False, False, True]
+
+
+def test_the_asker_cancels_from_the_queue_page_and_nobody_else_does(board, team):
+    team.bob.create("rev/bob", "queue")
+    mine = team.alice.ask("rev/bob", "never mind soon")
+    page = board.get("/view/rev/bob").text
+    assert 'data-needs="named" data-name="alice" hidden' in page  # the cancel control: alice's
+    for who in (team.bob, team.carol, board.owner):  # not the owner of the queue, nor the owner key
+        r = _web(board, "resolve", who.key, "resolve", view="queue", item=mine, state="cancelled")
+        assert r.status == 403 and r.headers["Board-Error"] == "forbidden", who.name
+    assert board.item(mine)["item"]["state"] == "open"
+    r = _web(board, "resolve", team.alice.key, "resolve", view="queue", item=mine,
+             state="cancelled", body="found it")
+    assert r.status == 200 and "found it" in r.text and "1 resolved item" in visible_text(r.text)
+    item = board.item(mine)["item"]
+    assert (item["state"], item["resolution"]["from"]) == ("cancelled", "alice")
+    # a cancel needs no reason; and the owner key cancels what it asked itself
+    own = board.owner.ask("rev/bob", "from stefan")
+    assert 'data-name="' + board.owner.name + '"' in board.get("/view/rev/bob").text
+    assert _web(board, "resolve", board.owner.key, "resolve", view="queue", item=own,
+                state="cancelled").status == 200
+
+
+def test_the_page_shows_cancel_to_the_asker_alone(board, team, tmp_path):
+    controls = [["named", "alice"], ["named", "bob"]]
+    assert _stand_in_gate(board, tmp_path, team.alice.key.path, controls) == [True, False]
+    assert _stand_in_gate(board, tmp_path, board.owner.key.path, controls) == [False, False]

@@ -649,14 +649,18 @@ fn queue_item(h: &mut Html, i: &Item, show_archived: bool) {
 }
 
 /// What an open item's queue page offers, as the store's rules allow it:
-/// the queue's owner answers, the queue's owner or the owner key declines.
+/// the queue's owner answers, the queue's owner or the owner key declines,
+/// and whoever asked cancels (the owner key too, only for its own requests).
 /// Each control is shown to the key it is for (`data-needs`, and the name
 /// in `data-name`); the board refuses anyone else. A registration has no
 /// answer: it is approved, in the inbox.
 fn resolve_controls(h: &mut Html, i: &Item) {
-    if i.asker.is_some() {
+    if let Some(asker) = &i.asker {
         h.markup("<div class=\"controls\" data-needs=\"named\" data-name=\"").text(&i.owner).markup("\" hidden>\n");
         resolve_form(h, i.id, ItemState::Answered, "queue");
+        h.markup("</div>\n");
+        h.markup("<div class=\"controls\" data-needs=\"named\" data-name=\"").text(asker).markup("\" hidden>\n");
+        resolve_form(h, i.id, ItemState::Cancelled, "queue");
         h.markup("</div>\n");
     }
     h.markup("<div class=\"controls\" data-needs=\"owner\" data-name=\"").text(&i.owner).markup("\" hidden>\n");
@@ -702,6 +706,8 @@ fn resolve_form(h: &mut Html, item: i64, state: ItemState, view: &'static str) {
         h.markup("<textarea name=\"body\" placeholder=\"the answer\" required></textarea>\n");
         h.markup("<input name=\"ref\" inputmode=\"numeric\" size=\"8\" placeholder=\"message #\">\n");
         h.markup("<button type=\"submit\">Answer</button>\n");
+    } else if state == ItemState::Cancelled {
+        h.markup("<input name=\"body\" placeholder=\"why (optional)\">\n<button type=\"submit\">Cancel</button>\n");
     } else {
         h.markup(
             "<input name=\"body\" placeholder=\"why decline\" required>\n<button type=\"submit\">Decline</button>\n",
@@ -1031,8 +1037,11 @@ mod tests {
         assert_eq!(page.matches("data-needs=\"owner\" data-name=\"bob\" hidden").count(), 2, "{page}");
         assert_eq!(page.matches("<button type=\"submit\">Decline</button>").count(), 2, "{page}");
         // each swaps the queue's own items
-        assert_eq!(page.matches("hx-post=\"/ui/resolve\" hx-target=\"#queue-items\"").count(), 3, "{page}");
-        assert_eq!(page.matches("name=\"view\" value=\"queue\"").count(), 3, "{page}");
+        assert_eq!(page.matches("hx-post=\"/ui/resolve\" hx-target=\"#queue-items\"").count(), 4, "{page}");
+        assert_eq!(page.matches("name=\"view\" value=\"queue\"").count(), 4, "{page}");
+        // cancel: the asker by name, and only for what a key asked
+        assert_eq!(page.matches("data-needs=\"named\" data-name=\"alice\" hidden").count(), 1, "{page}");
+        assert_eq!(page.matches("<button type=\"submit\">Cancel</button>").count(), 1, "{page}");
         // nothing but resolved items: no controls
         let mut done = open_item(10_032, Some("alice"));
         done.state = ItemState::Answered;
