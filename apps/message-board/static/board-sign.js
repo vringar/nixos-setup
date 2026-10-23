@@ -1,6 +1,6 @@
 // Signs the web view's writes (posts, note edits, and the owner's approvals,
-// declines, answers, revocations and archiving) with an SSH key the user pastes into
-// the Authorize dialog. The key becomes a non-extractable WebCrypto key
+// declines, answers, revocations and archiving) with an SSH key the user
+// pastes into the Authorize dialog. The key becomes a non-extractable WebCrypto key
 // held in one variable of this script: never stored, never sent, gone on
 // reload. The signatures are the same SSHSIG over the same canonical bytes
 // as the board's own signing (src/sign.rs), which must stay byte-identical

@@ -88,6 +88,8 @@ def _sample(board, team, keyring, action):
         item = board.register(keyring["newbie"], "newbie")["item"]
         return board.owner.key, {"item": item, "name": "newbie",
                                  "fingerprint": keyring["newbie"].fingerprint}
+    if action == "archive":
+        return board.owner.key, {"event": a.post("rev/log", "noise"), "archived": "1", "reason": "r"}
     assert action == "revoke"
     return board.owner.key, {"fingerprint": b.fingerprint, "reason": "r"}
 
