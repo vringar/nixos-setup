@@ -108,9 +108,9 @@ fn items_list_by_queue_owner_asker_and_state() -> TestResult {
     let two = r.f.file(&r.asker, "rev/other-q", "two")?.item;
     let three = r.f.file(&r.other, "rev/q", "three")?.item;
     r.f.resolve(&r.queue_owner, one, ItemState::Answered, "done")?;
-    let ids = |items: Vec<Item>| items.into_iter().map(|i| i.id).collect::<Vec<_>>();
-    assert_eq!(ids(r.f.board.queue("rev/q", StateFilter::Open)?), [three]);
-    assert_eq!(ids(r.f.board.queue("rev/q", StateFilter::All)?), [one, three]);
+    let ids = |page: ItemPage| page.items.into_iter().map(|i| i.id).collect::<Vec<_>>();
+    assert_eq!(ids(r.f.board.queue("rev/q", StateFilter::Open, 0)?), [three]);
+    assert_eq!(ids(r.f.board.queue("rev/q", StateFilter::All, 0)?), [one, three]);
     let asked = ItemQuery { asker: Some("asker"), ..ItemQuery::default() };
     assert_eq!(ids(r.f.board.items(&asked)?), [two]);
     assert_eq!(ids(r.f.board.items(&ItemQuery { state: StateFilter::All, ..asked })?), [one, two]);

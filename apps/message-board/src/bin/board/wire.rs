@@ -38,6 +38,9 @@ pub struct NodeRead {
     /// How many messages come before `messages`.
     pub earlier: Option<i64>,
     pub items: Option<Vec<Item>>,
+    /// The board cut the read short, and says how to get the rest.
+    pub truncated: Option<bool>,
+    pub hint: Option<String>,
 }
 
 /// A node as a listing shows it.
@@ -137,20 +140,13 @@ pub struct Resolution {
     pub reference: Option<i64>,
 }
 
-/// `/items`: the board's item list, bare or wrapped.
+/// `/items`: the board's item list, with how to get the rest when it
+/// cut the list short.
 #[derive(Debug, Deserialize)]
-#[serde(untagged)]
-pub enum ItemList {
-    Bare(Vec<Item>),
-    Wrapped { items: Vec<Item> },
-}
-
-impl ItemList {
-    pub fn into_items(self) -> Vec<Item> {
-        match self {
-            Self::Bare(items) | Self::Wrapped { items } => items,
-        }
-    }
+pub struct ItemList {
+    pub items: Vec<Item>,
+    pub truncated: Option<bool>,
+    pub hint: Option<String>,
 }
 
 /// `/item/<id>`: an item and every event about it.
@@ -510,12 +506,13 @@ mod tests {
     }
 
     #[test]
-    fn item_lists_come_bare_or_wrapped() -> TestResult {
+    fn item_lists_carry_the_boards_truncation() -> TestResult {
         let item = json!({"id": 1, "ts": "t", "path": "a/q", "owner": "o", "asker": "a", "state": "open", "body": "b"});
-        let bare: ItemList = serde_json::from_value(json!([item.clone()]))?;
-        let wrapped: ItemList = serde_json::from_value(json!({"items": [item]}))?;
-        assert_eq!(bare.into_items().len(), 1);
-        assert_eq!(wrapped.into_items().len(), 1);
+        let whole: ItemList = serde_json::from_value(json!({"items": [item.clone()]}))?;
+        assert_eq!((whole.items.len(), whole.truncated, whole.hint), (1, None, None));
+        let cut: ItemList =
+            serde_json::from_value(json!({"items": [item], "truncated": true, "hint": "read on with after=1"}))?;
+        assert_eq!((cut.truncated, cut.hint.as_deref()), (Some(true), Some("read on with after=1")));
         Ok(())
     }
 }

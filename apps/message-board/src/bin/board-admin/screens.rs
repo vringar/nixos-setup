@@ -185,7 +185,7 @@ pub fn message(message: Message) -> Screen {
 /// If the queue cannot be read.
 pub fn queue(board: &Board, path: &str, came_from: Option<i64>) -> Result<Screen, Failure> {
     let owner = board.node(path)?.owner.unwrap_or_default();
-    let items = board.queue(path, StateFilter::All)?;
+    let items = board.queue(path, StateFilter::All, 0)?.items;
     let selected = reselect(items.iter().map(|item| item.id), came_from);
     let title = format!("board-admin -- {path} ({owner}'s queue, {})", count(items.len(), "item", "items"));
     let row = |item: &Item| {
@@ -250,7 +250,7 @@ pub fn confirm_branch(board: &Board, child: &Child) -> Result<Screen, Failure> {
             Status::Thread { messages, .. } => count(*messages, "message", "messages"),
             // A listing counts the open items only; every item goes.
             Status::Queue { open, .. } => {
-                let items = board.queue(&node.path, StateFilter::All)?.len();
+                let items = board.queue(&node.path, StateFilter::All, 0)?.items.len();
                 format!("{}, {open} open", count(items, "item", "items"))
             }
         };

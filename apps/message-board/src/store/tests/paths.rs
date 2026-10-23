@@ -106,7 +106,7 @@ fn missing_paths_are_not_found_and_kinds_are_checked() -> TestResult {
     assert!(matches!(refused(f.board.node("rev/typo"))?, Error::NotFound(_)));
     assert!(matches!(refused(f.board.children("rev/t"))?, Error::BadRequest(_)));
     assert!(matches!(refused(f.board.note("rev/t", None))?, Error::BadRequest(_)));
-    assert!(matches!(refused(f.board.queue("rev/t", StateFilter::All))?, Error::BadRequest(_)));
+    assert!(matches!(refused(f.board.queue("rev/t", StateFilter::All, 0))?, Error::BadRequest(_)));
     let wrong = refused(f.file(&f.owner, "rev/t", "a thread is no queue"))?;
     assert_eq!(wrong.to_string(), "\"rev/t\" is a thread, not a queue");
     Ok(())

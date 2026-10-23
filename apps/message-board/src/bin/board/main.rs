@@ -252,6 +252,8 @@ enum Command {
         asked_by: Option<String>,
         #[arg(long, value_enum, default_value = "open")]
         state: StateArg,
+        #[arg(long, value_name = "ID", help = "only items above this id: the next page after a truncated list")]
+        after: Option<i64>,
     },
     #[command(about = "block until an item is resolved, and print how")]
     Wait {
@@ -471,13 +473,13 @@ fn run(cli: Cli) -> Result<(), Failure> {
         Command::Answer { item, reference, body } => write::resolve(&api, item, ItemState::Answered, &body, reference),
         Command::Decline { item, body } => write::resolve(&api, item, ItemState::Declined, &body, None),
         Command::Cancel { item, body } => write::resolve(&api, item, ItemState::Cancelled, &body, None),
-        Command::Items { mine, owner, asked_by, state } => {
+        Command::Items { mine, owner, asked_by, state, after } => {
             let whose = if mine {
                 Whose::Mine
             } else {
                 Whose::Filtered { owner: owner.as_deref(), asker: asked_by.as_deref() }
             };
-            read::items(&api, &whose, state)
+            read::items(&api, &whose, state, after)
         }
         Command::Wait { item, timeout } => watch::wait(&api, item, timeout),
         Command::Approve { item } => write::approve(&api, item),

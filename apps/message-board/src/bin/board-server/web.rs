@@ -74,7 +74,7 @@ pub fn view(board: &Board, path: &str, q: &Params) -> Answer {
             h
         }
         NodeKind::Thread => html::thread(&node, &board.thread(path, Range::Last(RECENT))?),
-        NodeKind::Queue => html::queue(&node, &board.queue(path, StateFilter::All)?),
+        NodeKind::Queue => html::queue(&node, &board.queue(path, StateFilter::All, 0)?.items),
     };
     Ok(page(path, Some(path), &content))
 }
@@ -117,7 +117,8 @@ fn inbox_html(board: &Board) -> Result<Html, Failure> {
     let items = match &owner {
         // The register queue is the owner's too; its items are the registrations.
         Some(owner) => board
-            .items(&ItemQuery { owner: Some(&owner.name), asker: None, state: StateFilter::Open })?
+            .items(&ItemQuery { owner: Some(&owner.name), state: StateFilter::Open, ..ItemQuery::default() })?
+            .items
             .into_iter()
             .filter(|item| item.path != REGISTER_QUEUE)
             .collect(),

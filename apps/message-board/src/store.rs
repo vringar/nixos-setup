@@ -63,7 +63,7 @@ use crate::timefmt;
 
 pub use actions::{Action, Approve, Create, File, Post, Register, Resolve, Revoke, SetNote, Signed};
 pub use events::{Event, EventType, Message};
-pub use items::{Item, ItemDetail, ItemQuery, ItemResolution, ItemState, StateFilter};
+pub use items::{Item, ItemDetail, ItemPage, ItemQuery, ItemResolution, ItemState, StateFilter};
 pub use keys::{Key, KeyState, Owner, OwnerChange, REGISTER_TEXT_MAX, Registration};
 pub use nodes::{
     Child, DESCRIPTION_MAX, Deleted, Node, NodeKind, NoteVersion, PATH_RULE, Range, SEGMENT_MAX, Status, ThreadPage,
@@ -99,6 +99,12 @@ pub const POLL_LIMIT: i64 = 500;
 /// About the most event text one poll returns: it stops after the event
 /// that reaches this, and the cursor is that event's id.
 pub const POLL_BYTES: usize = 1024 * 1024;
+/// The most rows a read of a thread or of items returns, however much it
+/// asks for: the rest is paged, and the read says it was cut short.
+pub const READ_ROWS_MAX: usize = 5000;
+/// About the most body text such a read returns (it stops before the row
+/// that would pass this, but always returns one).
+pub const READ_BYTES_MAX: usize = 8 * 1024 * 1024;
 /// How many messages a thread read returns unless asked otherwise.
 pub const THREAD_TAIL: i64 = 50;
 /// How often a waiting long poll asks whether its client still wants it.
@@ -179,7 +185,9 @@ pub enum Error {
     NotRegistered { fingerprint: String },
     #[error("this key's registration #{item} waits for the owner's approval")]
     RegistrationPending { item: i64 },
-    #[error("this key's registration #{item} was declined; stop and tell the human; do not register again unless asked to")]
+    #[error(
+        "this key's registration #{item} was declined; stop and tell the human; do not register again unless asked to"
+    )]
     RegistrationDeclined { item: i64 },
     #[error("this key was revoked at #{revoked_at}; stop and tell the human; do not make a new key on your own")]
     KeyRevoked { revoked_at: i64 },
@@ -306,6 +314,34 @@ impl Error {
         }
         out
     }
+}
+
+/// The rows of a read, cut off before [`READ_ROWS_MAX`] or [`READ_BYTES_MAX`]
+/// is passed; whether it was. `size` is a row's text, in bytes.
+fn capped<T>(
+    rows: impl Iterator<Item = rusqlite::Result<T>>,
+    size: impl Fn(&T) -> usize,
+) -> rusqlite::Result<(Vec<T>, bool)> {
+    capped_at(rows, size, READ_ROWS_MAX, READ_BYTES_MAX)
+}
+
+fn capped_at<T>(
+    rows: impl Iterator<Item = rusqlite::Result<T>>,
+    size: impl Fn(&T) -> usize,
+    max_rows: usize,
+    max_bytes: usize,
+) -> rusqlite::Result<(Vec<T>, bool)> {
+    let mut out = Vec::new();
+    let mut bytes = 0_usize;
+    for row in rows {
+        let row = row?;
+        bytes = bytes.saturating_add(size(&row));
+        if !out.is_empty() && (out.len() >= max_rows || bytes > max_bytes) {
+            return Ok((out, true));
+        }
+        out.push(row);
+    }
+    Ok((out, false))
 }
 
 /// A name in a message: quoted, with anything but printable ASCII escaped,

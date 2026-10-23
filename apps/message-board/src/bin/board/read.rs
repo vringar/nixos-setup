@@ -76,7 +76,11 @@ impl ReadOptions {
     /// rather than get the note.
     fn misplaced(&self, kind: NodeKind) -> Option<&'static str> {
         let given = [
-            (self.range != Range::Tail, NodeKind::Thread, "--since/--last/--all"),
+            (
+                self.range != Range::Tail && !(kind == NodeKind::Queue && matches!(self.range, Range::Since(_))),
+                NodeKind::Thread,
+                "--since/--last/--all",
+            ),
             (self.version.is_some() || self.history, NodeKind::Note, "--version/--history"),
             (self.state.is_some(), NodeKind::Queue, "--state"),
             (self.archived, NodeKind::Container, "--archived"),
@@ -97,8 +101,8 @@ pub fn read(api: &Api, path: &str, options: &ReadOptions) -> Result<(), Failure>
     let url = format!("{}{}", node_url(path), options.query());
     let read: NodeRead = api.get(&url)?;
     let kind = read.node.as_ref().map_or(NodeKind::Container, |node| node.kind);
+    let shown = if path.is_empty() { "the top level" } else { path };
     if let Some(flag) = options.misplaced(kind) {
-        let shown = if path.is_empty() { "the top level" } else { path };
         return Err(Failure::Arguments(format!("{flag} does not apply here: {shown} is a {kind}")));
     }
     // The cursor passes everything printed, whatever came after the head.
@@ -124,18 +128,31 @@ pub fn read(api: &Api, path: &str, options: &ReadOptions) -> Result<(), Failure>
             None => warn(&format!("board: {path} has no content yet (version 0); the first note set takes --base 0"))?,
         },
         NodeKind::Thread => {
-            for message in read.messages.as_ref().ok_or_else(|| missing(&url, "messages"))? {
+            let messages = read.messages.as_ref().ok_or_else(|| missing(&url, "messages"))?;
+            for message in messages {
                 since = since.max(message.id);
                 emit(&Line::Message(message))?;
+            }
+            // Cut short going forward: the cursor stops at the last one
+            // printed, so that reading on from it misses nothing.
+            if read.truncated == Some(true) && !matches!(options.range, Range::Tail | Range::Last(_)) {
+                since = messages.last().map_or(since, |last| last.id);
             }
             earlier = Some(read.earlier.ok_or_else(|| missing(&url, "earlier"))?);
         }
         NodeKind::Queue => {
-            for item in read.items.as_ref().ok_or_else(|| missing(&url, "items"))? {
+            let items = read.items.as_ref().ok_or_else(|| missing(&url, "items"))?;
+            for item in items {
                 since = since.max(item.id);
                 emit(&Line::Item(item))?;
             }
+            if read.truncated == Some(true) {
+                since = items.last().map_or(since, |last| last.id);
+            }
         }
+    }
+    if read.truncated == Some(true) {
+        warn(&format!("board: {shown}: truncated; {}", read.hint.as_deref().unwrap_or("page on")))?;
     }
     emit(&Line::Cursor { since, earlier, watch: None })
 }
@@ -267,12 +284,17 @@ pub enum Whose<'a> {
     },
 }
 
-pub fn items(api: &Api, whose: &Whose<'_>, state: StateArg) -> Result<(), Failure> {
+pub fn items(api: &Api, whose: &Whose<'_>, state: StateArg, after: Option<i64>) -> Result<(), Failure> {
     let list = |owner: Option<&str>, asker: Option<&str>| -> Result<Vec<Item>, Failure> {
         let mut pairs = vec![("state", state.as_str().to_owned())];
         pairs.extend(owner.map(|name| ("owner", name.to_owned())));
         pairs.extend(asker.map(|name| ("asker", name.to_owned())));
-        Ok(api.get::<ItemList>(&format!("/items{}", query(&pairs)))?.into_items())
+        pairs.extend(after.map(|id| ("after", id.to_string())));
+        let list: ItemList = api.get(&format!("/items{}", query(&pairs)))?;
+        if list.truncated == Some(true) {
+            warn(&format!("board: items: truncated; {}", list.hint.as_deref().unwrap_or("page on")))?;
+        }
+        Ok(list.items)
     };
     let items = match whose {
         Whose::Mine => {

@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use super::actions::{Create, Created, NoteSaved, Post, Posted, SetNote, Signed, Stamp};
 use super::events::{self, EventType, Message, NewEvent, parsed};
 use super::keys::{self, Author};
-use super::{Board, DbError, Error, check_name, opt_text, quoted, text};
+use super::{Board, DbError, Error, capped, check_name, opt_text, quoted, text};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -177,6 +177,11 @@ pub struct ThreadPage {
     pub messages: Vec<Message>,
     /// How many messages come before the first of these.
     pub earlier: i64,
+    /// More were asked for than [`super::READ_ROWS_MAX`] messages or
+    /// [`super::READ_BYTES_MAX`] bytes: with `Last`, the oldest are missing,
+    /// otherwise the newest.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
 }
 
 /// The segments of `path` if the board could hold it. Only the board's own
@@ -447,28 +452,30 @@ fn messages(conn: &Connection, thread: &Node, range: Range) -> rusqlite::Result<
         Range::Last(n) => {
             // LIMIT -1 would be no limit at all
             let n = n.max(0);
-            let mut newest: Vec<Message> = conn
-                .prepare_cached(&format!("{SELECT} ORDER BY e.id DESC LIMIT ?2"))?
-                .query_map([thread.id, n], message)?
-                .collect::<rusqlite::Result<_>>()?;
+            let (mut newest, truncated) = capped(
+                conn.prepare_cached(&format!("{SELECT} ORDER BY e.id DESC LIMIT ?2"))?
+                    .query_map([thread.id, n], message)?,
+                |m| m.body.len(),
+            )?;
             newest.reverse();
             let before = newest.first().map_or(i64::MAX, |m| m.id);
-            Ok(ThreadPage { earlier: count(" AND id<?2", before)?, messages: newest })
+            Ok(ThreadPage { earlier: count(" AND id<?2", before)?, messages: newest, truncated })
         }
-        Range::Since(since) => Ok(ThreadPage {
-            messages: conn
-                .prepare_cached(&format!("{SELECT} AND e.id>?2 ORDER BY e.id"))?
-                .query_map([thread.id, since], message)?
-                .collect::<rusqlite::Result<_>>()?,
-            earlier: count(" AND id<=?2", since)?,
-        }),
-        Range::All => Ok(ThreadPage {
-            messages: conn
-                .prepare_cached(&format!("{SELECT} ORDER BY e.id"))?
-                .query_map([thread.id], message)?
-                .collect::<rusqlite::Result<_>>()?,
-            earlier: 0,
-        }),
+        Range::Since(since) => {
+            let (messages, truncated) = capped(
+                conn.prepare_cached(&format!("{SELECT} AND e.id>?2 ORDER BY e.id"))?
+                    .query_map([thread.id, since], message)?,
+                |m| m.body.len(),
+            )?;
+            Ok(ThreadPage { messages, earlier: count(" AND id<=?2", since)?, truncated })
+        }
+        Range::All => {
+            let (messages, truncated) = capped(
+                conn.prepare_cached(&format!("{SELECT} ORDER BY e.id"))?.query_map([thread.id], message)?,
+                |m| m.body.len(),
+            )?;
+            Ok(ThreadPage { messages, earlier: 0, truncated })
+        }
     }
 }
 

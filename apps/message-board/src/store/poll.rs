@@ -335,13 +335,15 @@ impl Board {
             let (owned, asked) = match name {
                 None => (Vec::new(), Vec::new()),
                 Some(name) => {
-                    let open = |query: ItemQuery<'_>| items::list(conn, &query, None);
-                    let owned = open(ItemQuery { owner: Some(name), asker: None, state: StateFilter::Open })?;
+                    let open = |query: ItemQuery<'_>| items::list(conn, &query, None).map(|page| page.items);
+                    let owned =
+                        open(ItemQuery { owner: Some(name), state: StateFilter::Open, ..ItemQuery::default() })?;
                     let seen: BTreeSet<i64> = owned.iter().map(|item| item.id).collect();
-                    let asked = open(ItemQuery { owner: None, asker: Some(name), state: StateFilter::Open })?
-                        .into_iter()
-                        .filter(|item| !seen.contains(&item.id))
-                        .collect();
+                    let asked =
+                        open(ItemQuery { asker: Some(name), state: StateFilter::Open, ..ItemQuery::default() })?
+                            .into_iter()
+                            .filter(|item| !seen.contains(&item.id))
+                            .collect();
                     (owned, asked)
                 }
             };

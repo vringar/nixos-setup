@@ -7,7 +7,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 use message_board::store::{
-    Board, Child, Error as StoreError, Item, ItemQuery, Message, Node, NodeKind, NoteVersion, Owner, Range,
+    Board, Child, Error as StoreError, Item, ItemPage, ItemQuery, Message, Node, NodeKind, NoteVersion, Owner, Range,
     StateFilter, THREAD_TAIL, Version, Watch, check_name,
 };
 
@@ -57,11 +57,45 @@ enum Read {
         node: Node,
         messages: Vec<Message>,
         earlier: i64,
+        #[serde(flatten)]
+        cut: Cut,
     },
     Queue {
         node: Node,
         items: Vec<Item>,
+        #[serde(flatten)]
+        cut: Cut,
     },
+}
+
+/// What a read says when the board cut it short ([`message_board::store::READ_ROWS_MAX`]
+/// rows or [`message_board::store::READ_BYTES_MAX`] bytes): `"truncated":true`
+/// and how to get the rest. Nothing at all when the read is whole.
+#[derive(Serialize)]
+pub struct Cut {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hint: Option<String>,
+}
+
+impl Cut {
+    fn whole() -> Self {
+        Self { truncated: None, hint: None }
+    }
+
+    /// Cut short after `last`: page on from it with `param`.
+    fn after(last: Option<i64>, param: &str) -> Self {
+        let from = last.map_or_else(String::new, |id| format!("={id}"));
+        Self {
+            truncated: Some(true),
+            hint: Some(format!(
+                "the read stopped at {} rows or {} MB; read on with {param}{from}",
+                message_board::store::READ_ROWS_MAX,
+                message_board::store::READ_BYTES_MAX / (1024 * 1024)
+            )),
+        }
+    }
 }
 
 /// Which messages of a thread a query asks for: `last=N` (the default
@@ -96,10 +130,20 @@ pub fn node(board: &Board, path: &str, q: &Params) -> Answer {
         NodeKind::Note if q.flag("history") => Read::History { history: board.note_history(path)?, node },
         NodeKind::Note => Read::Note { note: board.note(path, q.number("version")?)?, node },
         NodeKind::Thread => {
-            let page = board.thread(path, range(q)?)?;
-            Read::Thread { node, messages: page.messages, earlier: page.earlier }
+            let range = range(q)?;
+            let page = board.thread(path, range)?;
+            let cut = match (page.truncated, range) {
+                (false, _) => Cut::whole(),
+                // the oldest are missing: the newest are what was asked for
+                (true, Range::Last(_)) => Cut::after(None, "a smaller last"),
+                (true, _) => Cut::after(page.messages.last().map(|m| m.id), "since"),
+            };
+            Read::Thread { node, messages: page.messages, earlier: page.earlier, cut }
         }
-        NodeKind::Queue => Read::Queue { items: board.queue(path, state_filter(q)?)?, node },
+        NodeKind::Queue => {
+            let page = board.queue(path, state_filter(q)?, q.number("since")?.unwrap_or(0))?;
+            Read::Queue { cut: items_cut(&page, "since"), items: page.items, node }
+        }
     };
     json(&read)
 }
@@ -128,9 +172,26 @@ fn names(q: &Params, field: &str) -> Result<Vec<String>, StoreError> {
     q.all(field).map(|n| check_name(n).map(|()| n.to_owned())).collect()
 }
 
+fn items_cut(page: &ItemPage, param: &str) -> Cut {
+    if page.truncated { Cut::after(page.items.last().map(|item| item.id), param) } else { Cut::whole() }
+}
+
+#[derive(Serialize)]
+struct Items {
+    items: Vec<Item>,
+    #[serde(flatten)]
+    cut: Cut,
+}
+
 pub fn items(board: &Board, q: &Params) -> Answer {
-    let query = ItemQuery { owner: name(q, "owner")?, asker: name(q, "asker")?, state: state_filter(q)? };
-    json(&board.items(&query)?)
+    let query = ItemQuery {
+        owner: name(q, "owner")?,
+        asker: name(q, "asker")?,
+        state: state_filter(q)?,
+        after: q.number("after")?.unwrap_or(0),
+    };
+    let page = board.items(&query)?;
+    json(&Items { cut: items_cut(&page, "after"), items: page.items })
 }
 
 pub fn keys(board: &Board) -> Answer {

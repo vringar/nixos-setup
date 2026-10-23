@@ -8,6 +8,7 @@ mod items;
 mod notes;
 mod paths;
 mod poll;
+mod reads;
 mod writes;
 
 use std::error::Error as StdError;

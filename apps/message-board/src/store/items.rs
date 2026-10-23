@@ -123,6 +123,17 @@ pub struct ItemQuery<'a> {
     /// Only those this name asked.
     pub asker: Option<&'a str>,
     pub state: StateFilter,
+    /// Only those with an id above this: the next page after a truncated one.
+    pub after: i64,
+}
+
+/// Items, oldest first, at most [`super::READ_ROWS_MAX`] of them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ItemPage {
+    pub items: Vec<Item>,
+    /// There are more: ask again with `after` the last id.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
 }
 
 const ITEM_SELECT: &str = "SELECT i.id, f.ts, n.path, n.owner, i.asker, i.state, f.body,
@@ -158,9 +169,9 @@ pub(super) fn get(conn: &Connection, id: i64) -> rusqlite::Result<Option<Item>> 
 }
 
 /// Items matching `query`, oldest first; `queue` narrows them to one.
-pub(super) fn list(conn: &Connection, query: &ItemQuery<'_>, queue: Option<i64>) -> rusqlite::Result<Vec<Item>> {
-    let mut sql = format!("{ITEM_SELECT} WHERE 1");
-    let mut args = Vec::new();
+pub(super) fn list(conn: &Connection, query: &ItemQuery<'_>, queue: Option<i64>) -> rusqlite::Result<ItemPage> {
+    let mut sql = format!("{ITEM_SELECT} WHERE i.id>?");
+    let mut args = vec![Value::Integer(query.after)];
     if let Some(queue) = queue {
         sql.push_str(" AND i.queue=?");
         args.push(Value::Integer(queue));
@@ -177,7 +188,12 @@ pub(super) fn list(conn: &Connection, query: &ItemQuery<'_>, queue: Option<i64>)
         sql.push_str(" AND i.state='open'");
     }
     sql.push_str(" ORDER BY i.id");
-    conn.prepare(&sql)?.query_map(params_from_iter(args), item_row)?.collect()
+    let mut statement = conn.prepare(&sql)?;
+    let rows = statement.query_map(params_from_iter(args), item_row)?;
+    let (items, truncated) = super::capped(rows, |item| {
+        item.body.len().saturating_add(item.resolution.as_ref().map_or(0, |r| r.body.len()))
+    })?;
+    Ok(ItemPage { items, truncated })
 }
 
 /// File an item in queue `queue`; returns its id, which is its
@@ -252,14 +268,15 @@ fn check_resolver(item: &Item, state: ItemState, author: &Author) -> Result<(), 
 }
 
 impl Board {
-    /// The items of the queue at `path`, oldest first.
+    /// The items of the queue at `path`, oldest first, in a page of at most
+    /// [`READ_ROWS_MAX`](super::READ_ROWS_MAX).
     ///
     /// # Errors
     /// As [`Board::node`], and [`Error::BadRequest`] for another kind.
-    pub fn queue(&self, path: &str, state: StateFilter) -> Result<Vec<Item>, Error> {
+    pub fn queue(&self, path: &str, state: StateFilter, after: i64) -> Result<ItemPage, Error> {
         self.read(|conn| {
             let queue = nodes::require_kind(conn, path, NodeKind::Queue)?;
-            Ok(list(conn, &ItemQuery { state, ..ItemQuery::default() }, Some(queue.id))?)
+            Ok(list(conn, &ItemQuery { state, after, ..ItemQuery::default() }, Some(queue.id))?)
         })
     }
 
@@ -284,7 +301,7 @@ impl Board {
     ///
     /// # Errors
     /// On a database fault.
-    pub fn items(&self, query: &ItemQuery<'_>) -> Result<Vec<Item>, DbError> {
+    pub fn items(&self, query: &ItemQuery<'_>) -> Result<ItemPage, DbError> {
         self.read_db(|conn| list(conn, query, None))
     }
 

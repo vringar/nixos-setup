@@ -447,7 +447,8 @@ impl Board {
                     )));
                 }
                 // A name bound since the registration may now be too close.
-                if let Some(close) = bound(conn)?.iter().find(|b| b.name != key.name && looks_alike(&b.name, &key.name)) {
+                if let Some(close) = bound(conn)?.iter().find(|b| b.name != key.name && looks_alike(&b.name, &key.name))
+                {
                     return Err(Error::Forbidden(format!(
                         "name {} is too close to the bound name {}; decline this registration",
                         quoted(&key.name),

@@ -189,7 +189,10 @@ fn bind_owner(board: &Board) -> Result<(), StartError> {
     let key = match key {
         Ok(key) => key,
         Err(why) => {
-            log::info(&format!("board: owner key {shown} unusable ({why}); {name} is not bound; {}", ownership(board)?));
+            log::info(&format!(
+                "board: owner key {shown} unusable ({why}); {name} is not bound; {}",
+                ownership(board)?
+            ));
             return Ok(());
         }
     };

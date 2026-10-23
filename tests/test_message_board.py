@@ -739,3 +739,46 @@ def test_the_cli_cannot_start_a_server(tmp_path, monkeypatch):
     assert not db.exists()  # it never opened a database
     with pytest.raises(OSError):  # nor listened on the board's port
         socket.create_connection(("127.0.0.1", port), timeout=5).close()
+
+
+# --- reads are capped ------------------------------------------------------------------
+
+BIG = "x" * (700 * 1024)  # near the 1 MB request limit: a few of them pass the 8 MB read cap
+
+
+def test_an_unbounded_thread_read_is_cut_at_8_mb_and_says_how_to_page(board, team):
+    ids = [team.alice.post("rev/log", BIG) for _ in range(13)]
+    page = board.node("rev/log", all=1)
+    assert page["truncated"] is True and "since=" in page["hint"]
+    assert 0 < len(page["messages"]) < len(ids)
+    last = page["messages"][-1]["id"]
+    rest = board.node("rev/log", since=last)
+    assert len(page["messages"]) + len(rest["messages"]) == len(ids)
+    assert "truncated" not in board.node("rev/log", last=2)
+    run = cli("read", "rev/log", "--all")
+    assert run.code == 0 and "truncated" in run.err
+    lines = run.of("message")
+    assert len(lines) == len(page["messages"])
+    cursor = run.of("cursor")[0]
+    assert cursor["since"] == lines[-1]["id"]  # reading on from it misses nothing
+    more = cli("read", "rev/log", "--since", cursor["since"]).ok().of("message")
+    assert [m["id"] for m in lines + more][-1] == ids[-1]
+
+
+def test_an_unbounded_item_listing_is_cut_at_8_mb_and_pages_with_after(board, team):
+    team.owner.create("rev/q", "queue", owner="alice")
+    asked = [team.bob.ask("rev/q", BIG) for _ in range(13)]
+    answer = board.get_json("/items", state="all")
+    assert answer["truncated"] is True and "after=" in answer["hint"]
+    seen, pages, page = [], 1, answer
+    while page.get("truncated"):
+        seen += [i["id"] for i in page["items"]]
+        page = board.get_json("/items", state="all", after=seen[-1])
+        pages += 1
+    seen += [i["id"] for i in page["items"]]
+    assert pages >= 2 and seen == sorted(set(seen)) and set(asked) <= set(seen)  # none lost, none twice
+    assert "truncated" not in board.get_json("/items", state="all", after=asked[-3])
+    run = cli("items", "--asked-by", "bob", "--state", "all")
+    assert run.code == 0 and "truncated" in run.err and 0 < len(run.of("item")) < len(asked)
+    page = board.node("rev/q", state="all")
+    assert page["truncated"] is True and "since=" in page["hint"]
