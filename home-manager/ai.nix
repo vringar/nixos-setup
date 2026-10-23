@@ -312,8 +312,10 @@ in {
     '';
 
     # Local message board for coordinating multi-repo agent work. Long-lived
-    # user service; binds 127.0.0.1 only (no auth yet). The DB lives in the
-    # user state dir so it survives restarts and re-derives the board.
+    # user service; binds 127.0.0.1 unless BOARD_ADDR says otherwise (hive.nix
+    # widens it on sz1). Reads are open to whoever can connect; every write is
+    # signed by a key the owner approved. The DB lives in the user state dir
+    # so it survives restarts.
     systemd.user.services.message-board = {
       Unit = {
         Description = "Local long-poll message board for agent coordination";

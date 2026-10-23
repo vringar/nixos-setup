@@ -131,8 +131,11 @@ in {
 
     # The tailnet too, so sz2 can substitute from here away from home and the
     # message board's web view is reachable from my other devices. Neither
-    # authenticates — nix-serve hands out anything in this store, the board
-    # takes posts from anyone — so the tailnet ACLs are the boundary.
+    # authenticates reads — nix-serve hands out anything in this store, the
+    # board shows every note and message to anyone who can connect — so the
+    # tailnet ACLs are the boundary. The board's writes are signed by keys the
+    # owner approved, so reaching the port lets no one post; at most it lets
+    # an unknown key file a registration (at most 20 wait at once).
     # tailscale0 only; wg-sect stays closed.
     networking.firewall.interfaces."tailscale0".allowedTCPPorts = [
       5000 # nix-serve binary cache
