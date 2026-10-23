@@ -323,6 +323,29 @@ pub fn heading(node: &Node) -> Html {
     h
 }
 
+/// The tree page's form for making a node. Missing containers along the
+/// path are made too (board-sign.js signs each); `#created` takes the answer.
+pub fn create_form() -> Html {
+    let mut h = Html::new();
+    h.markup("<div data-needs=\"trusted\" hidden>\n<form class=\"new\" hx-post=\"/ui/create\" hx-target=\"#created\" hx-swap=\"innerHTML\">\n");
+    form_error(&mut h, "");
+    h.markup("<input name=\"path\" placeholder=\"new/path\" required>\n<select name=\"kind\">");
+    for kind in NodeKind::ALL {
+        h.markup("<option>").markup(kind.as_str()).markup("</option>");
+    }
+    h.markup("</select>\n<input name=\"description\" placeholder=\"description (optional)\">\n<button type=\"submit\">new</button>\n</form>\n<div id=\"created\"></div></div>\n");
+    h
+}
+
+/// What a made node's form answers: a link to it.
+pub fn created(path: &str, kind: NodeKind) -> Html {
+    let mut h = Html::new();
+    h.markup("<p>made the ").markup(kind.as_str()).markup(" ");
+    link(&mut h, path);
+    h.markup("</p>");
+    h
+}
+
 /// A thread's messages, oldest first, with how many came before them.
 pub fn messages(path: &str, page: &ThreadPage) -> Html {
     let mut h = Html::new();
@@ -780,6 +803,20 @@ mod tests {
             ),
             "{page}"
         );
+    }
+
+    #[test]
+    fn the_create_form_posts_the_fields_the_signer_reads() {
+        let form = text(create_form());
+        assert!(form.contains("hx-post=\"/ui/create\"") && form.contains("data-needs=\"trusted\""), "{form}");
+        for name in ["path", "description"] {
+            assert!(form.contains(&format!("name=\"{name}\"")), "{form}");
+        }
+        for kind in ["container", "note", "thread", "queue"] {
+            assert!(form.contains(&format!("<option>{kind}</option>")), "{form}");
+        }
+        let made = text(created("a/<b>", NodeKind::Thread));
+        assert!(made.contains("a/&lt;b&gt;") && !made.contains("<b>"), "{made}");
     }
 
     #[test]

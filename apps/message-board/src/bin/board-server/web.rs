@@ -17,6 +17,7 @@ const RECENT: i64 = 100;
 /// A signed form of the web view, by the path it posts to under `/ui/`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Form {
+    Create,
     Post,
     Note,
     Approve,
@@ -27,6 +28,7 @@ pub enum Form {
 impl Form {
     pub fn named(name: &str) -> Option<Self> {
         Some(match name {
+            "create" => Self::Create,
             "post" => Self::Post,
             "note" => Self::Note,
             "approve" => Self::Approve,
@@ -38,6 +40,7 @@ impl Form {
 
     const fn write(self) -> Write {
         match self {
+            Self::Create => Write::Create,
             Self::Post => Write::Post,
             Self::Note => Write::Note,
             Self::Approve => Write::Approve,
@@ -59,7 +62,9 @@ fn fragment(content: Html) -> Response {
 /// an empty path.
 pub fn view(board: &Board, path: &str, q: &Params) -> Answer {
     if path.is_empty() {
-        return page(board, "tree", None, &html::children(&board.children("")?));
+        let mut h = html::create_form();
+        h.html(&html::children(&board.children("")?));
+        return page(board, "tree", None, &h);
     }
     let node = board.node(path)?;
     let content = match node.kind {
@@ -142,8 +147,8 @@ pub fn keys(board: &Board) -> Answer {
 /// text and that version as the base: saving again is then a deliberate
 /// overwrite.
 pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
-    match writes::apply(board, form.write(), fields) {
-        Ok(_) => {}
+    let outcome = match writes::apply(board, form.write(), fields) {
+        Ok(outcome) => outcome,
         Err(Failure::Board(StoreError::NoteChanged { version })) => {
             let error = format!(
                 "Someone saved v{version} while you were editing. Your text is below; save again to overwrite theirs."
@@ -157,8 +162,15 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
             })));
         }
         Err(other) => return Err(other),
-    }
+    };
     Ok(fragment(match form {
+        Form::Create => {
+            let kind = outcome.get("kind").and_then(|kind| kind.as_str()).and_then(|kind| kind.parse().ok());
+            match (outcome.get("path").and_then(|path| path.as_str()), kind) {
+                (Some(path), Some(kind)) => html::created(path, kind),
+                _ => html::error_fragment("created, but the answer was unreadable"),
+            }
+        }
         Form::Post => {
             let path = path(fields)?;
             html::messages(path, &board.thread(path, Range::Last(RECENT))?)

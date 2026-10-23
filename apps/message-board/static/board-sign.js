@@ -136,7 +136,21 @@
     }
   }
 
-  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned };
+  // `create -p`: a signed write carries one path, so the containers along
+  // `values.path` are made first, each signed on its own. One that exists
+  // already (a conflict) is as good as made; any other refusal is the answer.
+  async function postCreate(signer, url, values, init = {}) {
+    const parts = values.path.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      const parent = { path: parts.slice(0, i).join("/"), kind: "container", description: "", owner: "", body: "",
+                       key: crypto.randomUUID() };
+      const response = await postSigned(signer, KINDS.create, url, parent, init);
+      if (!response.ok && response.headers.get("Board-Error") !== "conflict") return response;
+    }
+    return postSigned(signer, KINDS.create, url, values, init);
+  }
+
+  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate };
   if (typeof document === "undefined") return;
 
   // --- the page --------------------------------------------------------------
@@ -147,6 +161,7 @@
   const usable = window.isSecureContext && window.crypto?.subtle;
   // The page's signed forms, by the path they post to.
   const FORMS = {
+    "/ui/create": KINDS.create,
     "/ui/post": KINDS.post,
     "/ui/note": KINDS.note,
     "/ui/approve": KINDS.approve,
@@ -154,7 +169,7 @@
     "/ui/revoke": KINDS.revoke,
   };
   // The key states each kind of control is shown to: `data-needs="trusted"`
-  // (post, edit) to any key the board trusts, `data-needs="owner"`
+  // (post, edit, create) to any key the board trusts, `data-needs="owner"`
   // (approve, decline, answer, revoke) to the owner key only. The board
   // checks every write regardless; this only spares the reader buttons that
   // would be refused.
@@ -220,7 +235,7 @@
     // Exactly the fields the kind signs; one the form leaves out is "".
     const values = Object.fromEntries(kind[1].filter((f) => f !== "nonce").map((f) => [f, data.get(f) ?? ""]));
     values.key = crypto.randomUUID();  // one write, however often re-signed
-    const send = (url, init) => postSigned(me, kind, url, values, init).catch((e) => {
+    const send = (url, init) => (path === "/ui/create" ? postCreate(me, url, values, init) : postSigned(me, kind, url, values, init)).catch((e) => {
       showError(form, `not sent: ${e.message}`);
       throw e;
     });

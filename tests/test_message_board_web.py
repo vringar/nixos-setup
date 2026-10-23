@@ -533,3 +533,57 @@ def test_every_page_carries_a_tree_sidebar_that_marks_the_current_path(board, te
     assert "<nav><a href=\"/\">tree</a>" in page  # the narrow-screen way in stays
     for path in ("/", "/ui/inbox", "/ui/keys"):
         assert 'href="/view/rev"' in board.get(path).text.split("<main>")[0]
+
+
+def test_the_tree_page_carries_the_create_form(board, team):
+    form = forms(board.get("/").text)["/ui/create"]
+    assert "path" in form and "description" in form
+
+
+def test_a_signed_web_create_makes_the_node_and_a_refusal_is_plain_text(board, team):
+    a = team.alice
+
+    def create(path, kind, **extra):
+        values = {"path": path, "kind": kind, "description": "", "owner": "", "body": "",
+                  "key": new_client_key(), **extra}
+        return request(board.url + "/ui/create", board.signed("create", a.key, values), form=True)
+
+    r = create("rev/fresh", "thread", description="made on the web")
+    assert r.status == 200 and 'href="/view/rev/fresh"' in r.text
+    assert board.node("rev/fresh")["node"]["description"] == "made on the web"
+    r = create("rev/fresh", "thread")  # exists already
+    assert r.status == 409 and r.headers["Board-Error"] == "conflict" and "<" not in r.text
+    r = create("nowhere/leaf", "note")  # the page makes parents first; the board itself does not
+    assert r.status == 404
+    head = board.head_id()
+    r = request(board.url + "/ui/create", {"path": "rev/x", "kind": "thread", "description": "",
+                                           "owner": "", "body": "", "key": new_client_key(),
+                                           "nonce": str(head)}, form=True)
+    assert r.status == 401 and r.headers["Board-Error"] == "unsigned" and board.head_id() == head
+
+
+def test_the_page_makes_the_missing_parents_before_the_node(board, team, tmp_path):
+    _node()
+    script = tmp_path / "create.js"
+    script.write_text("""
+const fs = require("fs");
+const [js, mine, base] = process.argv.slice(2);
+require(js);
+const B = globalThis.BoardSign;
+(async () => {
+  const signer = await B.importKey(fs.readFileSync(mine, "utf8"));
+  const out = [];
+  for (const path of ["fresh/area/leaf", "fresh/area/other"]) {
+    const r = await B.postCreate(signer, base + "/ui/create", { path, kind: "thread", description: "d",
+                                 owner: "", body: "", key: crypto.randomUUID() });
+    out.push(r.status);
+  }
+  console.log(JSON.stringify(out));
+})();
+""")
+    run = subprocess.run(["node", script, _served_js(board, tmp_path), team.owner.key.path, board.url],
+                         capture_output=True, text=True, check=True)
+    assert json.loads(run.stdout) == [200, 200]  # the second finds its parents there already
+    kinds = {n["path"]: n["kind"] for n in board.children("fresh/area")}
+    assert kinds == {"fresh/area/leaf": "thread", "fresh/area/other": "thread"}
+    assert board.node("fresh")["node"]["kind"] == "container"
