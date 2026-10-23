@@ -4,15 +4,27 @@
 //! and post the JSON API's fields, form-encoded, under `/ui/`; each
 //! answers with the piece of page it changed.
 
-use message_board::store::{Board, Error as StoreError, ItemQuery, Node, NodeKind, REGISTER_QUEUE, Range, StateFilter};
+use message_board::store::{
+    Board, Error as StoreError, ItemPage, ItemQuery, Node, NodeKind, REGISTER_QUEUE, Range, StateFilter,
+};
 
+use crate::api;
 use crate::html::{self, Html, Inbox, NoteForm, NoteView};
 use crate::http::Response;
 use crate::routes::{Answer, Failure, Params};
 use crate::writes::{self, Fields, Write};
 
-/// How many messages a thread's page shows.
+/// How many messages a thread's page shows unless asked for another window.
 const RECENT: i64 = 100;
+
+/// The window on a thread that `fields` ask for (`last`, `since` or `all`,
+/// as the API reads them): the newest [`RECENT`] unless they say otherwise.
+fn window(fields: &Params) -> Result<Range, StoreError> {
+    match api::range(fields)? {
+        Range::Last(_) if fields.number("last")?.is_none() => Ok(Range::Last(RECENT)),
+        other => Ok(other),
+    }
+}
 
 /// A signed form of the web view, by the path it posts to under `/ui/`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,12 +103,14 @@ pub fn view(board: &Board, path: &str, q: &Params) -> Answer {
             h
         }
         NodeKind::Thread => {
+            let range = window(q)?;
             let archived = q.flag("archived");
-            html::thread(&node, &board.thread_with(path, Range::Last(RECENT), archived)?, archived)
+            html::thread(&node, &board.thread_with(path, range, archived)?, range, RECENT, archived)
         }
         NodeKind::Queue => {
             let archived = q.flag("archived");
-            html::queue(&node, &board.queue_with(path, StateFilter::All, 0, archived)?.items, archived)
+            let after = q.number("after")?.unwrap_or(0);
+            html::queue(&node, &board.queue_with(path, StateFilter::All, after, archived)?, archived)
         }
     };
     page(board, path, Some(path), &content)
@@ -114,6 +128,12 @@ fn note_html(board: &Board, node: &Node, version: Option<i64>) -> Result<Html, F
     Ok(html::note(&NoteView { node, note: shown.as_ref(), history: &history, current }))
 }
 
+/// Whether the page a form sat on shows what is archived (`shown=archived`),
+/// so that its answer does too.
+fn shown_archived(fields: &Params) -> bool {
+    fields.get("shown") == Some("archived")
+}
+
 fn path(q: &Params) -> Result<&str, StoreError> {
     q.text("path")
 }
@@ -121,8 +141,9 @@ fn path(q: &Params) -> Result<&str, StoreError> {
 /// `GET /ui/messages?path=`: a thread's messages, as its page refreshes them.
 pub fn messages(board: &Board, q: &Params) -> Answer {
     let path = path(q)?;
+    let range = window(q)?;
     let archived = q.flag("archived");
-    Ok(fragment(html::messages(path, &board.thread_with(path, Range::Last(RECENT), archived)?, archived)))
+    Ok(fragment(html::messages(path, &board.thread_with(path, range, archived)?, range, RECENT, archived)))
 }
 
 /// `GET /ui/note?path=`: the note, as it is now (an edit's way back).
@@ -131,25 +152,27 @@ pub fn note(board: &Board, q: &Params) -> Answer {
 }
 
 /// The inbox's content: what waits for the owner.
-fn inbox_html(board: &Board) -> Result<Html, Failure> {
+fn inbox_html(board: &Board, after: i64) -> Result<Html, Failure> {
     let owner = board.owner()?;
     let registrations = board.registrations()?;
-    let items = match &owner {
-        // The register queue is the owner's too; its items are the registrations.
-        Some(owner) => board
-            .items(&ItemQuery { owner: Some(&owner.name), state: StateFilter::Open, ..ItemQuery::default() })?
-            .items
-            .into_iter()
-            .filter(|item| item.path != REGISTER_QUEUE)
-            .collect(),
-        None => Vec::new(),
+    let page = match &owner {
+        Some(owner) => board.items(&ItemQuery {
+            owner: Some(&owner.name),
+            state: StateFilter::Open,
+            after,
+            ..ItemQuery::default()
+        })?,
+        None => ItemPage { items: Vec::new(), truncated: false },
     };
+    let more_after = page.items.last().filter(|_| page.truncated).map(|item| item.id);
+    // The register queue is the owner's too; its items are the registrations.
+    let items: Vec<_> = page.items.into_iter().filter(|item| item.path != REGISTER_QUEUE).collect();
     let owner = owner.as_ref().map(|owner| owner.name.as_str());
-    Ok(html::inbox(&Inbox { owner, registrations: &registrations, items: &items }))
+    Ok(html::inbox(&Inbox { owner, registrations: &registrations, items: &items, more_after }))
 }
 
-pub fn inbox(board: &Board) -> Answer {
-    page(board, "inbox", None, &html::swapped("inbox", &inbox_html(board)?))
+pub fn inbox(board: &Board, q: &Params) -> Answer {
+    page(board, "inbox", None, &html::swapped("inbox", &inbox_html(board, q.number("after")?.unwrap_or(0))?))
 }
 
 fn keys_html(board: &Board) -> Result<Html, Failure> {
@@ -193,10 +216,16 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
         }
         Form::Post => {
             let path = path(fields)?;
-            html::messages(path, &board.thread(path, Range::Last(RECENT))?, false)
+            let range = window(fields)?;
+            let archived = shown_archived(fields);
+            html::messages(path, &board.thread_with(path, range, archived)?, range, RECENT, archived)
         }
         Form::Note => note_html(board, &board.node(path(fields)?)?, None)?,
-        Form::Ask => html::queue_items(&board.queue(path(fields)?, StateFilter::All, 0)?.items, false),
+        Form::Ask => {
+            let archived = shown_archived(fields);
+            let path = path(fields)?;
+            html::queue_items(path, &board.queue_with(path, StateFilter::All, 0, archived)?, archived)
+        }
         // The message's or the item's list, as the page shows it.
         Form::Archive | Form::Unarchive => {
             let archived = fields.get("view") == Some("archived");
@@ -205,12 +234,16 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
             let target = target
                 .ok_or_else(|| StoreError::BadRequest("archived, but the answer was unreadable".to_owned()))??;
             match target.kind {
-                NodeKind::Queue => {
-                    html::queue_items(&board.queue_with(&target.path, StateFilter::All, 0, archived)?.items, archived)
-                }
+                NodeKind::Queue => html::queue_items(
+                    &target.path,
+                    &board.queue_with(&target.path, StateFilter::All, 0, archived)?,
+                    archived,
+                ),
                 _ => html::messages(
                     &target.path,
                     &board.thread_with(&target.path, Range::Last(RECENT), archived)?,
+                    Range::Last(RECENT),
+                    RECENT,
                     archived,
                 ),
             }
@@ -219,12 +252,16 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
         Form::Resolve if fields.get("view") == Some("queue") => {
             let item = fields.number("item")?.and_then(|id| board.item(id).transpose()).transpose()?;
             match item {
-                Some(detail) => html::queue_items(&board.queue(&detail.item.path, StateFilter::All, 0)?.items),
+                Some(detail) => {
+                    let archived = shown_archived(fields);
+                    let path = &detail.item.path;
+                    html::queue_items(path, &board.queue_with(path, StateFilter::All, 0, archived)?, archived)
+                }
                 None => html::error_fragment("resolved, but the item cannot be found"),
             }
         }
         Form::Approve | Form::Resolve if fields.get("view") == Some("keys") => keys_html(board)?,
-        Form::Approve | Form::Resolve => inbox_html(board)?,
+        Form::Approve | Form::Resolve => inbox_html(board, fields.number("after")?.unwrap_or(0))?,
         Form::Revoke => keys_html(board)?,
         Form::Register => match (outcome.get("name"), outcome.get("fingerprint"), outcome.get("item")) {
             (Some(name), Some(fingerprint), Some(item)) => match (name.as_str(), fingerprint.as_str(), item.as_i64()) {

@@ -1026,3 +1026,62 @@ const B = globalThis.BoardSign;
     got = json.loads(run.stdout)
     assert got["status"] == 200 and "fresh" in got["text"], got
     assert board.key_info(keyring["fresh"].fingerprint)["state"] == "pending"
+
+
+# --- paging ------------------------------------------------------------------------------------
+
+def _count(page):
+    return len(re.findall(r'<div class="msg">', page))
+
+
+def test_a_thread_page_shows_the_last_100_and_pages_older_by_links(board, team):
+    ids = [team.alice.post("rev/log", f"line {n}") for n in range(130)]
+    page = board.get("/view/rev/log").text
+    assert _count(page) == 100 and "30 earlier messages are not shown" in visible_text(page)
+    assert f"#{ids[29]} " not in page and f"#{ids[30]} " in page
+    assert 'href="/view/rev/log?last=200"' in page and 'href="/view/rev/log?all=1"' in page
+    older = board.get("/view/rev/log?last=200").text
+    assert _count(older) == 130 and "earlier message" not in older  # nothing left: no banner
+    assert _count(board.get("/view/rev/log?last=110").text) == 110
+    assert "newest only" in board.get("/view/rev/log?last=110").text
+    assert _count(board.get("/view/rev/log?all=1").text) == 130
+    after = board.get(f"/view/rev/log?since={ids[119]}").text
+    assert _count(after) == 10 and "120 earlier messages" in visible_text(after)
+    assert board.get("/view/rev/log?last=5&all=1").status == 400
+    # the refresh keeps the window the page is on, and so does a post
+    assert 'hx-get="/ui/messages?path=rev%2Flog&amp;last=100"' in page
+    assert _count(board.get("/ui/messages?path=rev/log&last=120").text) == 120
+    assert _count(board.get("/ui/messages?path=rev/log").text) == 100
+    form = forms(board.get("/view/rev/log?last=120").text)["/ui/post"]
+    assert form["last"] == "120" and forms(board.get("/view/rev/log?all=1").text)["/ui/post"]["all"] == "1"
+    body = board.signed("post", team.alice.key, {"path": "rev/log", "body": "one more", "key": new_client_key()})
+    body["last"] = "120"
+    r = request(f"{board.url}/ui/post", body, form=True)
+    assert r.status == 200 and _count(r.text) == 120 and "one more" in r.text
+
+
+BIGGER = "x" * (700 * 1024)
+
+
+def test_a_queue_page_and_the_inbox_page_on_when_the_board_cuts_the_read(board, team):
+    team.owner.create("rev/q", "queue", owner="alice")
+    asked = [team.bob.ask("rev/q", BIGGER) for _ in range(13)]
+    page = board.get("/view/rev/q").text
+    assert "The board cuts a read" in visible_text(page)
+    [first_after] = re.findall(r'href="/view/rev/q\?after=(\d+)"', page)
+    assert int(first_after) in asked
+    seen, after = [], 0
+    while True:  # following the links reaches every item once
+        page = board.get(f"/view/rev/q?after={after}").text
+        seen += [int(i) for i in re.findall(r"<div class=\"meta\">#(\d+) ·", page)]
+        link = re.findall(r'href="/view/rev/q\?after=(\d+)"', page)
+        if not link:
+            break
+        after = int(link[0])
+    assert seen == asked
+    # the inbox lists the owner's open items: alice is not the owner key
+    team.owner.create("rev/stefan", "queue")
+    [team.bob.ask("rev/stefan", BIGGER) for _ in range(13)]
+    inbox = board.get("/ui/inbox").text
+    assert "more wait" in visible_text(inbox) and "/ui/inbox?after=" in inbox
+    assert board.get("/ui/inbox?after=999999999").status == 200

@@ -267,7 +267,7 @@ fn get(app: &App, path: &str, q: &Params, ctx: &Context<'_>) -> Answer {
         "/poll" => api::poll(board, q, ctx.waiting),
         "/static/htmx.min.js" | "/static/board-sign.js" => Ok(static_file(app, path, ctx)),
         "/" => web::view(board, "", q),
-        "/ui/inbox" => web::inbox(board),
+        "/ui/inbox" => web::inbox(board, q),
         "/ui/keys" => web::keys(board),
         "/ui/messages" => web::messages(board, q),
         "/ui/note" => web::note(board, q),

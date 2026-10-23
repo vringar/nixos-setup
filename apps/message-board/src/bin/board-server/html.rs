@@ -12,7 +12,8 @@
 //! The board checks every write anyway; hiding is for the reader.
 
 use message_board::store::{
-    Child, Item, ItemState, Key, KeyState, Node, NodeKind, NoteVersion, Registration, Status, ThreadPage, Version,
+    Child, Item, ItemPage, ItemState, Key, KeyState, Node, NodeKind, NoteVersion, READ_BYTES_MAX, READ_ROWS_MAX, Range,
+    Registration, Status, ThreadPage, Version,
 };
 
 /// A value as it goes into a URL query: form-urlencoded.
@@ -448,15 +449,67 @@ fn archived_toggle(h: &mut Html, path: &str, show_archived: bool) {
     h.markup(if show_archived { "\">hide archived</a></p>\n" } else { "?archived=1\">show archived</a></p>\n" });
 }
 
-/// A thread's messages, oldest first, with how many came before them;
-/// the archived ones (in `page` only if asked for) are marked, and the owner
-/// gets Archive (or Unarchive) by each.
-pub fn messages(path: &str, page: &ThreadPage, show_archived: bool) -> Html {
-    let mut h = Html::new();
+/// The query string that asks for `range` of a thread: how the pages, the
+/// refresh and the paging links say which messages are on show.
+fn range_query(range: Range) -> String {
+    match range {
+        Range::Last(n) => format!("last={n}"),
+        Range::Since(id) => format!("since={id}"),
+        Range::All => "all=1".to_owned(),
+    }
+}
+
+/// How many more messages "older" adds.
+const OLDER_STEP: i64 = 100;
+
+/// A link to the thread's page, showing `query`.
+fn thread_link(h: &mut Html, path: &str, query: &str, label: &str, show_archived: bool) {
+    h.markup("<a href=\"/view/").text(path).markup("?").text(query);
+    h.markup(if show_archived { "&amp;archived=1\">" } else { "\">" }).text(label).markup("</a>");
+}
+
+/// What a window on a thread says of the messages outside it, with the
+/// links that move it: older, all of them, the newest again, or on from
+/// where a read the board cut short stopped.
+fn thread_paging(h: &mut Html, path: &str, page: &ThreadPage, range: Range, default: i64, show_archived: bool) {
+    let shown = i64::try_from(page.messages.len()).unwrap_or(i64::MAX);
+    h.markup("<p class=\"meta\">");
     if page.earlier > 0 {
-        h.markup("<p class=\"meta\">");
-        plural(&mut h, page.earlier, "earlier message is", "earlier messages are");
-        h.markup(" not shown: <code>board read ").text(path).markup(" --all</code></p>\n");
+        plural(h, page.earlier, "earlier message is", "earlier messages are");
+        h.markup(" not shown: ");
+        if let (Range::Last(n), false) = (range, page.truncated) {
+            thread_link(h, path, &format!("last={}", n.saturating_add(OLDER_STEP)), "show older", show_archived);
+            h.markup(" · ");
+        }
+        thread_link(h, path, "all=1", "show all", show_archived);
+        if !matches!(range, Range::Last(n) if n == default) {
+            h.markup(" · ");
+            thread_link(h, path, &format!("last={default}"), "newest only", show_archived);
+        }
+    }
+    if page.truncated {
+        match (range, page.messages.last()) {
+            (Range::Last(_), _) | (_, None) => {
+                h.markup(" The board cuts a read at ").number(i64::try_from(READ_ROWS_MAX).unwrap_or(i64::MAX));
+                h.markup(" messages or ")
+                    .number(i64::try_from(READ_BYTES_MAX / (1024 * 1024)).unwrap_or(0))
+                    .markup(" MB: ");
+                h.markup("only the newest ").number(shown).markup(" of this window are shown; ask for a smaller one.");
+            }
+            (_, Some(last)) => {
+                h.markup(" This page stops at ").number(shown).markup(" messages (the board's cap): ");
+                thread_link(h, path, &format!("since={}", last.id), "read on", show_archived);
+            }
+        }
+    }
+    h.markup("</p>\n");
+}
+
+/// A thread's messages, oldest first, and the paging around them.
+pub fn messages(path: &str, page: &ThreadPage, range: Range, default: i64, show_archived: bool) -> Html {
+    let mut h = Html::new();
+    if page.earlier > 0 || page.truncated {
+        thread_paging(&mut h, path, page, range, default, show_archived);
     }
     if page.messages.is_empty() {
         h.markup("<p class=\"empty\">no messages yet</p>");
@@ -476,20 +529,31 @@ pub fn messages(path: &str, page: &ThreadPage, show_archived: bool) -> Html {
     h
 }
 
-/// A thread: its messages, refreshed every 3 s, and the form to post.
-pub fn thread(node: &Node, page: &ThreadPage, show_archived: bool) -> Html {
+/// A thread: its messages, refreshed every 3 s over the same window, and
+/// the form to post (which gets the same window back).
+pub fn thread(node: &Node, page: &ThreadPage, range: Range, default: i64, show_archived: bool) -> Html {
     let mut h = heading(node);
     archived_toggle(&mut h, &node.path, show_archived);
     h.markup("<div id=\"messages\" hx-get=\"/ui/messages?path=")
         .text(&encoded(&node.path))
         .markup(if show_archived { "&amp;archived=1" } else { "" })
+        .markup("&amp;")
+        .text(&range_query(range))
         .markup("\" hx-trigger=\"every 3s\" hx-swap=\"innerHTML\">")
-        .html(&messages(&node.path, page, show_archived))
+        .html(&messages(&node.path, page, range, default, show_archived))
         .markup("</div>\n");
     if !node.generated {
         h.markup("<div data-needs=\"trusted\" hidden>\n<form hx-post=\"/ui/post\" hx-target=\"#messages\" hx-swap=\"innerHTML\">\n");
         form_error(&mut h, "");
         hidden_input(&mut h, "path", &node.path);
+        if show_archived {
+            hidden_input(&mut h, "shown", "archived");
+        }
+        match range {
+            Range::Last(n) => hidden_input(&mut h, "last", &n.to_string()),
+            Range::Since(id) => hidden_input(&mut h, "since", &id.to_string()),
+            Range::All => hidden_input(&mut h, "all", "1"),
+        }
         h.markup("<textarea name=\"body\" placeholder=\"message\" required></textarea>\n<button type=\"submit\">post</button>\n</form></div>\n");
     }
     h
@@ -642,16 +706,19 @@ fn item(h: &mut Html, item: &Item, with_queue: bool) {
 
 /// A queue: the form to file a request, and its items (the archived ones
 /// too, marked, if `show_archived`).
-pub fn queue(node: &Node, items: &[Item], show_archived: bool) -> Html {
+pub fn queue(node: &Node, page: &ItemPage, show_archived: bool) -> Html {
     let mut h = heading(node);
     archived_toggle(&mut h, &node.path, show_archived);
     if !node.generated {
         h.markup("<div data-needs=\"trusted\" hidden>\n<form hx-post=\"/ui/ask\" hx-target=\"#queue-items\" hx-swap=\"innerHTML\">\n");
         form_error(&mut h, "");
         hidden_input(&mut h, "path", &node.path);
+        if show_archived {
+            hidden_input(&mut h, "shown", "archived");
+        }
         h.markup("<textarea name=\"body\" placeholder=\"new request\" required></textarea>\n<button type=\"submit\">file request</button>\n</form></div>\n");
     }
-    h.markup("<div id=\"queue-items\">").html(&queue_items(items, show_archived)).markup("</div>\n");
+    h.markup("<div id=\"queue-items\">").html(&queue_items(&node.path, page, show_archived)).markup("</div>\n");
     h
 }
 
@@ -660,8 +727,9 @@ fn queue_item(h: &mut Html, i: &Item, show_archived: bool) {
     h.markup(if i.archived { "<div class=\"item archived\">" } else { "<div class=\"item\">" });
     item(h, i, false);
     archive_form(h, i.id, !i.archived, "queue-items", show_archived);
-    if !i.archived {
-        resolve_controls(h, i);
+    // Only an open item is resolved, and an archived one is out of play.
+    if i.state == ItemState::Open && !i.archived {
+        resolve_controls(h, i, show_archived);
     }
     h.markup("</div>\n");
 }
@@ -672,25 +740,26 @@ fn queue_item(h: &mut Html, i: &Item, show_archived: bool) {
 /// Each control is shown to the key it is for (`data-needs`, and the name
 /// in `data-name`); the board refuses anyone else. A registration has no
 /// answer: it is approved, in the inbox.
-fn resolve_controls(h: &mut Html, i: &Item) {
+fn resolve_controls(h: &mut Html, i: &Item, show_archived: bool) {
     if let Some(asker) = &i.asker {
         h.markup("<div class=\"controls\" data-needs=\"named\" data-name=\"").text(&i.owner).markup("\" hidden>\n");
-        resolve_form(h, i.id, ItemState::Answered, "queue");
+        resolve_form(h, i.id, ItemState::Answered, "queue", show_archived);
         h.markup("</div>\n");
         h.markup("<div class=\"controls\" data-needs=\"named\" data-name=\"").text(asker).markup("\" hidden>\n");
-        resolve_form(h, i.id, ItemState::Cancelled, "queue");
+        resolve_form(h, i.id, ItemState::Cancelled, "queue", show_archived);
         h.markup("</div>\n");
     }
     h.markup("<div class=\"controls\" data-needs=\"owner\" data-name=\"").text(&i.owner).markup("\" hidden>\n");
-    resolve_form(h, i.id, ItemState::Declined, "queue");
+    resolve_form(h, i.id, ItemState::Declined, "queue", show_archived);
     h.markup("</div>\n");
 }
 
 /// A queue's items, as `#queue-items` holds them: the open ones oldest
-/// first, and the resolved ones folded away; `items` has the archived ones
+/// first, and the resolved ones folded away; `page` has the archived ones
 /// only if `show_archived`.
-pub fn queue_items(items: &[Item], show_archived: bool) -> Html {
+pub fn queue_items(path: &str, page: &ItemPage, show_archived: bool) -> Html {
     let mut h = Html::new();
+    let items = &page.items;
     let (open, resolved): (Vec<&Item>, Vec<&Item>) = items.iter().partition(|i| i.state == ItemState::Open);
     if open.is_empty() {
         h.markup("<p class=\"empty\">nothing open</p>\n");
@@ -707,17 +776,32 @@ pub fn queue_items(items: &[Item], show_archived: bool) -> Html {
         }
         h.markup("</details>\n");
     }
+    if page.truncated {
+        h.markup("<p class=\"meta\">The board cuts a read at ")
+            .number(i64::try_from(READ_ROWS_MAX).unwrap_or(i64::MAX));
+        h.markup(" items or ")
+            .number(i64::try_from(READ_BYTES_MAX / (1024 * 1024)).unwrap_or(0))
+            .markup(" MB: more follow. ");
+        if let Some(last) = items.last() {
+            h.markup("<a href=\"/view/").text(path).markup("?after=").number(last.id);
+            h.markup(if show_archived { "&amp;archived=1\">next items</a>" } else { "\">next items</a>" });
+        }
+        h.markup("</p>\n");
+    }
     h
 }
 
 /// A form that resolves `item` as `state`, with the reason asked for;
 /// an answer may also name the message that holds it.
-fn resolve_form(h: &mut Html, item: i64, state: ItemState, view: &'static str) {
+fn resolve_form(h: &mut Html, item: i64, state: ItemState, view: &'static str, show_archived: bool) {
     // A queue page's items are what its own `#queue-items` holds.
     let target = if view == "queue" { "queue-items" } else { view };
     h.markup("<form hx-post=\"/ui/resolve\" hx-target=\"#").markup(target).markup("\" hx-swap=\"innerHTML\">\n");
     form_error(h, "");
     hidden_input(h, "view", view);
+    if show_archived {
+        hidden_input(h, "shown", "archived");
+    }
     hidden_input(h, "item", &item.to_string());
     hidden_input(h, "state", state.as_str());
     if state == ItemState::Answered {
@@ -760,7 +844,7 @@ fn registration(h: &mut Html, r: &Registration, view: &'static str) {
     hidden_input(h, "name", &r.name);
     hidden_input(h, "fingerprint", &r.fingerprint);
     h.markup("<button type=\"submit\">Approve</button>\n</form>\n");
-    resolve_form(h, r.item, ItemState::Declined, view);
+    resolve_form(h, r.item, ItemState::Declined, view, false);
     h.markup("</div></div>\n");
 }
 
@@ -772,6 +856,8 @@ pub struct Inbox<'a> {
     pub registrations: &'a [Registration],
     /// Open items in the owner's queues, but the register queue.
     pub items: &'a [Item],
+    /// The board cut the read short after this item: the next page is `?after=` it.
+    pub more_after: Option<i64>,
 }
 
 /// The owner's inbox, the content of `#inbox`: the registrations waiting,
@@ -814,9 +900,14 @@ pub fn inbox(v: &Inbox<'_>) -> Html {
             h.markup("<div class=\"card\">");
             item(&mut h, i, true);
             h.markup("<div class=\"controls\" data-needs=\"owner\" hidden>\n");
-            resolve_form(&mut h, i.id, ItemState::Answered, "inbox");
-            resolve_form(&mut h, i.id, ItemState::Declined, "inbox");
+            resolve_form(&mut h, i.id, ItemState::Answered, "inbox", false);
+            resolve_form(&mut h, i.id, ItemState::Declined, "inbox", false);
             h.markup("</div></div>\n");
+        }
+        if let Some(after) = v.more_after {
+            h.markup("<p class=\"meta\">The board cuts a read at ")
+                .number(i64::try_from(READ_ROWS_MAX).unwrap_or(i64::MAX));
+            h.markup(" items: more wait. <a href=\"/ui/inbox?after=").number(after).markup("\">next items</a></p>\n");
         }
     }
     h
@@ -901,7 +992,7 @@ mod tests {
     fn archive_controls_are_for_the_owner_and_archived_ones_are_marked() {
         let page =
             ThreadPage { messages: vec![message(10_010, false), message(10_011, true)], earlier: 0, truncated: false };
-        let shown = text(messages("rev/log", &page, true));
+        let shown = text(messages("rev/log", &page, Range::Last(100), 100, true));
         assert!(!shown.contains(HOSTILE) && shown.contains(ESCAPED), "{shown}");
         assert_eq!(shown.matches("<form").count(), 2, "{shown}");
         assert_eq!(shown.matches("data-needs=\"owner\" hidden").count(), 2, "{shown}");
@@ -924,9 +1015,9 @@ mod tests {
             created: 1,
             archived: None,
         };
-        let thread_page = text(thread(&node, &page, false));
+        let thread_page = text(thread(&node, &page, Range::Last(100), 100, false));
         assert!(thread_page.contains("href=\"/view/rev/log?archived=1\">show archived"), "{thread_page}");
-        let with = text(thread(&node, &page, true));
+        let with = text(thread(&node, &page, Range::Last(100), 100, true));
         assert!(with.contains("hide archived") && with.contains("&amp;archived=1"), "{with}");
     }
 
@@ -964,7 +1055,12 @@ mod tests {
             archived: false,
             resolution: None,
         };
-        let page = text(inbox(&Inbox { owner: Some("Stefan"), registrations: &registrations, items: &[item] }));
+        let page = text(inbox(&Inbox {
+            owner: Some("Stefan"),
+            registrations: &registrations,
+            items: &[item],
+            more_after: None,
+        }));
         assert!(!page.contains(HOSTILE) && page.contains(ESCAPED), "{page}");
         assert!(page.contains("replaces <code>SHA256:old</code>"), "{page}");
         assert!(page.contains("2 keys ask for this name"), "{page}");
@@ -1023,13 +1119,13 @@ mod tests {
             created: 10_010,
             archived: None,
         };
-        let page = text(queue(&node, &[], false));
+        let page = text(queue(&node, &ItemPage { items: vec![], truncated: false }, false));
         assert!(page.contains("<div data-needs=\"trusted\" hidden>"), "{page}");
         assert!(page.contains("hx-post=\"/ui/ask\" hx-target=\"#queue-items\""), "{page}");
         assert!(page.contains("name=\"path\" value=\"rev/q\"") && page.contains("<textarea name=\"body\""), "{page}");
         assert!(page.contains("<div id=\"queue-items\"><p class=\"empty\">nothing open</p>"), "{page}");
         let generated = Node { generated: true, ..node };
-        assert!(!text(queue(&generated, &[], false)).contains("/ui/ask"));
+        assert!(!text(queue(&generated, &ItemPage { items: vec![], truncated: false }, false)).contains("/ui/ask"));
     }
 
     fn open_item(id: i64, asker: Option<&str>) -> Item {
@@ -1042,12 +1138,17 @@ mod tests {
             state: ItemState::Open,
             body: "q".to_owned(),
             resolution: None,
+            archived: false,
         }
     }
 
     #[test]
     fn an_open_item_offers_the_resolutions_the_store_allows_to_the_keys_it_allows_them() {
-        let page = text(queue_items(&[open_item(10_030, Some("alice")), open_item(10_031, None)]));
+        let page = text(queue_items(
+            "rev/bob",
+            &ItemPage { items: vec![open_item(10_030, Some("alice")), open_item(10_031, None)], truncated: false },
+            false,
+        ));
         // answer: the queue's owner only, and never for a registration
         assert_eq!(page.matches("data-needs=\"named\" data-name=\"bob\" hidden").count(), 1, "{page}");
         assert_eq!(page.matches("<button type=\"submit\">Answer</button>").count(), 1, "{page}");
@@ -1063,7 +1164,100 @@ mod tests {
         // nothing but resolved items: no controls
         let mut done = open_item(10_032, Some("alice"));
         done.state = ItemState::Answered;
-        assert!(!text(queue_items(&[done])).contains("<form"));
+        assert!(
+            !text(queue_items("rev/bob", &ItemPage { items: vec![done], truncated: false }, false))
+                .contains("/ui/resolve")
+        );
+        // nor on an archived open item, which keeps only its Unarchive
+        let mut gone = open_item(10_033, Some("alice"));
+        gone.archived = true;
+        let page = text(queue_items("rev/bob", &ItemPage { items: vec![gone], truncated: false }, true));
+        assert!(!page.contains("/ui/resolve") && page.contains("hx-post=\"/ui/unarchive\""), "{page}");
+        // a page that shows archived items sends that along with each form
+        let page = text(queue_items(
+            "rev/bob",
+            &ItemPage { items: vec![open_item(10_034, Some("alice"))], truncated: false },
+            true,
+        ));
+        assert_eq!(page.matches("name=\"shown\" value=\"archived\"").count(), 3, "{page}");
+    }
+
+    fn thread_page(ids: std::ops::Range<i64>, earlier: i64, truncated: bool) -> ThreadPage {
+        use message_board::store::Message;
+        ThreadPage {
+            messages: ids
+                .map(|id| Message {
+                    id,
+                    ts: String::new(),
+                    path: "rev/log".to_owned(),
+                    from: "alice".to_owned(),
+                    signed_by: None,
+                    revoked_at: None,
+                    body: "m".to_owned(),
+                    archived: false,
+                })
+                .collect(),
+            earlier,
+            truncated,
+        }
+    }
+
+    #[test]
+    fn a_thread_window_pages_older_and_all_and_keeps_its_window_in_the_refresh() {
+        let node = Node {
+            id: 6,
+            path: "rev/log".to_owned(),
+            parent: Some(1),
+            kind: NodeKind::Thread,
+            description: String::new(),
+            creator: "alice".to_owned(),
+            owner: None,
+            generated: false,
+            created: 10_010,
+            archived: None,
+        };
+        let page = text(thread(&node, &thread_page(10_100..10_200, 40, false), Range::Last(100), 100, false));
+        assert!(page.contains("40 earlier messages are not shown:"), "{page}");
+        assert!(page.contains("<a href=\"/view/rev/log?last=200\">show older</a>"), "{page}");
+        assert!(page.contains("<a href=\"/view/rev/log?all=1\">show all</a>"), "{page}");
+        assert!(!page.contains("newest only"), "{page}");
+        assert!(page.contains("hx-get=\"/ui/messages?path=rev%2Flog&amp;last=100\""), "{page}");
+        assert!(page.contains("name=\"last\" value=\"100\""), "{page}");
+        // a wider window can go back to the newest, a whole one has nothing earlier
+        let wide = text(messages("rev/log", &thread_page(10_060..10_200, 0, false), Range::Last(200), 100, false));
+        assert!(!wide.contains("not shown"), "{wide}");
+        let part = text(messages("rev/log", &thread_page(10_150..10_160, 3, false), Range::Since(10_149), 100, false));
+        assert!(
+            part.contains("show all") && part.contains("last=100\">newest only") && !part.contains("show older"),
+            "{part}"
+        );
+        // a read the board cut short says so, and pages on
+        let cut = text(messages("rev/log", &thread_page(0..5, 0, true), Range::All, 100, false));
+        assert!(cut.contains("This page stops at 5 messages") && cut.contains("since=4\">read on"), "{cut}");
+        let cut = text(messages("rev/log", &thread_page(10..15, 9000, true), Range::Last(9999), 100, false));
+        assert!(cut.contains("only the newest 5") && !cut.contains("show older"), "{cut}");
+        assert_eq!(
+            text(thread(&node, &thread_page(1..2, 0, false), Range::All, 100, false))
+                .matches("name=\"all\" value=\"1\"")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_queue_page_that_the_board_cut_short_says_so_and_links_the_next_page() {
+        let page = text(queue_items(
+            "rev/bob",
+            &ItemPage {
+                items: vec![open_item(10_030, Some("alice")), open_item(10_031, Some("alice"))],
+                truncated: true,
+            },
+            false,
+        ));
+        assert!(page.contains("<a href=\"/view/rev/bob?after=10031\">next items</a>"), "{page}");
+        assert!(
+            !text(queue_items("rev/bob", &ItemPage { items: vec![], truncated: false }, false)).contains("next items")
+        );
     }
 
     #[test]
