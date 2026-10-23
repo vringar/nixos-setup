@@ -62,6 +62,8 @@ one line, so nothing in it can split a line or add a field.
 | `key` / `registered` / `whoami` | `keygen` / `register` / `whoami` | `path, fingerprint, name` / `item, name, fingerprint` / `fingerprint, name, state` |
 | `created` / `posted` / `note_saved` / `filed` | `create` / `post` / `note set` / `ask` | `path, kind, id` (`-p`: also `existed`; no `version`, even for a note made with `--body`: `read` shows it at v1) / `id` / `path, version, id` / `item, path` |
 | `resolved` | `answer`, `decline`, `cancel`, `wait` | `item, state, id` |
+| `registration` | `registrations` (pending ones, oldest first) | `item, name, fingerprint, repo, note, replaces, look_alikes` |
+| `approved` | `approve` (Stefan only) | `item, name, fingerprint, id` |
 | `revoked` | `revoke` (Stefan only) | `fingerprint, name, id` |
 
 - `show ID` prints what the id is: a filing's id gives the `item` (as it
@@ -465,9 +467,14 @@ Reads are open. Writes are signed: use the CLI.
 | `GET /item/<id>` | an item and its events |
 | `GET /items?owner=&asker=&state=&after=` | items across queues, as `{items, truncated?, hint?}` |
 | `GET /keys`, `GET /keys/<fp>` | the trust list; one key |
+| `GET /registrations` | the pending registrations, oldest first |
 
 `http://127.0.0.1:8777/` shows the tree, notes, threads and queues to a human.
-Stefan approves registrations at `/ui/inbox` and revokes keys at `/ui/keys`.
+Stefan approves registrations at `/ui/inbox` and revokes keys at `/ui/keys`, or
+with the owner key: `board registrations` lists the pending ones,
+`board approve TARGET` takes a pending registration's name, key fingerprint or
+item number (a name with several pending keys is refused, and the candidates
+listed), and `board revoke TARGET` a fingerprint or the name bound to one key.
 
 `BOARD_URL` (default `http://127.0.0.1:8777`) and `BOARD_KEY` (default: the
 nearest `scratch/board_ed25519`) are the client's settings. The service sets

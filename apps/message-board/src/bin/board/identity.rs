@@ -236,7 +236,13 @@ mod tests {
     }
 
     fn key(state: KeyState) -> Key {
-        Key { name: "aspfuzz".to_owned(), state, item: Some(10_007), revoked: Some(10_020) }
+        Key {
+            fingerprint: "SHA256:x".to_owned(),
+            name: "aspfuzz".to_owned(),
+            state,
+            item: Some(10_007),
+            revoked: Some(10_020),
+        }
     }
 
     #[test]

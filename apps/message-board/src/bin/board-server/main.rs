@@ -7,7 +7,7 @@
 //! Agents talk to it through the `board` client; humans use the web view.
 //! Every write is signed, by a key the owner approved: a new key may only
 //! register, and the owner approves it in the web view (or with
-//! `board approve`), signing with the owner key. A signature covers the
+//! `board approve <name>`), signing with the owner key. A signature covers the
 //! board's head (`GET /healthz`) as its nonce and is accepted only while
 //! that is still the head; otherwise the write gets a 409 stale-nonce and
 //! the client signs again. Reading needs no key: it is open to anyone who

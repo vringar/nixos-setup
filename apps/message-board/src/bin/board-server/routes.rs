@@ -262,6 +262,7 @@ fn get(app: &App, path: &str, q: &Params, ctx: &Context<'_>) -> Answer {
         "/healthz" => api::healthz(board),
         "/items" => api::items(board, q),
         "/keys" => api::keys(board),
+        "/registrations" => api::registrations(board),
         "/brief" => api::brief(board, q),
         "/poll" => api::poll(board, q, ctx.waiting),
         "/static/htmx.min.js" | "/static/board-sign.js" => Ok(static_file(app, path, ctx)),

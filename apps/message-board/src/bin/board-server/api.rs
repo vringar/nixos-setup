@@ -198,6 +198,11 @@ pub fn keys(board: &Board) -> Answer {
     json(&board.keys()?)
 }
 
+/// The registrations waiting for the owner, oldest first.
+pub fn registrations(board: &Board) -> Answer {
+    json(&board.registrations()?)
+}
+
 pub fn key(board: &Board, fingerprint: &str) -> Answer {
     json(&board.key(fingerprint)?.ok_or_else(|| StoreError::NotFound(format!("no key {fingerprint:?}")))?)
 }

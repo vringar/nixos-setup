@@ -331,6 +331,12 @@ pub fn items(api: &Api, whose: &Whose<'_>, state: StateArg, after: Option<i64>) 
     Ok(())
 }
 
+/// `board registrations`: the pending ones, oldest first, a line each.
+pub fn registrations(api: &Api) -> Result<(), Failure> {
+    let pending: Vec<crate::wire::Registration> = api.get("/registrations")?;
+    pending.iter().try_for_each(|registration| emit(&Line::Registration(registration)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

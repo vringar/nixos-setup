@@ -335,7 +335,8 @@ def test_cli_approve_and_revoke_with_the_owner_key(board, team, keyring):
     key = keyring["newbie"]
     item = board.register(key, "newbie")["item"]
     approved = cli("approve", item, key=board.owner.key).ok().result
-    assert (approved["type"], approved["item"], approved["state"]) == ("resolved", item, "answered")
+    assert approved == {"type": "approved", "item": item, "name": "newbie",
+                        "fingerprint": key.fingerprint, "id": approved["id"]}
     assert board.key_info(key.fingerprint)["state"] == "trusted"
     revoked = cli("revoke", key.fingerprint, "--reason", "done with it", key=board.owner.key).ok().result
     assert revoked == {"type": "revoked", "fingerprint": key.fingerprint, "name": "newbie",
@@ -344,6 +345,54 @@ def test_cli_approve_and_revoke_with_the_owner_key(board, team, keyring):
     with refusal(403, "key-revoked") as r:
         board.as_key(key).post("rev/log", "after")
     assert r.value["revoked_at"] == revoked["id"]
+
+
+def test_registrations_lists_the_pending_ones_and_approve_takes_a_name(board, team, keyring):
+    first, second, third = keyring["newbie"], keyring["dora"], keyring["erin"]
+    one = board.register(first, "newbie", note="line one\nline two")["item"]
+    two = board.register(second, "twin")["item"]
+    three = board.register(third, "twin")["item"]
+    owner = board.owner.key
+    listed = cli("registrations", key=owner).ok().lines
+    assert [(r["type"], r["item"], r["name"], r["fingerprint"]) for r in listed] == [
+        ("registration", one, "newbie", first.fingerprint),
+        ("registration", two, "twin", second.fingerprint),
+        ("registration", three, "twin", third.fingerprint)]
+    assert {"repo", "note", "look_alikes"} <= set(listed[0]) and listed[0]["note"].startswith("line one")
+    # two pending keys with the name: refused, and the candidates are listed
+    run = cli("approve", "twin", key=owner)
+    assert (run.code, run.out) == (1, "") and "2 pending keys are named twin" in run.err
+    assert second.fingerprint in run.err and third.fingerprint in run.err
+    assert first.fingerprint not in run.err
+    # no match: refused, every pending one listed
+    run = cli("approve", "nobody", key=owner)
+    assert run.code == 1 and all(k.fingerprint in run.err for k in (first, second, third))
+    # a fingerprint or an item number must be exact, and pending
+    assert cli("approve", first.fingerprint[:-1], key=owner).code == 1
+    assert cli("approve", str(one + 5000), key=owner).code == 1
+    assert cli("approve", "newbi", key=owner).code == 1
+    assert board.key_info(first.fingerprint)["state"] == "pending"
+    # a lone name approves; so does a fingerprint
+    approved = cli("approve", "newbie", key=owner).ok().result
+    assert (approved["type"], approved["item"], approved["name"], approved["fingerprint"]) == \
+        ("approved", one, "newbie", first.fingerprint)
+    assert board.key_info(first.fingerprint)["state"] == "trusted"
+    cli("approve", second.fingerprint, key=owner).ok()
+    assert board.key_info(second.fingerprint)["state"] == "trusted"
+    # approving `second` settled the other registration for the name too
+    assert cli("registrations", key=owner).ok().lines == []
+    assert board.key_info(third.fingerprint)["state"] != "pending"
+
+
+def test_revoke_takes_a_fingerprint_or_an_unambiguous_name(board, team):
+    owner = board.owner.key
+    run = cli("revoke", "nobody", key=owner)
+    assert run.code == 1 and "no key is bound to the name nobody" in run.err
+    revoked = cli("revoke", "bob", "--reason", "by name", key=owner).ok().result
+    assert (revoked["type"], revoked["fingerprint"], revoked["name"]) == \
+        ("revoked", team.bob.fingerprint, "bob")
+    assert board.key_info(team.bob.fingerprint)["state"] == "revoked"
+    assert board.key_info(team.alice.fingerprint)["state"] == "trusted"
 
 
 def test_revoking_a_key_marks_what_it_signed_before(board, team):

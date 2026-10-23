@@ -171,11 +171,10 @@ pub struct ItemList {
     pub hint: Option<String>,
 }
 
-/// `/item/<id>`: an item and every event about it.
+/// `/item/<id>`: the item (its events are not read).
 #[derive(Debug, Deserialize)]
 pub struct ItemDetail {
     pub item: Item,
-    pub events: Vec<WireEvent>,
 }
 
 /// One event (`/event/<id>`, and in a poll).
@@ -235,9 +234,23 @@ pub struct Page {
     pub cursor: i64,
 }
 
-/// `/keys/<fingerprint>`: only what `board` acts on.
+/// `/registrations`: a pending key, with what the owner should know.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Registration {
+    pub item: i64,
+    pub name: String,
+    pub fingerprint: String,
+    pub repo: String,
+    pub note: String,
+    /// The key bound to `name` now, which approving this one revokes.
+    pub replaces: Option<String>,
+    pub look_alikes: Vec<String>,
+}
+
+/// `/keys/<fingerprint>`, and a row of `/keys`: only what `board` acts on.
 #[derive(Debug, Deserialize)]
 pub struct Key {
+    pub fingerprint: String,
     pub name: String,
     pub state: KeyState,
     /// Its latest registration.
@@ -315,6 +328,14 @@ pub struct Registered {
     pub item: i64,
     pub name: String,
     pub fingerprint: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Approved {
+    pub item: i64,
+    pub name: String,
+    pub fingerprint: String,
+    pub id: i64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -412,6 +433,8 @@ pub enum Line<'a> {
     Filed(&'a Filed),
     Resolved(&'a Resolved),
     Revoked(&'a Revoked),
+    Approved(&'a Approved),
+    Registration(&'a Registration),
 }
 
 /// `line` as one line of JSON. `serde_json` escapes every control character

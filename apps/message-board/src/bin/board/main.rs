@@ -17,7 +17,8 @@
 //! board cancel ITEM [BODY...]                withdraw an item you asked
 //! board items [--mine]                       items across queues
 //! board wait ITEM [--timeout S]              block until an item is resolved
-//! board approve ITEM / board revoke FP       the owner key's
+//! board registrations                        the pending registrations
+//! board approve TARGET / board revoke TARGET the owner key's
 //! ```
 //!
 //! Everything it prints on stdout is JSON Lines: one compact JSON object
@@ -263,11 +264,17 @@ enum Command {
         #[arg(long, value_name = "S", help = "give up after S seconds (exit 124); default: never")]
         timeout: Option<u64>,
     },
+    #[command(about = "list the pending registrations, one JSON line each")]
+    Registrations,
     #[command(about = "approve a registration (the owner key only)")]
-    Approve { item: i64 },
+    Approve {
+        #[arg(value_name = "TARGET", help = "a pending registration: its name, key fingerprint or item number")]
+        target: String,
+    },
     #[command(about = "revoke a key (the owner key only)")]
     Revoke {
-        fingerprint: String,
+        #[arg(value_name = "TARGET", help = "a key: its fingerprint, or its name if one key is bound to it")]
+        target: String,
         #[arg(long, default_value = "")]
         reason: String,
     },
@@ -511,8 +518,9 @@ fn run(cli: Cli) -> Result<(), Failure> {
             read::items(&api, &whose, state, after)
         }
         Command::Wait { item, timeout } => watch::wait(&api, item, timeout),
-        Command::Approve { item } => write::approve(&api, item),
-        Command::Revoke { fingerprint, reason } => write::revoke(&api, &fingerprint, &reason),
+        Command::Registrations => read::registrations(&api),
+        Command::Approve { target } => write::approve(&api, &target),
+        Command::Revoke { target, reason } => write::revoke(&api, &target, &reason),
         Command::Pin { .. } => Err(Failure::V1Form("pins (notes replaced them)")),
         Command::Areas { .. } => Err(Failure::V1Form("areas")),
     }

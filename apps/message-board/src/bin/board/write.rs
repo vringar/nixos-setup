@@ -16,13 +16,15 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
 use message_board::store::{
-    Action, Approve, Create, EventType, File, ItemState, NodeKind, Post, REGISTER_QUEUE, Resolve, Revoke, SetNote,
+    Action, Approve, Create, File, ItemState, KeyState, NodeKind, Post, Resolve, Revoke, SetNote,
 };
 
 use crate::api::{Api, TIMEOUT, error_code, node_url, parse};
 use crate::client::HttpError;
-use crate::identity::{Signer, lookup, signer};
-use crate::wire::{Created, Filed, Health, ItemDetail, Line, NodeRead, NoteSaved, Posted, Resolved, Revoked};
+use crate::identity::{Signer, signer};
+use crate::wire::{
+    Approved, Created, Filed, Health, Key, Line, NodeRead, NoteSaved, Posted, Registration, Resolved, Revoked,
+};
 use crate::{Failure, emit, io_failure, warn};
 
 /// How long a write waits for its answer. Resending is harmless (see the
@@ -303,34 +305,88 @@ pub fn resolve(
     emit(&Line::Resolved(&resolved))
 }
 
-/// Approve a registration: signed over the key's fingerprint and the name,
-/// both as the board has them, so what the owner signs is that key.
-pub fn approve(api: &Api, item: i64) -> Result<(), Failure> {
-    let signer = signer()?;
-    let detail: ItemDetail = api.get(&format!("/item/{item}"))?;
-    if detail.item.path != REGISTER_QUEUE {
-        return Err(Failure::Exit(format!("#{item} is an item in {}, not a registration", detail.item.path)));
-    }
-    // A registration is filed by the key it registers.
-    let fingerprint = detail
-        .events
-        .into_iter()
-        .find(|event| event.event == EventType::ItemFiled)
-        .and_then(|event| event.signed_by)
-        .ok_or_else(|| Failure::BadAnswer {
-            what: format!("/item/{item}"),
-            cause: "no signed item_filed event".to_owned(),
-        })?;
-    let key = lookup(api, &fingerprint)?
-        .ok_or_else(|| Failure::Exit(format!("the board does not know registration #{item}'s key {fingerprint}")))?;
-    let action = Approve { item, name: &key.name, fingerprint: &fingerprint };
-    let resolved: Resolved = submit(api, &signer, "/approve", &action)?;
-    emit(&Line::Resolved(&resolved))
+/// Why a target named no one registration, and the registrations it could
+/// have meant.
+#[derive(Debug)]
+struct Miss<'a> {
+    reason: String,
+    candidates: Vec<&'a Registration>,
 }
 
-pub fn revoke(api: &Api, fingerprint: &str, reason: &str) -> Result<(), Failure> {
+/// The pending registration `target` names: a key fingerprint (`SHA256:...`)
+/// or an item number, each exactly, else a name, if one pending key has it.
+fn pick<'a>(target: &str, pending: &'a [Registration]) -> Result<&'a Registration, Miss<'a>> {
+    let (what, hits): (&str, Vec<&Registration>) = if target.starts_with("SHA256:") {
+        ("key", pending.iter().filter(|r| r.fingerprint == target).collect())
+    } else if !target.is_empty() && target.bytes().all(|b| b.is_ascii_digit()) {
+        ("item", pending.iter().filter(|r| target.parse() == Ok(r.item)).collect())
+    } else {
+        ("name", pending.iter().filter(|r| r.name == target).collect())
+    };
+    match hits.as_slice() {
+        [one] => Ok(one),
+        [] => Err(Miss {
+            reason: format!("no pending registration has the {what} {target}; the pending ones are listed above"),
+            candidates: pending.iter().collect(),
+        }),
+        _ => Err(Miss {
+            reason: format!(
+                "{} pending keys are named {target}: approve one by fingerprint or item number",
+                hits.len()
+            ),
+            candidates: hits,
+        }),
+    }
+}
+
+/// A registration on a line, for choosing among them.
+fn candidate(r: &Registration) -> String {
+    format!("  #{} {} {} {} {}", r.item, r.fingerprint, r.name, r.repo, r.note.lines().next().unwrap_or_default())
+}
+
+/// Approve a registration: signed over the key's fingerprint and the name,
+/// both as the board has them, so what the owner signs is that key.
+pub fn approve(api: &Api, target: &str) -> Result<(), Failure> {
     let signer = signer()?;
-    let revoked: Revoked = submit(api, &signer, "/revoke", &Revoke { fingerprint, reason })?;
+    let pending: Vec<Registration> = api.get("/registrations")?;
+    let registration = match pick(target, &pending) {
+        Ok(registration) => registration,
+        Err(miss) => {
+            for each in &miss.candidates {
+                warn(&candidate(each))?;
+            }
+            return Err(Failure::Exit(miss.reason));
+        }
+    };
+    let (item, name, fingerprint) = (registration.item, &registration.name, &registration.fingerprint);
+    let resolved: Resolved = submit(api, &signer, "/approve", &Approve { item, name, fingerprint })?;
+    emit(&Line::Approved(&Approved { item, name: name.clone(), fingerprint: fingerprint.clone(), id: resolved.id }))
+}
+
+/// The fingerprint `target` names: itself, or the key bound to that name.
+fn revoke_target(api: &Api, target: &str) -> Result<String, Failure> {
+    if target.starts_with("SHA256:") {
+        return Ok(target.to_owned());
+    }
+    let keys: Vec<Key> = api.get("/keys")?;
+    bound_key(target, &keys).map(|key| key.fingerprint.clone())
+}
+
+/// The one key bound to `name` (owner or trusted).
+fn bound_key<'a>(name: &str, keys: &'a [Key]) -> Result<&'a Key, Failure> {
+    let bound: Vec<&Key> =
+        keys.iter().filter(|k| k.name == name && matches!(k.state, KeyState::Owner | KeyState::Trusted)).collect();
+    match bound.as_slice() {
+        [one] => Ok(one),
+        [] => Err(Failure::Exit(format!("no key is bound to the name {name}; give a key fingerprint (SHA256:...)"))),
+        _ => Err(Failure::Exit(format!("several keys are bound to {name}; give a key fingerprint (SHA256:...)"))),
+    }
+}
+
+pub fn revoke(api: &Api, target: &str, reason: &str) -> Result<(), Failure> {
+    let signer = signer()?;
+    let fingerprint = revoke_target(api, target)?;
+    let revoked: Revoked = submit(api, &signer, "/revoke", &Revoke { fingerprint: &fingerprint, reason })?;
     emit(&Line::Revoked(&revoked))
 }
 
@@ -339,6 +395,65 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+
+    fn registration(item: i64, name: &str, fingerprint: &str) -> Registration {
+        Registration {
+            item,
+            name: name.to_owned(),
+            fingerprint: fingerprint.to_owned(),
+            repo: "r".to_owned(),
+            note: "first\nsecond".to_owned(),
+            replaces: None,
+            look_alikes: Vec::new(),
+        }
+    }
+
+    fn pending() -> Vec<Registration> {
+        vec![
+            registration(10_001, "alice", "SHA256:a"),
+            registration(10_002, "bob", "SHA256:b"),
+            registration(10_003, "bob", "SHA256:c"),
+        ]
+    }
+
+    #[test]
+    fn a_target_names_a_registration_by_name_fingerprint_or_item() {
+        let pending = pending();
+        assert_eq!(pick("alice", &pending).map(|r| r.item).ok(), Some(10_001));
+        assert_eq!(pick("SHA256:c", &pending).map(|r| r.item).ok(), Some(10_003));
+        assert_eq!(pick("10002", &pending).map(|r| r.item).ok(), Some(10_002));
+    }
+
+    #[test]
+    fn a_target_that_names_no_one_registration_lists_the_candidates() {
+        let pending = pending();
+        let two = pick("bob", &pending).err();
+        assert!(two.as_ref().is_some_and(|m| m.reason.contains("2 pending keys") && m.candidates.len() == 2));
+        for target in ["carol", "SHA256:zzz", "99999", "SHA256", "ali"] {
+            let miss = pick(target, &pending).err();
+            assert!(miss.as_ref().is_some_and(|m| m.candidates.len() == 3), "{target}");
+        }
+        assert_eq!(pending.first().map(candidate).as_deref(), Some("  #10001 SHA256:a alice r first"));
+    }
+
+    #[test]
+    fn a_name_revokes_only_the_one_key_bound_to_it() {
+        let key = |fingerprint: &str, name: &str, state| Key {
+            fingerprint: fingerprint.to_owned(),
+            name: name.to_owned(),
+            state,
+            item: None,
+            revoked: None,
+        };
+        let keys = [
+            key("SHA256:old", "alice", KeyState::Revoked),
+            key("SHA256:new", "alice", KeyState::Trusted),
+            key("SHA256:p", "bob", KeyState::Pending),
+        ];
+        assert_eq!(bound_key("alice", &keys).map(|k| k.fingerprint.as_str()).ok(), Some("SHA256:new"));
+        assert!(bound_key("bob", &keys).is_err());
+        assert!(bound_key("nobody", &keys).is_err());
+    }
 
     #[test]
     fn a_backoff_is_random_within_its_bounds_and_grows_with_the_tries() -> Result<(), Failure> {

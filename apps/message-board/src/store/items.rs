@@ -367,7 +367,7 @@ impl Board {
                 let registration = item.path == REGISTER_QUEUE;
                 if registration && resolve.state == ItemState::Answered {
                     return Err(Error::BadRequest(format!(
-                        "#{} is a registration: approve it (board approve), which binds its name to its key",
+                        "#{} is a registration: approve it (board approve <name>), which binds its name to its key",
                         item.id
                     )));
                 }
