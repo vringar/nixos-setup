@@ -442,6 +442,27 @@ def test_the_thread_and_note_pages_carry_their_write_forms(board, team):
     assert "v2 text" in note.get("body", "")  # the edit starts from the current text
 
 
+def test_a_queue_page_carries_the_ask_form(board, team):
+    team.alice.create("rev/q", "queue")
+    ask = forms(board.get("/view/rev/q").text)["/ui/ask"]
+    assert ask.get("path") == "rev/q" and "body" in ask
+
+
+def test_a_signed_web_ask_files_an_item_and_answers_with_the_queue(board, team):
+    a = team.alice
+    a.create("rev/q", "queue")
+    signed = board.signed("file", a.key, {"path": "rev/q", "body": "<b>please</b>", "key": new_client_key()})
+    r = request(board.url + "/ui/ask", signed, form=True)
+    assert r.status == 200 and "&lt;b&gt;please&lt;/b&gt;" in r.text and "<b>" not in r.text
+    [item] = [i for i in board.queue_items("rev/q") if i["body"] == "<b>please</b>"]
+    assert (item["asker"], item["state"]) == ("alice", "open")
+    head = board.head_id()
+    r = request(board.url + "/ui/ask", {"path": "rev/q", "body": "unsigned", "key": new_client_key(),
+                                        "nonce": str(head)}, form=True)
+    assert r.status == 401 and r.headers["Board-Error"] == "unsigned"
+    assert board.head_id() == head
+
+
 def test_a_signed_web_post_lands_and_an_unsigned_one_is_refused(board, team):
     a = team.alice
     signed = board.signed("post", a.key, {"path": "rev/log", "body": "from the form",

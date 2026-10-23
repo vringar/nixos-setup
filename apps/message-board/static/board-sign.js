@@ -164,6 +164,7 @@
     "/ui/create": KINDS.create,
     "/ui/post": KINDS.post,
     "/ui/note": KINDS.note,
+    "/ui/ask": KINDS.file,
     "/ui/approve": KINDS.approve,
     "/ui/resolve": KINDS.resolve,
     "/ui/revoke": KINDS.revoke,

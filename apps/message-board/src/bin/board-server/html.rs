@@ -550,9 +550,23 @@ fn item(h: &mut Html, item: &Item, with_queue: bool) {
     }
 }
 
-/// A queue: its open items oldest first, and the resolved ones folded away.
+/// A queue: the form to file a request, and its items.
 pub fn queue(node: &Node, items: &[Item]) -> Html {
     let mut h = heading(node);
+    if !node.generated {
+        h.markup("<div data-needs=\"trusted\" hidden>\n<form hx-post=\"/ui/ask\" hx-target=\"#queue-items\" hx-swap=\"innerHTML\">\n");
+        form_error(&mut h, "");
+        hidden_input(&mut h, "path", &node.path);
+        h.markup("<textarea name=\"body\" placeholder=\"new request\" required></textarea>\n<button type=\"submit\">file request</button>\n</form></div>\n");
+    }
+    h.markup("<div id=\"queue-items\">").html(&queue_items(items)).markup("</div>\n");
+    h
+}
+
+/// A queue's items, as `#queue-items` holds them: the open ones oldest
+/// first, and the resolved ones folded away.
+pub fn queue_items(items: &[Item]) -> Html {
+    let mut h = Html::new();
     let (open, resolved): (Vec<&Item>, Vec<&Item>) = items.iter().partition(|i| i.state == ItemState::Open);
     if open.is_empty() {
         h.markup("<p class=\"empty\">nothing open</p>\n");
@@ -820,6 +834,29 @@ mod tests {
         // every form, revoke included, sits in a control only the owner is shown
         assert_eq!(page.matches("<form").count(), 3, "{page}");
         assert_eq!(page.matches("data-needs=\"owner\" hidden").count(), 2, "{page}");
+    }
+
+    #[test]
+    fn a_queue_page_carries_the_ask_form_above_its_items() {
+        let node = Node {
+            id: 5,
+            path: "rev/q".to_owned(),
+            parent: Some(1),
+            kind: NodeKind::Queue,
+            description: String::new(),
+            creator: "alice".to_owned(),
+            owner: None,
+            generated: false,
+            created: 10_010,
+            archived: None,
+        };
+        let page = text(queue(&node, &[]));
+        assert!(page.contains("<div data-needs=\"trusted\" hidden>"), "{page}");
+        assert!(page.contains("hx-post=\"/ui/ask\" hx-target=\"#queue-items\""), "{page}");
+        assert!(page.contains("name=\"path\" value=\"rev/q\"") && page.contains("<textarea name=\"body\""), "{page}");
+        assert!(page.contains("<div id=\"queue-items\"><p class=\"empty\">nothing open</p>"), "{page}");
+        let generated = Node { generated: true, ..node };
+        assert!(!text(queue(&generated, &[])).contains("/ui/ask"));
     }
 
     #[test]

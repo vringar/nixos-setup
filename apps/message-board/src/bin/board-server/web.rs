@@ -1,5 +1,5 @@
-//! The web view: the tree, read-only but for posting to a thread and
-//! editing a note; the owner's inbox (registrations, the owner's queues)
+//! The web view: the tree, read-only but for posting to a thread,
+//! filing a request in a queue and editing a note; the owner's inbox (registrations, the owner's queues)
 //! and keys pages. Its forms are signed in the browser by board-sign.js
 //! and post the JSON API's fields, form-encoded, under `/ui/`; each
 //! answers with the piece of page it changed.
@@ -20,6 +20,7 @@ pub enum Form {
     Create,
     Post,
     Note,
+    Ask,
     Approve,
     Resolve,
     Revoke,
@@ -31,6 +32,7 @@ impl Form {
             "create" => Self::Create,
             "post" => Self::Post,
             "note" => Self::Note,
+            "ask" => Self::Ask,
             "approve" => Self::Approve,
             "resolve" => Self::Resolve,
             "revoke" => Self::Revoke,
@@ -43,6 +45,7 @@ impl Form {
             Self::Create => Write::Create,
             Self::Post => Write::Post,
             Self::Note => Write::Note,
+            Self::Ask => Write::File,
             Self::Approve => Write::Approve,
             Self::Resolve => Write::Resolve,
             Self::Revoke => Write::Revoke,
@@ -177,6 +180,7 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
             html::messages(path, &board.thread(path, Range::Last(RECENT))?)
         }
         Form::Note => note_html(board, &board.node(path(fields)?)?, None)?,
+        Form::Ask => html::queue_items(&board.queue(path(fields)?, StateFilter::All, 0)?.items),
         // The page the form sat on gets its own piece back.
         Form::Approve | Form::Resolve if fields.get("view") == Some("keys") => keys_html(board)?,
         Form::Approve | Form::Resolve => inbox_html(board)?,
