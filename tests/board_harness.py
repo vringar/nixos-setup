@@ -22,9 +22,7 @@ in-tree package (apps/message-board) with nix-build, so a plain `pytest`
 tests what this checkout would deploy.
 """
 
-import atexit
 import codecs
-import ctypes
 import fcntl
 import functools
 import hashlib
@@ -57,6 +55,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from proc_lifetime import TIED, kill_tree, spawn  # noqa: F401 (tests import them from here)
+
 REPO = Path(__file__).resolve().parent.parent
 
 # How long a server start, a request or a program's exit may take: a bound
@@ -80,57 +80,6 @@ IDENTITY_CODES = ("not-registered", "registration-pending", "registration-declin
 
 _PACKAGE = ("let sources = import ./npins; pkgs = import sources.nixpkgs {};"
             " in import ./apps/message-board {inherit pkgs sources;}")
-
-
-# --- no process outlives the harness -------------------------------------------------
-#
-# Every program the harness starts is tied to it three ways, so that a
-# killed or timed-out pytest, a test that errors in setup, or a fixture torn
-# down half way leaves nothing running: the kernel kills it when the harness
-# process dies (however it dies: SIGKILL included, where no finalizer runs),
-# it leads its own process group so that its children go with it, and
-# whatever is still alive at a normal exit is killed then.
-
-_PR_SET_PDEATHSIG = 1  # <linux/prctl.h>
-_prctl = ctypes.CDLL(None, use_errno=True).prctl
-_OWNER = os.getpid()
-_LIVE = set()
-
-
-def _die_with_owner():
-    """A preexec_fn: SIGKILL this child when the harness process dies."""
-    if _prctl(_PR_SET_PDEATHSIG, signal.SIGKILL) != 0:
-        raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG)")
-    if os.getppid() != _OWNER:  # it died before prctl took effect
-        os._exit(1)
-
-
-# For subprocess.run / Popen: the first two of the three ties above.
-TIED = {"preexec_fn": _die_with_owner, "start_new_session": True}
-
-
-def spawn(argv, **kwargs):
-    """subprocess.Popen, tied to the harness (see above)."""
-    proc = subprocess.Popen(argv, **TIED, **kwargs)
-    _LIVE.add(proc)
-    return proc
-
-
-def kill_tree(proc):
-    """SIGKILL `proc` and everything in its process group, and reap it."""
-    _LIVE.discard(proc)
-    if proc.returncode is None:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    proc.wait()
-
-
-@atexit.register
-def _kill_leftovers():
-    for proc in list(_LIVE):
-        kill_tree(proc)
 
 
 @functools.cache

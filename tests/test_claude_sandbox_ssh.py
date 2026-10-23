@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from proc_lifetime import spawn
+
 SCRIPT = Path(__file__).parent.parent / "apps" / "claude-sandbox" / "claude-sandbox.py"
 _spec = importlib.util.spec_from_file_location("claude_sandbox", SCRIPT)
 sandbox = importlib.util.module_from_spec(_spec)
@@ -362,10 +364,11 @@ def test_real_agent_holds_only_the_forge_key_and_dies_with_its_parent(tmp_path, 
     sandbox_tmp = deep_sandbox_tmp(tmp_path)
     sock = sandbox_tmp / sandbox.FORGE_AGENT_SOCK
 
-    parent = subprocess.Popen(
+    parent = spawn(
         [sys.executable, "-c", PARENT, str(SCRIPT), str(key), str(sandbox_tmp),
          ssh_tool("ssh-agent"), ssh_tool("ssh-add")],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=clean_env(),
+        new_session=False,
     )
     try:
         pid, warning = parent.stdout.readline().rstrip("\n").split("\t")

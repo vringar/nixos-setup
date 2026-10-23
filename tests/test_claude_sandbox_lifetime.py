@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from proc_lifetime import run, spawn
+
 SCRIPT = Path(__file__).parent.parent / "apps" / "claude-sandbox" / "claude-sandbox.py"
 _spec = importlib.util.spec_from_file_location("claude_sandbox_lifetime", SCRIPT)
 sandbox = importlib.util.module_from_spec(_spec)
@@ -113,7 +115,7 @@ def wait_until_running(argv, launcher, timeout=10):
 @needs_bwrap
 def test_sandbox_dies_with_a_killed_launcher():
     sleep = sleeper()
-    launcher = subprocess.Popen(launcher_cmd(sleep))
+    launcher = spawn(launcher_cmd(sleep), new_session=False)
     try:
         wait_until_running(sleep, launcher)
         in_sandbox = pids_running(sleep)
@@ -289,11 +291,12 @@ def test_podman_and_its_containers_die_with_a_killed_launcher(tmp_path):
     report = sandbox_tmp / "report.json"
     # Everything read-only but the sandbox's temp dir, where the socket goes.
     view = BWRAP_ARGS + ["--bind", str(sandbox_tmp), str(sandbox_tmp)]
-    launcher = subprocess.Popen(
+    launcher = spawn(
         [sys.executable, "-c", PODMAN_LAUNCHER, str(SCRIPT),
          json.dumps([str(sandbox_tmp), view, str(podman), BWRAP])],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
         env=dict(os.environ, FAKE_CONTAINER=container, FAKE_PODMAN_REPORT=str(report)),
+        new_session=False,
     )
     try:
         outer = int(launcher.stdout.readline())
@@ -371,11 +374,11 @@ class Launcher:
         return [str(self.script), "--project-dir", str(self.project), *options, "--", *command]
 
     def popen(self, *command, options=(), **kwargs):
-        return subprocess.Popen(self.argv(command, options), env=self.env, **kwargs)
+        return spawn(self.argv(command, options), new_session=False, env=self.env, **kwargs)
 
     def run(self, *command, options=()):
-        return subprocess.run(
-            self.argv(command, options), env=self.env, capture_output=True, text=True
+        return run(
+            self.argv(command, options), new_session=False, env=self.env, capture_output=True, text=True
         )
 
     def leftovers(self):
