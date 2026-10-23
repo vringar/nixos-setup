@@ -115,8 +115,9 @@ pub enum Status {
         version: i64,
         ts: Option<String>,
         from: Option<String>,
+        thread: Option<String>,
         through: Option<i64>,
-        /// Messages in `through`'s thread after it: how stale the summary is.
+        /// Messages in `thread` after `through`: how stale the summary is.
         behind: Option<i64>,
     },
     Thread {
@@ -142,9 +143,11 @@ pub struct NoteVersion {
     pub from: String,
     pub signed_by: Option<String>,
     pub revoked_at: Option<i64>,
-    /// The thread message it summarizes up to.
+    /// The thread it summarizes (a path).
+    pub thread: Option<String>,
+    /// The message of `thread` it summarizes up to.
     pub through: Option<i64>,
-    /// Messages in `through`'s thread after it.
+    /// Messages in `thread` after `through`.
     pub behind: Option<i64>,
     pub body: String,
 }
@@ -158,6 +161,7 @@ pub struct Version {
     pub from: String,
     pub signed_by: Option<String>,
     pub revoked_at: Option<i64>,
+    pub thread: Option<String>,
     pub through: Option<i64>,
 }
 
@@ -307,9 +311,10 @@ fn child(conn: &Connection, node: Node) -> rusqlite::Result<Child> {
                 ts: Some(last.ts),
                 from: Some(last.from),
                 behind: last.through.map(|through| behind(conn, through)).transpose()?,
+                thread: last.thread,
                 through: last.through,
             },
-            None => Status::Note { version: 0, ts: None, from: None, through: None, behind: None },
+            None => Status::Note { version: 0, ts: None, from: None, thread: None, through: None, behind: None },
         },
         NodeKind::Thread => {
             let (last_id, last_ts) = conn
@@ -354,7 +359,7 @@ fn behind(conn: &Connection, through: i64) -> rusqlite::Result<i64> {
     )
 }
 
-const VERSION_SELECT: &str = "SELECT e.version, e.id, e.ts, e.actor, e.actor_fp, k.revoked, e.ref
+const VERSION_SELECT: &str = "SELECT e.version, e.id, e.ts, e.actor, e.actor_fp, k.revoked, e.ref, e.thread
        FROM events e LEFT JOIN keys k ON k.fingerprint = e.actor_fp
       WHERE e.node=? AND e.type='note_version'";
 
@@ -367,6 +372,7 @@ fn version_row(r: &Row<'_>) -> rusqlite::Result<Version> {
         signed_by: opt_text(r, 4)?,
         revoked_at: r.get(5)?,
         through: r.get(6)?,
+        thread: opt_text(r, 7)?,
     })
 }
 
@@ -391,11 +397,11 @@ pub(super) fn note_version(
     note: &Node,
     version: Option<i64>,
 ) -> rusqlite::Result<Option<NoteVersion>> {
-    let sql = "SELECT e.version, e.id, e.ts, e.actor, e.actor_fp, k.revoked, e.ref, e.body
+    let sql = "SELECT e.version, e.id, e.ts, e.actor, e.actor_fp, k.revoked, e.ref, e.thread, e.body
                  FROM events e LEFT JOIN keys k ON k.fingerprint = e.actor_fp
                 WHERE e.node=?1 AND e.type='note_version' AND (?2 IS NULL OR e.version=?2)
                 ORDER BY e.id DESC LIMIT 1";
-    let found = conn.query_row(sql, params![note.id, version], |r| Ok((version_row(r)?, text(r, 7)?))).optional()?;
+    let found = conn.query_row(sql, params![note.id, version], |r| Ok((version_row(r)?, text(r, 8)?))).optional()?;
     let Some((v, body)) = found else {
         return Ok(None);
     };
@@ -408,6 +414,7 @@ pub(super) fn note_version(
         signed_by: v.signed_by,
         revoked_at: v.revoked_at,
         behind: v.through.map(|through| behind(conn, through)).transpose()?,
+        thread: v.thread,
         through: v.through,
         body,
     }))
@@ -713,7 +720,8 @@ impl Board {
     /// [`Error::NoteChanged`] if `base_version` is not the current one;
     /// [`Error::Forbidden`] unless the note is the author's or the author
     /// is the owner, and for the board's own; [`Error::BadRequest`] for a
-    /// `through` that is not a message.
+    /// `thread` that is not a thread, and for exactly one of `thread` and
+    /// `through`, and for a `through` that is not a message of `thread`.
     pub fn set_note(&self, signed: &Signed<'_, SetNote<'_>>) -> Result<NoteSaved, Error> {
         let save = &signed.action;
         if save.body.trim().is_empty() {
@@ -736,15 +744,36 @@ impl Board {
                 if save.base_version != current {
                     return Err(Error::NoteChanged { version: current });
                 }
-                if let Some(through) = save.through
-                    && events::type_of(conn, through)? != Some(EventType::Message)
-                {
-                    return Err(Error::BadRequest(format!("through #{through} is not a message")));
+                let thread = save.thread.strip_prefix('/').unwrap_or(save.thread);
+                match (thread.is_empty(), save.through) {
+                    (true, None) => {}
+                    (true, Some(_)) => {
+                        return Err(Error::BadRequest(
+                            "field \"through\" needs a \"thread\": give both or neither".to_owned(),
+                        ));
+                    }
+                    (false, None) => {
+                        return Err(Error::BadRequest(
+                            "field \"thread\" needs a \"through\" message: give both or neither".to_owned(),
+                        ));
+                    }
+                    (false, Some(through)) => {
+                        let thread_node = require_kind(conn, thread, NodeKind::Thread)?;
+                        let in_thread = events::type_of(conn, through)? == Some(EventType::Message)
+                            && events::event_node(conn, through)? == Some(thread_node.id);
+                        if !in_thread {
+                            return Err(Error::BadRequest(format!(
+                                "through #{through} is not a message of {}",
+                                quoted(thread)
+                            )));
+                        }
+                    }
                 }
                 let version = current.checked_add(1).ok_or(DbError::Exhausted)?;
                 let event = NewEvent {
                     version: Some(version),
                     reference: save.through,
+                    thread: (!thread.is_empty()).then_some(thread),
                     ..NewEvent::new(EventType::NoteVersion, note.id, save.body)
                 };
                 Ok(events::insert(conn, stamp, &event)?)

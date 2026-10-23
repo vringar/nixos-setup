@@ -85,19 +85,15 @@ pub fn view(board: &Board, path: &str, q: &Params) -> Answer {
 }
 
 /// A note as `#note` holds it: version `version` (the current one if
-/// `None`), and the thread its summary is measured against.
+/// `None`), (the thread it summarizes, if any, is in the version).
 fn note_html(board: &Board, node: &Node, version: Option<i64>) -> Result<Html, Failure> {
     let shown = board.note(&node.path, version)?;
-    let thread = match shown.as_ref().and_then(|n| n.through) {
-        Some(through) => board.event(through)?.map(|event| event.path),
-        None => None,
-    };
     let history = board.note_history(&node.path)?;
     let current = match (&shown, history.last()) {
         (Some(shown), Some(last)) => shown.version == last.version,
         _ => true,
     };
-    Ok(html::note(&NoteView { node, note: shown.as_ref(), thread: thread.as_deref(), history: &history, current }))
+    Ok(html::note(&NoteView { node, note: shown.as_ref(), history: &history, current }))
 }
 
 fn path(q: &Params) -> Result<&str, StoreError> {
@@ -157,6 +153,7 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
                 path: path(fields)?,
                 body: fields.text("body")?,
                 base_version: version,
+                thread: fields.text("thread")?,
                 through: fields.number("through")?,
                 error: &error,
             })));

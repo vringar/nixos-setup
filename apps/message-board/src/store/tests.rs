@@ -134,7 +134,20 @@ impl Fixture {
         base_version: i64,
         through: Option<i64>,
     ) -> Result<NoteSaved, Error> {
-        submit!(self.board, by, set_note, SetNote { path, body, base_version, through })
+        let thread = if through.is_some() { "rev/log" } else { "" };
+        self.set_note_on(by, path, body, base_version, thread, through)
+    }
+
+    fn set_note_on(
+        &self,
+        by: &PrivateKey,
+        path: &str,
+        body: &str,
+        base_version: i64,
+        thread: &str,
+        through: Option<i64>,
+    ) -> Result<NoteSaved, Error> {
+        submit!(self.board, by, set_note, SetNote { path, body, base_version, thread, through })
     }
 
     fn file(&self, by: &PrivateKey, path: &str, body: &str) -> Result<Filed, Error> {

@@ -291,7 +291,14 @@ enum NoteCommand {
         path: String,
         #[arg(long, value_name = "N", help = "the version you read and edited (0 for a note with none)")]
         base: i64,
-        #[arg(long, value_name = "ID", help = "the last thread message this version covers")]
+        #[arg(
+            long,
+            value_name = "PATH",
+            requires = "through",
+            help = "the thread this note summarizes (with --through, or neither)"
+        )]
+        thread: Option<String>,
+        #[arg(long, value_name = "ID", requires = "thread", help = "the last message of --thread this version covers")]
         through: Option<i64>,
     },
 }
@@ -476,8 +483,8 @@ fn run(cli: Cli) -> Result<(), Failure> {
             write::refuse_from(&body)?;
             write::post(&api, &thread, &body)
         }
-        Command::Note { command: NoteCommand::Set { path, base, through } } => {
-            write::note_set(&api, &path, base, through)
+        Command::Note { command: NoteCommand::Set { path, base, thread, through } } => {
+            write::note_set(&api, &path, base, thread.as_deref().unwrap_or_default(), through)
         }
         Command::Ask { queue, body } => {
             write::refuse_from(&body)?;

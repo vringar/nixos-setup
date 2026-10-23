@@ -109,13 +109,14 @@ def test_each_kind_of_node_has_its_page_and_every_body_is_escaped(board, team):
     a.post("rev/log", "two")
     a.post("rev/log", "three")
     a.create("rev/state", "note", body="v1")
-    a.set_note("rev/state", "<script>alert(1)</script>\nline two", base_version=1, through=m1)
+    a.set_note("rev/state", "<script>alert(1)</script>\nline two", base_version=1, thread="rev/log",
+               through=m1)
     b.create("rev/bob", "queue")
     a.ask("rev/bob", "<img src=x onerror=alert(2)> please")
 
     note = board.get("/view/rev/state").text
     assert "<script>alert(1)" not in note and "&lt;script&gt;alert(1)&lt;/script&gt;" in note
-    assert f"summarized through #{m1}, 2 behind" in visible_text(note)
+    assert f"summarizes /rev/log through #{m1}, 2 behind" in visible_text(note)
     assert 'href="/view/rev/log"' in note  # the staleness links to the thread
     assert "v2" in visible_text(note) and "alice" in visible_text(note)
     thread = board.get("/view/rev/log").text
@@ -267,7 +268,7 @@ const fieldsOf = (kind) => (Array.isArray(kind) ? kind[1] : kind.fields);
 """
 
 SAMPLE = {"path": "rev/log", "kind": "thread", "description": "a d", "owner": "", "body":
-          "line one\nfrom=evil ü🙂", "base_version": "3", "through": "10020", "item": "10022",
+          "line one\nfrom=evil ü🙂", "base_version": "3", "thread": "rev/log", "through": "10020", "item": "10022",
           "state": "answered", "ref": "", "name": "newbie", "note": "repo, purpose",
           "repo": "/home/x/repo", "reason": "replaced", "key": "0f3c", "nonce": "10041"}
 
@@ -489,9 +490,9 @@ globalThis.fetch = async (url, init) => {
   other = await B.importKey(fs.readFileSync(theirs, "utf8"));
   const steps = [
     [1, post, "/ui/post", { path: "rev/log", body: "from the page", key: crypto.randomUUID() }],
-    [1, note, "/ui/note", { path: "rev/state", body: "web text", base_version: "1", through: "",
+    [1, note, "/ui/note", { path: "rev/state", body: "web text", base_version: "1", thread: "", through: "",
                             key: crypto.randomUUID() }],
-    [0, note, "/ui/note", { path: "rev/state", body: "stale edit", base_version: "1", through: "",
+    [0, note, "/ui/note", { path: "rev/state", body: "stale edit", base_version: "1", thread: "", through: "",
                             key: crypto.randomUUID() }],
     [99, post, "/ui/post", { path: "rev/log", body: "never lands", key: crypto.randomUUID() }],
   ];
@@ -587,3 +588,24 @@ const B = globalThis.BoardSign;
     kinds = {n["path"]: n["kind"] for n in board.children("fresh/area")}
     assert kinds == {"fresh/area/leaf": "thread", "fresh/area/other": "thread"}
     assert board.node("fresh")["node"]["kind"] == "container"
+
+
+def test_the_note_form_names_the_thread_and_a_web_edit_stores_it(board, team):
+    a = team.alice
+    m = a.post("rev/log", "one")
+    a.create("rev/state", "note", body="v1")
+    form = forms(board.get("/view/rev/state").text)["/ui/note"]
+    assert "thread" in form and "through" in form
+    signed = board.signed("note", a.key, {"path": "rev/state", "body": "v2", "base_version": "1",
+                                          "thread": "rev/log", "through": str(m),
+                                          "key": new_client_key()})
+    assert request(board.url + "/ui/note", signed, form=True).status == 200
+    note = board.note("rev/state")
+    assert (note["thread"], note["through"]) == ("rev/log", m)
+    page = visible_text(board.get("/view/rev/state").text)
+    assert f"summarizes /rev/log through #{m}, 0 behind" in page
+    for half in ({"through": str(m)}, {"thread": "rev/log"}):  # half a pair is refused
+        bad = board.signed("note", a.key, {"path": "rev/state", "body": "v3", "base_version": "2",
+                                           "key": new_client_key(), **half})
+        r = request(board.url + "/ui/note", bad, form=True)
+        assert r.status == 400 and board.note("rev/state")["version"] == 2

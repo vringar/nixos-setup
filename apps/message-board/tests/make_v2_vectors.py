@@ -20,7 +20,7 @@ from pathlib import Path
 KINDS = {
     "board2-create": ["path", "kind", "description", "owner", "body", "key", "nonce"],
     "board2-post": ["path", "body", "key", "nonce"],
-    "board2-note": ["path", "body", "base_version", "through", "key", "nonce"],
+    "board2-note": ["path", "body", "base_version", "thread", "through", "key", "nonce"],
     "board2-file": ["path", "body", "key", "nonce"],
     "board2-resolve": ["item", "state", "body", "ref", "key", "nonce"],
     "board2-register": ["name", "note", "repo", "key", "nonce"],
@@ -35,8 +35,8 @@ CASES = [
     ("board2-post", ["reversing/emu/log", "line one\nkey:4:evil ü🙂 @qemu-psp", "0f3c", "10050"]),
     ("board2-post", ["", "", "", ""]),
     ("board2-post", ["a/b", "\u0000\u001f\u007f \r\n\t end", "k", "0"]),
-    ("board2-note", ["reversing/state", "| agent | state |\n|---|---|\n", "3", "10123", "n-1", "10200"]),
-    ("board2-note", ["reversing/state", "first version", "0", "", "", "10201"]),
+    ("board2-note", ["reversing/state", "| agent | state |\n|---|---|\n", "3", "reversing/emu/log", "10123", "n-1", "10200"]),
+    ("board2-note", ["reversing/state", "first version", "0", "", "", "", "10201"]),
     ("board2-file", ["reversing/emu/aspfuzz", "Q1: which mailbox?", "f-1", "10300"]),
     ("board2-resolve", ["10300", "answered", "the second one", "10310", "r-1", "10311"]),
     ("board2-resolve", ["10300", "cancelled", "", "", "r-2", "10312"]),

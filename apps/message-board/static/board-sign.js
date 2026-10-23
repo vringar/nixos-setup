@@ -19,7 +19,7 @@
   const KINDS = {
     create: ["board2-create", ["path", "kind", "description", "owner", "body", "key", "nonce"]],
     post: ["board2-post", ["path", "body", "key", "nonce"]],
-    note: ["board2-note", ["path", "body", "base_version", "through", "key", "nonce"]],
+    note: ["board2-note", ["path", "body", "base_version", "thread", "through", "key", "nonce"]],
     file: ["board2-file", ["path", "body", "key", "nonce"]],
     resolve: ["board2-resolve", ["item", "state", "body", "ref", "key", "nonce"]],
     register: ["board2-register", ["name", "note", "repo", "key", "nonce"]],

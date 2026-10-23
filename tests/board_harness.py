@@ -244,7 +244,7 @@ def refusal(status, code=None):
 KINDS = {
     "create": ("board2-create", ("path", "kind", "description", "owner", "body", "key", "nonce")),
     "post": ("board2-post", ("path", "body", "key", "nonce")),
-    "note": ("board2-note", ("path", "body", "base_version", "through", "key", "nonce")),
+    "note": ("board2-note", ("path", "body", "base_version", "thread", "through", "key", "nonce")),
     "file": ("board2-file", ("path", "body", "key", "nonce")),
     "resolve": ("board2-resolve", ("item", "state", "body", "ref", "key", "nonce")),
     "register": ("board2-register", ("name", "note", "repo", "key", "nonce")),
@@ -725,10 +725,10 @@ class Agent:
         """A thread message; its id."""
         return self.write("post", path=path, body=body)["id"]
 
-    def set_note(self, path, body, base_version, through=""):
+    def set_note(self, path, body, base_version, thread="", through=""):
         """A new note version: {version, id, ...}."""
         return self.write("note", path=path, body=body, base_version=base_version,
-                          through=through)
+                          thread=thread, through=through)
 
     def ask(self, path, body):
         """File an item in a queue; the item id."""

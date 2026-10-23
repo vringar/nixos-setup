@@ -88,7 +88,8 @@ def _populate(b, keyring):
     free = alice.post("proj/chatter", "noise")
     elsewhere = alice.post("other/general", "elsewhere")
     alice.create("proj/summary", "note", body="v1")
-    alice.set_note("proj/summary", "the design so far", base_version=1, through=through)
+    alice.set_note("proj/summary", "the design so far", base_version=1, thread="proj/design",
+                    through=through)
     alice.create("proj/asks", "queue")
     alice.answer(bob.ask("proj/asks", "where is the design?"), "see there", ref=ref)
     return SimpleNamespace(through=through, ref=ref, free=free, elsewhere=elsewhere,

@@ -84,6 +84,42 @@ fn through_is_a_message_and_behind_counts_its_threads_later_ones() -> TestResult
 }
 
 #[test]
+fn a_note_names_the_thread_it_summarizes_and_the_rules_hold() -> TestResult {
+    let f = fixture()?;
+    f.rev()?;
+    let agent = f.agent(2, "agent")?;
+    f.create(&agent, "rev/log", NodeKind::Thread)?;
+    f.create(&agent, "rev/other", NodeKind::Thread)?;
+    f.create(&agent, "rev/state", NodeKind::Note)?;
+    let mine = f.post(&agent, "rev/log", "one")?.id;
+    let theirs = f.post(&agent, "rev/other", "elsewhere")?.id;
+    // through needs a thread
+    let err = refused(f.set_note_on(&agent, "rev/state", "s", 0, "", Some(mine)))?;
+    assert!(matches!(&err, Error::BadRequest(m) if m.contains("needs a \"thread\"")), "{err}");
+    // the thread must exist, and be a thread
+    assert!(matches!(refused(f.set_note_on(&agent, "rev/state", "s", 0, "rev/nope", Some(mine)))?, Error::NotFound(_)));
+    let err = refused(f.set_note_on(&agent, "rev/state", "s", 0, "rev", Some(mine)))?;
+    assert!(matches!(&err, Error::BadRequest(m) if m.contains("not a thread")), "{err}");
+    // the message must be in that thread
+    let err = refused(f.set_note_on(&agent, "rev/state", "s", 0, "rev/log", Some(theirs)))?;
+    assert!(matches!(&err, Error::BadRequest(m) if m.contains("not a message of")), "{err}");
+    // a thread without through is refused, and so is the pair's other half
+    let err = refused(f.set_note_on(&agent, "rev/state", "s", 0, "rev/log", None))?;
+    assert!(matches!(&err, Error::BadRequest(m) if m.contains("needs a \"through\"")), "{err}");
+    // the pair is fine, with a leading slash too
+    f.set_note_on(&agent, "rev/state", "v1", 0, "/rev/log", Some(mine))?;
+    f.set_note_on(&agent, "rev/state", "v2", 1, "rev/log", Some(mine))?;
+    let note = f.board.note("rev/state", None)?.ok_or("no note")?;
+    assert_eq!((note.thread.as_deref(), note.through, note.behind), (Some("rev/log"), Some(mine), Some(0)));
+    let history = f.board.note_history("rev/state")?;
+    assert_eq!(history.iter().map(|v| v.thread.as_deref()).collect::<Vec<_>>(), [Some("rev/log"), Some("rev/log")]);
+    // neither is fine too
+    f.set_note(&agent, "rev/state", "v3", 2, None)?;
+    assert_eq!(f.board.note("rev/state", None)?.ok_or("no note")?.thread, None);
+    Ok(())
+}
+
+#[test]
 fn a_thread_reads_its_tail_or_from_an_id() -> TestResult {
     let f = fixture()?;
     f.rev()?;

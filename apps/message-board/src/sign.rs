@@ -43,7 +43,7 @@ pub const CREATE: Kind =
     Kind { namespace: "board2-create", fields: &["path", "kind", "description", "owner", "body", "key", "nonce"] };
 pub const POST: Kind = Kind { namespace: "board2-post", fields: &["path", "body", "key", "nonce"] };
 pub const NOTE: Kind =
-    Kind { namespace: "board2-note", fields: &["path", "body", "base_version", "through", "key", "nonce"] };
+    Kind { namespace: "board2-note", fields: &["path", "body", "base_version", "thread", "through", "key", "nonce"] };
 pub const FILE: Kind = Kind { namespace: "board2-file", fields: &["path", "body", "key", "nonce"] };
 pub const RESOLVE: Kind =
     Kind { namespace: "board2-resolve", fields: &["item", "state", "body", "ref", "key", "nonce"] };

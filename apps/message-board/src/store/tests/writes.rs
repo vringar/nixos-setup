@@ -75,7 +75,11 @@ fn a_resend_returns_the_first_result_before_the_nonce_is_checked() -> TestResult
 
     // A note save that landed would now be refused as changed, and an
     // answer as not open: their resends return what they did instead.
-    let save = Request::new(&f.board, &agent, SetNote { path: "rev/n", body: "v1", base_version: 0, through: None })?;
+    let save = Request::new(
+        &f.board,
+        &agent,
+        SetNote { path: "rev/n", body: "v1", base_version: 0, thread: "", through: None },
+    )?;
     let saved = f.board.set_note(&save.signed())?;
     assert_eq!(f.board.set_note(&save.signed())?, saved);
     let item = f.file(&f.owner, "rev/q", "question")?.item;

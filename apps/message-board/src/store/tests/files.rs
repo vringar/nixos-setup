@@ -167,7 +167,7 @@ fn board_admin_deletes_a_branch_unless_something_points_into_it() -> TestResult 
     let item = f.file(&agent, "rev/emu/q", "question")?.item;
     f.resolve(&agent, item, ItemState::Answered, "answer")?;
     f.create(&agent, "rev/state", NodeKind::Note)?;
-    f.set_note(&agent, "rev/state", "summary", 0, Some(message))?;
+    f.set_note_on(&agent, "rev/state", "summary", 0, "rev/emu/log", Some(message))?;
 
     let err = refused(f.board.delete_branch("rev/emu"))?;
     assert!(matches!(&err, Error::Forbidden(m) if m.contains("points into")), "{err}");

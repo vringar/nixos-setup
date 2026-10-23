@@ -64,10 +64,27 @@ pub struct Child {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Status {
-    Container { children: i64 },
-    Note { version: i64, ts: Option<String>, from: Option<String>, through: Option<i64>, behind: Option<i64> },
-    Thread { last_id: Option<i64>, last_ts: Option<String>, messages: i64 },
-    Queue { owner: String, open: i64, oldest_open_ts: Option<String> },
+    Container {
+        children: i64,
+    },
+    Note {
+        version: i64,
+        ts: Option<String>,
+        from: Option<String>,
+        thread: Option<String>,
+        through: Option<i64>,
+        behind: Option<i64>,
+    },
+    Thread {
+        last_id: Option<i64>,
+        last_ts: Option<String>,
+        messages: i64,
+    },
+    Queue {
+        owner: String,
+        open: i64,
+        oldest_open_ts: Option<String>,
+    },
 }
 
 /// One version of a note, with its body.
@@ -80,6 +97,7 @@ pub struct Note {
     pub from: String,
     pub signed_by: Option<String>,
     pub revoked_at: Option<i64>,
+    pub thread: Option<String>,
     pub through: Option<i64>,
     pub behind: Option<i64>,
     pub body: String,
@@ -95,6 +113,7 @@ pub struct HistoryEntry {
     pub from: String,
     pub signed_by: Option<String>,
     pub revoked_at: Option<i64>,
+    pub thread: Option<String>,
     pub through: Option<i64>,
 }
 
@@ -446,11 +465,11 @@ mod tests {
             with(common("r/emu", "container"), json!({"children": 7})),
             with(
                 common("r/charter", "note"),
-                json!({"version": 3, "ts": "t", "from": "Stefan", "through": null, "behind": null}),
+                json!({"version": 3, "ts": "t", "from": "Stefan", "thread": null, "through": null, "behind": null}),
             ),
             with(
                 common("r/fresh", "note"),
-                json!({"version": 0, "ts": null, "from": null, "through": null, "behind": null}),
+                json!({"version": 0, "ts": null, "from": null, "thread": null, "through": null, "behind": null}),
             ),
             with(common("r/log", "thread"), json!({"last_id": 10_340, "last_ts": "t", "messages": 212})),
             with(common("r/q", "queue"), json!({"owner": "aspfuzz", "open": 1, "oldest_open_ts": "t"})),

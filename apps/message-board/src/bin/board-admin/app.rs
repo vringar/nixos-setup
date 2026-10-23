@@ -266,7 +266,7 @@ mod tests {
         assert!(listing.contains("rev/empty  container  0 children"), "{listing}");
         assert!(listing.contains(&format!("rev/log    thread     3 messages, the last #{}", f.ids.third)), "{listing}");
         assert!(listing.contains("rev/state  note       v1 by stefan at"), "{listing}");
-        assert!(listing.contains(&format!(", through #{}, 1 behind", f.ids.second)), "{listing}");
+        assert!(listing.contains(&format!("summarizes rev/log through #{}", f.ids.second)), "{listing}");
 
         // a thread, a message in it, and back the way we came
         pick(&mut app, "rev/log ", KeyCode::Enter)?;

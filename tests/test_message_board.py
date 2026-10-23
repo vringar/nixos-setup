@@ -31,13 +31,13 @@ def children(run):
 # What a child line carries, by kind, on top of what every child carries.
 CHILD = {"path", "kind", "description", "archived", "creator"}
 CHILD_BY_KIND = {
-    "note": {"version", "ts", "from", "through", "behind"},
+    "note": {"version", "ts", "from", "thread", "through", "behind"},
     "thread": {"last_id", "last_ts", "messages"},
     "queue": {"owner", "open", "oldest_open_ts"},
     "container": {"children"},
 }
 MESSAGE = {"type", "id", "ts", "path", "from", "signed_by", "revoked_at", "body"}
-NOTE = {"type", "path", "version", "id", "ts", "from", "signed_by", "revoked_at", "through",
+NOTE = {"type", "path", "version", "id", "ts", "from", "signed_by", "revoked_at", "thread", "through",
         "behind", "body"}
 ITEM = {"type", "id", "ts", "path", "owner", "asker", "state", "body"}
 
@@ -327,7 +327,7 @@ def test_a_container_lists_its_children_with_a_status_line_each(board, team):
     a.post("rev/log", "two")
     m3 = b.post("rev/log", "three")
     o.create("rev/charter", "note", description="the rules", body="v1")
-    o.set_note("rev/charter", "v2", base_version=1, through=m1)
+    o.set_note("rev/charter", "v2", base_version=1, thread="rev/log", through=m1)
     b.create("rev/bob", "queue", description="ask bob")
     i1 = a.ask("rev/bob", "first")
     a.ask("rev/bob", "second")
@@ -454,9 +454,9 @@ def test_through_links_a_thread_message_and_behind_counts_that_thread(board, tea
     a.create("rev/other", "thread")
     a.post("rev/other", "elsewhere")
     a.create("rev/state", "note", body="v1")
-    saved = a.set_note("rev/state", "summary up to m1", base_version=1, through=m[1])
+    saved = a.set_note("rev/state", "summary up to m1", base_version=1, thread="rev/log", through=m[1])
     note = board.note("rev/state")
-    assert (note["version"], note["through"], note["behind"]) == (2, m[1], 1)
+    assert (note["version"], note["thread"], note["through"], note["behind"]) == (2, "rev/log", m[1], 1)
     a.post("rev/log", "m3")
     a.post("rev/other", "not this thread")  # only the through message's thread counts
     [line] = cli("read", "rev/state").ok().of("note")
@@ -467,8 +467,21 @@ def test_through_links_a_thread_message_and_behind_counts_that_thread(board, tea
     item = a.ask("rev/q", "an item, not a message")
     for not_a_message in (saved["id"], item):
         with refusal(400, "bad-request"):
-            a.set_note("rev/state", "linked to no message", base_version=3, through=not_a_message)
-    assert board.note("rev/state")["version"] == 3
+            a.set_note("rev/state", "linked to no message", base_version=3, thread="rev/log",
+                       through=not_a_message)
+    # `through` needs a thread, a message of that thread, and the thread must be one
+    other_message = a.post("rev/other", "x")
+    for status, code, bad in ((400, "bad-request", {"through": m[0]}),
+                              (400, "bad-request", {"thread": "rev/log", "through": other_message}),
+                              (400, "bad-request", {"thread": "rev/log"}),  # half a pair
+                              (400, "bad-request", {"thread": "rev/q", "through": m[0]}),
+                              (404, "not-found", {"thread": "rev/nowhere", "through": m[0]})):
+        with refusal(status, code):
+            a.set_note("rev/state", "refused", base_version=3, **bad)
+    a.set_note("rev/state", "absolute", base_version=3, thread="/rev/log", through=m[2])  # absolute is fine
+    line = cli("read", "rev/state").ok().of("note")[0]
+    assert (line["thread"], line["through"], line["behind"]) == ("rev/log", m[2], 1)
+    assert board.note("rev/state")["version"] == 4
 
 
 def test_only_its_creator_or_the_human_sets_a_note(board, team):
@@ -860,3 +873,16 @@ def test_an_unbounded_item_listing_is_cut_at_8_mb_and_pages_with_after(board, te
     assert run.code == 0 and "truncated" in run.err and 0 < len(run.of("item")) < len(asked)
     page = board.node("rev/q", state="all")
     assert page["truncated"] is True and "since=" in page["hint"]
+
+
+def test_note_set_takes_thread_and_through_from_the_command_line(board, team):
+    a = team.alice
+    m = a.post("rev/log", "one")
+    a.create("rev/state", "note")
+    run = cli("note", "set", "rev/state", "--base", "0", "--thread", "rev/log", "--through", str(m),
+              stdin="summary\n", key=a.key).ok()
+    assert run.lines and board.note("rev/state")["thread"] == "rev/log"
+    assert board.note("rev/state")["through"] == m
+    for half in (["--through", str(m)], ["--thread", "rev/log"]):
+        usage = cli("note", "set", "rev/state", "--base", "1", *half, stdin="x\n", key=a.key)
+        assert usage.code == 2 and board.note("rev/state")["version"] == 1

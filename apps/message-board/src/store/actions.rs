@@ -111,14 +111,23 @@ pub struct SetNote<'a> {
     /// The version the editor started from (0 for a note without one); a
     /// save over any other is refused, so nobody overwrites an edit unseen.
     pub base_version: i64,
-    /// The thread message this version summarizes everything up to.
+    /// The thread this version summarizes (a path; empty for none: not
+    /// every note is a summary).
+    pub thread: &'a str,
+    /// The message of `thread` it summarizes everything up to; needs `thread`.
     pub through: Option<i64>,
 }
 
 impl Action for SetNote<'_> {
     const KIND: Kind = sign::NOTE;
     fn fields(&self) -> Vec<String> {
-        vec![self.path.to_owned(), self.body.to_owned(), self.base_version.to_string(), decimal(self.through)]
+        vec![
+            self.path.to_owned(),
+            self.body.to_owned(),
+            self.base_version.to_string(),
+            self.thread.to_owned(),
+            decimal(self.through),
+        ]
     }
 }
 
@@ -387,7 +396,7 @@ mod tests {
     #[test]
     fn every_action_has_one_value_per_field() {
         let create = Create { path: "a", kind: NodeKind::Note, description: "", owner: "", body: "" };
-        let note = SetNote { path: "a/n", body: "", base_version: 0, through: Some(7) };
+        let note = SetNote { path: "a/n", body: "", base_version: 0, thread: "a/t", through: Some(7) };
         let resolve = Resolve { item: 1, state: ItemState::Answered, body: "", reference: None };
         let counts = [
             (create.values("k", "1").len(), Create::KIND),
@@ -402,7 +411,7 @@ mod tests {
         for (count, kind) in counts {
             assert_eq!(count, kind.fields.len(), "{}", kind.namespace);
         }
-        assert_eq!(note.fields(), ["a/n", "", "0", "7"]);
+        assert_eq!(note.fields(), ["a/n", "", "0", "a/t", "7"]);
         let named = note.named("k", "9");
         assert_eq!(named.first(), Some(&("path", "a/n".to_owned())));
         assert_eq!(named.last(), Some(&("nonce", "9".to_owned())));

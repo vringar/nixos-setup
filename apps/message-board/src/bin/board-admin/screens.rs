@@ -75,11 +75,17 @@ fn status(status: &Status) -> String {
     match status {
         Status::Container { children } => count(*children, "child", "children"),
         Status::Note { version: 0, .. } => "no content yet".to_owned(),
-        Status::Note { version, ts, from, through, behind } => {
+        Status::Note { version, ts, from, thread, through, behind } => {
             let by = from.as_deref().unwrap_or("?");
             let at = ts.as_deref().unwrap_or("?");
-            let through = through.map(|id| format!(", through #{id}, {} behind", behind.unwrap_or(0)));
-            format!("v{version} by {by} at {at}{}", through.unwrap_or_default())
+            let summary = match (thread, through) {
+                (Some(thread), Some(id)) => {
+                    format!(", summarizes {thread} through #{id}, {} behind", behind.unwrap_or(0))
+                }
+                (Some(thread), None) => format!(", summarizes {thread}"),
+                _ => String::new(),
+            };
+            format!("v{version} by {by} at {at}{summary}")
         }
         Status::Thread { messages: 0, .. } => "no messages".to_owned(),
         Status::Thread { last_id, last_ts, messages } => format!(
@@ -142,9 +148,13 @@ fn note(board: &Board, child: &Child) -> Result<Screen, Failure> {
         Some(note) => {
             let signed = signature(note.signed_by.as_deref(), note.revoked_at);
             lines.push(format!("v{} by {} at {}, {signed}", note.version, note.from, note.ts));
-            if let Some(through) = note.through {
-                let behind = count(note.behind.unwrap_or(0), "message", "messages");
-                lines.push(format!("summarizes its thread through #{through}; {behind} since"));
+            match (&note.thread, note.through) {
+                (Some(thread), Some(through)) => {
+                    let behind = count(note.behind.unwrap_or(0), "message", "messages");
+                    lines.push(format!("summarizes /{thread} through #{through}; {behind} since"));
+                }
+                (Some(thread), None) => lines.push(format!("summarizes /{thread}")),
+                _ => {}
             }
             lines.push(String::new());
             lines.extend(note.body.lines().map(str::to_owned));

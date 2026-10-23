@@ -263,7 +263,7 @@ fn status(h: &mut Html, status: &Status) {
         Status::Note { version: 0, .. } => {
             h.markup("no version yet");
         }
-        Status::Note { version, ts, from, through, behind } => {
+        Status::Note { version, ts, from, thread, through, behind } => {
             h.markup("v").number(*version);
             if let Some(from) = from {
                 h.markup(" by ").text(from);
@@ -271,8 +271,11 @@ fn status(h: &mut Html, status: &Status) {
             if let Some(ts) = ts {
                 h.markup(" · ").text(ts);
             }
-            if let (Some(through), Some(behind)) = (through, behind) {
-                h.markup(" · through #").number(*through).markup(", ").number(*behind).markup(" behind");
+            if let Some(thread) = thread {
+                h.markup(" · summarizes /").text(thread);
+                if let (Some(through), Some(behind)) = (through, behind) {
+                    h.markup(" through #").number(*through).markup(", ").number(*behind).markup(" behind");
+                }
             }
         }
         Status::Thread { last_id, last_ts, messages } => {
@@ -388,7 +391,6 @@ pub fn thread(node: &Node, page: &ThreadPage) -> Html {
 pub struct NoteView<'a> {
     pub node: &'a Node,
     pub note: Option<&'a NoteVersion>,
-    pub thread: Option<&'a str>,
     pub history: &'a [Version],
     pub current: bool,
 }
@@ -412,17 +414,14 @@ pub fn note(v: &NoteView<'_>) -> Html {
                     .text(path)
                     .markup("\">the current one</a></p>\n");
             }
-            if let (Some(through), Some(behind)) = (note.through, note.behind) {
-                h.markup("<p class=\"meta\">");
-                // The link holds the whole phrase: "#N, M behind" reads as one.
-                match v.thread {
-                    Some(thread) => {
-                        h.markup("<a href=\"/view/").text(thread).markup("\">summarized through #");
-                        h.number(through).markup(", ").number(behind).markup(" behind</a>");
-                    }
-                    None => {
-                        h.markup("summarized through #").number(through).markup(", ").number(behind).markup(" behind");
-                    }
+            if let Some(thread) = &note.thread {
+                h.markup("<p class=\"meta\">summarizes <a href=\"/view/")
+                    .text(thread)
+                    .markup("\">/")
+                    .text(thread)
+                    .markup("</a>");
+                if let (Some(through), Some(behind)) = (note.through, note.behind) {
+                    h.markup(" through #").number(through).markup(", ").number(behind).markup(" behind");
                 }
                 h.markup("</p>\n");
             }
@@ -438,6 +437,7 @@ pub fn note(v: &NoteView<'_>) -> Html {
                 path,
                 body: v.note.map_or("", |n| n.body.as_str()),
                 base_version: v.note.map_or(0, |n| n.version),
+                thread: v.note.and_then(|n| n.thread.as_deref()).unwrap_or(""),
                 through: v.note.and_then(|n| n.through),
                 error: "",
             }))
@@ -455,8 +455,11 @@ pub fn note(v: &NoteView<'_>) -> Html {
                 .markup("</a> · ");
             author(&mut h, &version.from, version.signed_by.as_deref(), version.revoked_at);
             h.markup(" · ").text(&version.ts);
-            if let Some(through) = version.through {
-                h.markup(" · through #").number(through);
+            if let Some(thread) = &version.thread {
+                h.markup(" · summarizes /").text(thread);
+                if let Some(through) = version.through {
+                    h.markup(" through #").number(through);
+                }
             }
             h.markup("</li>\n");
         }
@@ -471,6 +474,7 @@ pub struct NoteForm<'a> {
     pub path: &'a str,
     pub body: &'a str,
     pub base_version: i64,
+    pub thread: &'a str,
     pub through: Option<i64>,
     pub error: &'a str,
 }
@@ -484,7 +488,11 @@ pub fn note_form(f: &NoteForm<'_>) -> Html {
     hidden_input(&mut h, "path", f.path);
     hidden_input(&mut h, "base_version", &f.base_version.to_string());
     h.markup("<textarea name=\"body\" required>").text(f.body).markup("</textarea>\n");
-    h.markup("<label>summarizes the thread through message # <input name=\"through\" inputmode=\"numeric\" size=\"8\" value=\"");
+    h.markup(
+        "<label>summarizes the thread (with a message, or neither) <input name=\"thread\" placeholder=\"area/group/thread\" value=\"",
+    )
+    .text(f.thread);
+    h.markup("\"></label>\n<label>through message # (with a thread) <input name=\"through\" inputmode=\"numeric\" size=\"8\" value=\"");
     if let Some(through) = f.through {
         h.number(through);
     }
@@ -757,13 +765,14 @@ mod tests {
             from: "alice".to_owned(),
             signed_by: Some("SHA256:alice".to_owned()),
             revoked_at: Some(10_050),
+            thread: Some("rev/log".to_owned()),
             through: Some(10_021),
             behind: Some(2),
             body: HOSTILE.to_owned(),
         };
-        let view = NoteView { node: &node, note: Some(&version), thread: Some("rev/log"), history: &[], current: true };
+        let view = NoteView { node: &node, note: Some(&version), history: &[], current: true };
         let page = text(note(&view));
-        assert!(page.contains("<a href=\"/view/rev/log\">summarized through #10021, 2 behind</a>"), "{page}");
+        assert!(page.contains("summarizes <a href=\"/view/rev/log\">/rev/log</a> through #10021, 2 behind"), "{page}");
         assert!(page.contains("key revoked at #10050") && page.contains(ESCAPED), "{page}");
         assert!(page.contains("<details data-needs=\"trusted\" hidden>"), "{page}");
         assert!(page.contains("name=\"base_version\" value=\"2\""), "{page}");

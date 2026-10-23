@@ -69,6 +69,7 @@ impl Fixture {
             path: "rev/state",
             body: "the state of things\nall fine",
             base_version: 0,
+            thread: "rev/log",
             through: Some(fixture.ids.second),
         };
         fixture.write(note, Board::set_note)?;

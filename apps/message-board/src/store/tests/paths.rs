@@ -153,7 +153,7 @@ fn a_listing_shows_how_each_child_stands() -> TestResult {
             Status::Container { children: 1 },
             Status::Thread { last_id: None, last_ts: None, messages: 0 },
             Status::Queue { owner: "agent".to_owned(), open: 0, oldest_open_ts: None },
-            Status::Note { version: 0, ts: None, from: None, through: None, behind: None },
+            Status::Note { version: 0, ts: None, from: None, thread: None, through: None, behind: None },
         ]
     );
     let first = f.post(&agent, "rev/log", "one")?.id;

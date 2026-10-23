@@ -187,6 +187,11 @@ pub(super) fn type_of(conn: &Connection, id: i64) -> rusqlite::Result<Option<Eve
     conn.query_row("SELECT type FROM events WHERE id=?", [id], |r| parsed(r, 0)).optional()
 }
 
+/// The node event `id` belongs to, if there is such an event.
+pub(super) fn event_node(conn: &Connection, id: i64) -> rusqlite::Result<Option<i64>> {
+    conn.query_row("SELECT node FROM events WHERE id=?", [id], |r| r.get(0)).optional()
+}
+
 /// An event to append.
 pub(super) struct NewEvent<'a> {
     pub kind: EventType,
@@ -195,11 +200,13 @@ pub(super) struct NewEvent<'a> {
     pub body: &'a str,
     pub version: Option<i64>,
     pub reference: Option<i64>,
+    /// A note version's thread.
+    pub thread: Option<&'a str>,
 }
 
 impl<'a> NewEvent<'a> {
     pub fn new(kind: EventType, node: i64, body: &'a str) -> Self {
-        Self { kind, node, item: None, body, version: None, reference: None }
+        Self { kind, node, item: None, body, version: None, reference: None, thread: None }
     }
 }
 
@@ -207,9 +214,9 @@ impl<'a> NewEvent<'a> {
 pub(super) fn insert(conn: &Connection, stamp: &Stamp<'_>, event: &NewEvent<'_>) -> rusqlite::Result<i64> {
     let (client_key, request_hash) = stamp.keyed.unzip();
     conn.execute(
-        "INSERT INTO events(ts, type, node, item, actor, actor_fp, body, version, ref, client_key,
+        "INSERT INTO events(ts, type, node, item, actor, actor_fp, body, version, ref, thread, client_key,
                             request_hash, signature)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         params![
             stamp.now,
             event.kind.as_str(),
@@ -220,6 +227,7 @@ pub(super) fn insert(conn: &Connection, stamp: &Stamp<'_>, event: &NewEvent<'_>)
             event.body,
             event.version,
             event.reference,
+            event.thread,
             client_key,
             request_hash,
             stamp.signature

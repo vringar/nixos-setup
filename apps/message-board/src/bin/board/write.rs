@@ -273,10 +273,10 @@ pub fn post(api: &Api, thread: &str, words: &[String]) -> Result<(), Failure> {
 
 /// Save stdin as the note's next version. A `note-changed` refusal is never
 /// retried: someone saved meanwhile, and only a re-read and merge is safe.
-pub fn note_set(api: &Api, path: &str, base: i64, through: Option<i64>) -> Result<(), Failure> {
+pub fn note_set(api: &Api, path: &str, base: i64, thread: &str, through: Option<i64>) -> Result<(), Failure> {
     let signer = signer()?;
     let body = read_all(io::stdin().lock(), "the note")?;
-    let action = SetNote { path, body: &body, base_version: base, through };
+    let action = SetNote { path, body: &body, base_version: base, thread, through };
     let saved: NoteSaved = submit(api, &signer, "/note", &action)?;
     emit(&Line::NoteSaved(&saved))
 }

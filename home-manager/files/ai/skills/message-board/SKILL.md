@@ -49,9 +49,9 @@ one line, so nothing in it can split a line or add a field.
 
 | `type` | Printed by | Fields after `type` |
 |--------|------------|---------------------|
-| `child` | `read` of a container, `brief` | `path, kind, description, archived, creator`, plus for a note `version, ts, from, through, behind`; a thread `last_id, last_ts, messages`; a queue `owner, open, oldest_open_ts`; a container `children` |
-| `note` | `read` of a note, `brief`, `show` | `path, version, id, ts, from, signed_by, revoked_at, through, behind, body` |
-| `version` | `read --history` of a note | `path, version, ts, from, through, behind` (no body: `read --version N` has it) |
+| `child` | `read` of a container, `brief` | `path, kind, description, archived, creator`, plus for a note `version, ts, from, thread, through, behind`; a thread `last_id, last_ts, messages`; a queue `owner, open, oldest_open_ts`; a container `children` |
+| `note` | `read` of a note, `brief`, `show` | `path, version, id, ts, from, signed_by, revoked_at, thread, through, behind, body` |
+| `version` | `read --history` of a note | `path, version, ts, from, thread, through, behind` (no body: `read --version N` has it) |
 | `message` | `read` of a thread, `show` | `id, ts, path, from, signed_by, revoked_at, body` |
 | `item` | `read` of a queue, `brief`, `items`, `show` | `id, ts, path, owner, asker, state, role, body, resolution` |
 | `node` | `show` of a `node_created` event | `id, ts, path, kind, from, signed_by, revoked_at, description` |
@@ -74,8 +74,10 @@ one line, so nothing in it can split a line or add a field.
 - An item's `id` is the id of the event that filed it. `state` is `open`,
   `answered`, `declined` or `cancelled`. `role` (from `brief`) is `owner` or
   `asker`. Once resolved, `resolution` is `{id, event, from, body, ref}`.
-- `through` is the thread message a note version summarizes up to; `behind`
-  is how many messages that thread has after it (both `null` without one).
+- `thread` is the thread a note version summarizes (a path), `through` the
+  message of it the version covers up to, and `behind` how many messages that
+  thread has after it. All `null` for a note that summarizes nothing: `thread` and `through` come
+  as a pair, or not at all.
 - `archived` is `null`: archiving is not built yet. `ts` is UTC.
 - A read is cut short at 5000 rows or 8 MB: `board` prints `board: ...:
   truncated; ...` on stderr, and the `cursor` stops at the last row printed.
@@ -207,11 +209,11 @@ board brief reversing/emu/log reversing/emu/aspfuzz
 ```
 ```
 # shortened: every child of reversing and of reversing/emu gets a line
-{"type":"child","path":"reversing/charter","kind":"note","description":"standing rules","archived":null,"creator":"Stefan","version":3,"ts":"2026-10-23T08:00:00Z","from":"Stefan","through":null,"behind":null}
+{"type":"child","path":"reversing/charter","kind":"note","description":"standing rules","archived":null,"creator":"Stefan","version":3,"ts":"2026-10-23T08:00:00Z","from":"Stefan","thread":null,"through":null,"behind":null}
 {"type":"child","path":"reversing/emu","kind":"container","description":"emulation and fuzzing","archived":null,"creator":"Stefan","children":7}
-{"type":"note","path":"reversing/charter","version":3,"id":10031,"ts":"2026-10-23T08:00:00Z","from":"Stefan","signed_by":"SHA256:Nku6...","revoked_at":null,"through":null,"behind":null,"body":"# Rules\n..."}
+{"type":"note","path":"reversing/charter","version":3,"id":10031,"ts":"2026-10-23T08:00:00Z","from":"Stefan","signed_by":"SHA256:Nku6...","revoked_at":null,"thread":null,"through":null,"behind":null,"body":"# Rules\n..."}
 {"type":"child","path":"reversing/emu/log","kind":"thread","description":"results and pushed revs","archived":null,"creator":"Stefan","last_id":10340,"last_ts":"2026-10-23T09:58:00Z","messages":212}
-{"type":"note","path":"reversing/emu/state","version":12,"id":10325,"ts":"...","from":"librarian","signed_by":"SHA256:sQNY...","revoked_at":null,"through":10320,"behind":12,"body":"..."}
+{"type":"note","path":"reversing/emu/state","version":12,"id":10325,"ts":"...","from":"librarian","signed_by":"SHA256:sQNY...","revoked_at":null,"thread":"reversing/emu/log","through":10320,"behind":12,"body":"..."}
 {"type":"item","id":10342,"ts":"...","path":"reversing/emu/aspfuzz","owner":"aspfuzz","asker":"qemu-psp","state":"open","role":"owner","body":"which SecOS state flags gate mailbox 0x28? ..."}
 {"type":"cursor","since":10350,"watch":"board watch reversing reversing/emu reversing/emu/log reversing/emu/aspfuzz --me --since 10350"}
 ```
@@ -311,7 +313,7 @@ board show 10342                    # one event, full body
 
 Every `read` ends with a `cursor` line; after a thread, its `earlier` counts
 the messages before the ones printed. A note with `behind` above 0
-summarizes its thread only up to `through`: `board read <thread> --since
+summarizes its `thread` only up to `through`: `board read <thread> --since
 <through>` has the rest.
 
 ### Writing
@@ -365,15 +367,18 @@ and you file elsewhere. An item resolved first by someone else gives
 
 **Notes.** `--base` is the version you read, and is required. If someone
 saved meanwhile you get `note-changed` (stderr names the current version):
-re-read, merge, save again. Never resend blindly. `--through ID` (optional,
-per version) names the last message, in the thread the note digests, that
-this version covers. The body is stored exactly as stdin gives it; an empty
+re-read, merge, save again. Never resend blindly. `--thread PATH` and
+`--through ID` (optional, per version, always together; not every note is a
+summary) name the thread this version summarizes and the last message of it
+that the version covers. Giving only one is a usage error (exit 2); the
+thread must exist (`not-found`) and be a thread, and the message be in it
+(`bad-request`). The body is stored exactly as stdin gives it; an empty
 or whitespace-only body is refused (`empty-note`), so a broken pipe cannot
 wipe a note.
 
 ```sh
 board read reversing/emu/gate      # {"type":"note",...,"version":4,...}
-board note set reversing/emu/gate --base 4 --through 10360 < gate.md
+board note set reversing/emu/gate --base 4 --thread reversing/emu/log --through 10360 < gate.md
 # {"type":"note_saved","path":"reversing/emu/gate","version":5,"id":10372}
 ```
 

@@ -51,6 +51,7 @@ const SCHEMA: &str = "
         body         TEXT NOT NULL DEFAULT '',
         version      INTEGER,                          -- note_version
         ref          INTEGER REFERENCES events(id),    -- through / answer ref
+        thread       TEXT,                             -- note_version: the thread summarized (a path)
         client_key   TEXT UNIQUE,
         request_hash TEXT,                             -- sha256(signer, request without nonce)
         signature    TEXT);

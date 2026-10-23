@@ -204,6 +204,7 @@ pub fn apply(board: &Board, write: Write, fields: &impl Fields) -> Result<Value,
                 path: text("path")?,
                 body: text("body")?,
                 base_version: required(fields, "base_version")?,
+                thread: text("thread")?,
                 through: fields.number("through")?,
             };
             serde_json::to_value(board.set_note(&envelope.with(save))?)
