@@ -176,7 +176,10 @@
   // (approve, decline, answer, revoke, archive) to the owner key only. The board
   // checks every write regardless; this only spares the reader buttons that
   // would be refused.
-  const SHOWN_TO = { trusted: ["trusted", "owner"], owner: ["owner"] };
+  // `data-needs="named"` is for the key named by `data-name` alone, and
+  // `data-name` on any other control adds that name to who sees it (a queue's
+  // owner answers, and the owner key or the queue's owner declines).
+  const SHOWN_TO = { trusted: ["trusted", "owner"], owner: ["owner"], named: [] };
   const signedForm = (path) => typeof path === "string" && Object.hasOwn(FORMS, path);
 
   // Re-applied after every swap and every insertion of controls: a boosted
@@ -192,7 +195,9 @@
     $("#auth-status").hidden = $("#auth-forget").hidden = !me;
     if (me) $("#auth-status").textContent = `🔒 ${me.name ?? "no name"} · ${me.state} · ${me.fingerprint}`;
     for (const control of document.querySelectorAll("[data-needs]")) {
-      control.hidden = !(SHOWN_TO[control.dataset.needs] ?? []).includes(me?.state);
+      const named = control.dataset.name !== undefined && control.dataset.name === me?.name
+        && SHOWN_TO.trusted.includes(me.state);
+      control.hidden = !((SHOWN_TO[control.dataset.needs] ?? []).includes(me?.state) || named);
     }
   }
 

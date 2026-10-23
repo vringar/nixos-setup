@@ -832,3 +832,113 @@ require(js);
     page = board.get("/view/rev/log?archived=1").text
     assert page.count('data-needs="owner" hidden') == page.count("hx-post=\"/ui/unarchive\"") \
         + page.count("hx-post=\"/ui/archive\"") > 0
+# --- resolving items from a queue page ----------------------------------------------------------
+
+def _web(board, path, key, action, view=None, **values):
+    """A signed form post to /ui/<path>, as the page sends it."""
+    values.setdefault("key", new_client_key())
+    body = board.signed(action, key, values)
+    if view:
+        body["view"] = view
+    return request(f"{board.url}/ui/{path}", body, form=True)
+
+
+def _stand_in_gate(board, tmp_path, key_path, controls):
+    """Which of `controls` ([needs, name] pairs) board-sign.js shows once
+    authorized with the key at `key_path`, run under node against a stand-in
+    page."""
+    _node()
+    script = tmp_path / "gate.js"
+    script.write_text("""
+const fs = require("fs");
+const [js, base, key, specs] = process.argv.slice(2);
+const listeners = {};
+class El {
+  constructor(needs, name) { this.hidden = true; this.dataset = {}; if (needs) this.dataset.needs = needs;
+                             if (name) this.dataset.name = name; this.nodeType = 1;
+                             this.textContent = ""; this.value = ""; }
+  matches() { return false; }
+  querySelector() { return null; }
+  addEventListener() {} click() {} reset() {}
+}
+const page = { "#auth-open": new El(), "#auth-status": new El(), "#auth-forget": new El(),
+               "#auth-note": new El(), "#auth-error": new El(),
+               "#auth-dialog": Object.assign(new El(), { close() {} }), "#auth-form": new El() };
+page["#auth-form"].id = "auth-form";
+page["#auth-form"].elements = { privkey: page["#auth-form"] };
+const controls = JSON.parse(specs).map(([needs, name]) => new El(needs, name));
+globalThis.MutationObserver = class { observe() {} };
+globalThis.window = { isSecureContext: true, crypto: globalThis.crypto };
+globalThis.document = {
+  documentElement: {},
+  querySelector: (sel) => page[sel] ?? null,
+  querySelectorAll: (sel) => (sel === "[data-needs]" ? controls : []),
+  addEventListener: (name, fn) => { (listeners[name] ??= []).push(fn); },
+};
+const realFetch = globalThis.fetch;
+globalThis.fetch = (url, init) => realFetch(new URL(url, base), init);
+require(js);
+(async () => {
+  page["#auth-form"].value = fs.readFileSync(key, "utf8");
+  for (const fn of listeners.submit) fn({ target: page["#auth-form"], preventDefault() {} });
+  while (page["#auth-status"].hidden) await new Promise((r) => setTimeout(r, 20));
+  console.log(JSON.stringify(controls.map((c) => !c.hidden)));
+})();
+""")
+    run = subprocess.run(["node", script, _served_js(board, tmp_path), board.url, key_path,
+                          json.dumps(controls)], capture_output=True, text=True, check=True,
+                         timeout=60)
+    return json.loads(run.stdout)
+
+
+def test_a_queue_page_offers_answer_and_decline_on_each_open_item(board, team):
+    team.bob.create("rev/bob", "queue")
+    open_one = team.alice.ask("rev/bob", "please look")
+    done = team.alice.ask("rev/bob", "already done")
+    team.bob.answer(done, "ok")
+    page = board.get("/view/rev/bob").text
+    resolves = [f for f in re.findall(r"<form[^>]*/ui/resolve.*?</form>", page, re.S)]
+    assert len(resolves) == 2 and all("hx-target=\"#queue-items\"" in f for f in resolves)
+    assert all(f'name="item" value="{open_one}"' in f for f in resolves)  # none for the answered one
+    assert sorted(re.findall(r'name="state" value="(\w+)"', page)) == ["answered", "declined"]
+    controls = _Controls()
+    controls.feed(page)
+    assert controls.shown == [], controls.shown
+    # the answer is the queue's items, with the item resolved
+    r = _web(board, "resolve", team.bob.key, "resolve", view="queue", item=open_one,
+             state="answered", body="looked")
+    assert r.status == 200 and "2 resolved items" in visible_text(r.text) and "looked" in r.text
+    assert "nothing open" in r.text
+
+
+def test_the_store_decides_who_resolves_from_a_queue_page(board, team):
+    """Mirrors the store: the queue's owner answers; the queue's owner or
+    the owner key declines; nobody else does."""
+    team.bob.create("rev/bob", "queue")
+    item = team.alice.ask("rev/bob", "question")
+
+    def resolve(who, state):
+        return _web(board, "resolve", who.key, "resolve", view="queue", item=item, state=state,
+                    body="because")
+
+    for who, state in ((team.owner, "answered"), (team.carol, "declined"), (team.alice, "answered")):
+        r = resolve(who, state)
+        assert r.status == 403 and r.headers["Board-Error"] == "forbidden", (who.name, state)
+    assert board.item(item)["item"]["state"] == "open"
+    assert resolve(team.owner, "declined").status == 200  # the owner key declines any item
+    assert board.item(item)["item"]["state"] == "declined"
+    second = team.alice.ask("rev/bob", "again")
+    r = _web(board, "resolve", team.bob.key, "resolve", view="queue", item=second,
+             state="declined", body="no")  # the queue's owner declines
+    assert r.status == 200 and board.item(second)["item"]["state"] == "declined"
+
+
+def test_the_page_shows_resolve_controls_to_the_key_the_store_lets_use_them(board, team, tmp_path):
+    controls = [["named", "bob"], ["owner", "bob"], ["named", "alice"], ["owner", "alice"],
+                ["owner", None], ["trusted", None]]
+    assert _stand_in_gate(board, tmp_path, team.bob.key.path, controls) == \
+        [True, True, False, False, False, True]
+    assert _stand_in_gate(board, tmp_path, board.owner.key.path, controls) == \
+        [False, True, False, True, True, True]
+    assert _stand_in_gate(board, tmp_path, team.carol.key.path, controls) == \
+        [False, False, False, False, False, True]

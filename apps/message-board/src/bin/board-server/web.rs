@@ -213,6 +213,13 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
             }
         }
         // The page the form sat on gets its own piece back.
+        Form::Resolve if fields.get("view") == Some("queue") => {
+            let item = fields.number("item")?.and_then(|id| board.item(id).transpose()).transpose()?;
+            match item {
+                Some(detail) => html::queue_items(&board.queue(&detail.item.path, StateFilter::All, 0)?.items),
+                None => html::error_fragment("resolved, but the item cannot be found"),
+            }
+        }
         Form::Approve | Form::Resolve if fields.get("view") == Some("keys") => keys_html(board)?,
         Form::Approve | Form::Resolve => inbox_html(board)?,
         Form::Revoke => keys_html(board)?,

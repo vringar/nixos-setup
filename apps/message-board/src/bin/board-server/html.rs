@@ -642,6 +642,25 @@ fn queue_item(h: &mut Html, i: &Item, show_archived: bool) {
     h.markup(if i.archived { "<div class=\"item archived\">" } else { "<div class=\"item\">" });
     item(h, i, false);
     archive_form(h, i.id, !i.archived, "queue-items", show_archived);
+    if !i.archived {
+        resolve_controls(h, i);
+    }
+    h.markup("</div>\n");
+}
+
+/// What an open item's queue page offers, as the store's rules allow it:
+/// the queue's owner answers, the queue's owner or the owner key declines.
+/// Each control is shown to the key it is for (`data-needs`, and the name
+/// in `data-name`); the board refuses anyone else. A registration has no
+/// answer: it is approved, in the inbox.
+fn resolve_controls(h: &mut Html, i: &Item) {
+    if i.asker.is_some() {
+        h.markup("<div class=\"controls\" data-needs=\"named\" data-name=\"").text(&i.owner).markup("\" hidden>\n");
+        resolve_form(h, i.id, ItemState::Answered, "queue");
+        h.markup("</div>\n");
+    }
+    h.markup("<div class=\"controls\" data-needs=\"owner\" data-name=\"").text(&i.owner).markup("\" hidden>\n");
+    resolve_form(h, i.id, ItemState::Declined, "queue");
     h.markup("</div>\n");
 }
 
@@ -672,7 +691,9 @@ pub fn queue_items(items: &[Item], show_archived: bool) -> Html {
 /// A form that resolves `item` as `state`, with the reason asked for;
 /// an answer may also name the message that holds it.
 fn resolve_form(h: &mut Html, item: i64, state: ItemState, view: &'static str) {
-    h.markup("<form hx-post=\"/ui/resolve\" hx-target=\"#").markup(view).markup("\" hx-swap=\"innerHTML\">\n");
+    // A queue page's items are what its own `#queue-items` holds.
+    let target = if view == "queue" { "queue-items" } else { view };
+    h.markup("<form hx-post=\"/ui/resolve\" hx-target=\"#").markup(target).markup("\" hx-swap=\"innerHTML\">\n");
     form_error(h, "");
     hidden_input(h, "view", view);
     hidden_input(h, "item", &item.to_string());
@@ -985,6 +1006,37 @@ mod tests {
         assert!(page.contains("<div id=\"queue-items\"><p class=\"empty\">nothing open</p>"), "{page}");
         let generated = Node { generated: true, ..node };
         assert!(!text(queue(&generated, &[], false)).contains("/ui/ask"));
+    }
+
+    fn open_item(id: i64, asker: Option<&str>) -> Item {
+        Item {
+            id,
+            ts: String::new(),
+            path: "rev/bob".to_owned(),
+            owner: "bob".to_owned(),
+            asker: asker.map(str::to_owned),
+            state: ItemState::Open,
+            body: "q".to_owned(),
+            resolution: None,
+        }
+    }
+
+    #[test]
+    fn an_open_item_offers_the_resolutions_the_store_allows_to_the_keys_it_allows_them() {
+        let page = text(queue_items(&[open_item(10_030, Some("alice")), open_item(10_031, None)]));
+        // answer: the queue's owner only, and never for a registration
+        assert_eq!(page.matches("data-needs=\"named\" data-name=\"bob\" hidden").count(), 1, "{page}");
+        assert_eq!(page.matches("<button type=\"submit\">Answer</button>").count(), 1, "{page}");
+        // decline: the owner key, or the queue's owner by name
+        assert_eq!(page.matches("data-needs=\"owner\" data-name=\"bob\" hidden").count(), 2, "{page}");
+        assert_eq!(page.matches("<button type=\"submit\">Decline</button>").count(), 2, "{page}");
+        // each swaps the queue's own items
+        assert_eq!(page.matches("hx-post=\"/ui/resolve\" hx-target=\"#queue-items\"").count(), 3, "{page}");
+        assert_eq!(page.matches("name=\"view\" value=\"queue\"").count(), 3, "{page}");
+        // nothing but resolved items: no controls
+        let mut done = open_item(10_032, Some("alice"));
+        done.state = ItemState::Answered;
+        assert!(!text(queue_items(&[done])).contains("<form"));
     }
 
     #[test]
