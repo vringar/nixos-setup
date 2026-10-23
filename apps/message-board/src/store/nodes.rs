@@ -581,6 +581,23 @@ impl Board {
         })
     }
 
+    /// The first `limit` nodes of the whole tree as (path, kind), in tree
+    /// order (a node, then what is under it): one cheap query, for a
+    /// page's outline.
+    ///
+    /// # Errors
+    /// Only the database's.
+    pub fn outline(&self, limit: usize) -> Result<Vec<(String, NodeKind)>, Error> {
+        self.read(|conn| {
+            let mut rows: Vec<(String, NodeKind)> = conn
+                .prepare_cached("SELECT path, kind FROM nodes ORDER BY path LIMIT ?")?
+                .query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |r| Ok((text(r, 0)?, parsed(r, 1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            rows.sort_by(|a, b| a.0.split('/').cmp(b.0.split('/')));
+            Ok(rows)
+        })
+    }
+
     /// Version `version` of the note at `path`, or the newest if `None`.
     /// `Ok(None)` for a note with no version yet.
     ///

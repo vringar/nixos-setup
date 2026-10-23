@@ -47,8 +47,8 @@ impl Form {
     }
 }
 
-fn page(title: &str, path: Option<&str>, content: &Html) -> Response {
-    Response::html(200, html::page(title, path, content))
+fn page(board: &Board, title: &str, path: Option<&str>, content: &Html) -> Result<Response, Failure> {
+    Ok(Response::html(200, html::page(title, path, content, &board.outline(html::OUTLINE_MAX)?)))
 }
 
 fn fragment(content: Html) -> Response {
@@ -59,7 +59,7 @@ fn fragment(content: Html) -> Response {
 /// an empty path.
 pub fn view(board: &Board, path: &str, q: &Params) -> Answer {
     if path.is_empty() {
-        return Ok(page("tree", None, &html::children(&board.children("")?)));
+        return page(board, "tree", None, &html::children(&board.children("")?));
     }
     let node = board.node(path)?;
     let content = match node.kind {
@@ -76,7 +76,7 @@ pub fn view(board: &Board, path: &str, q: &Params) -> Answer {
         NodeKind::Thread => html::thread(&node, &board.thread(path, Range::Last(RECENT))?),
         NodeKind::Queue => html::queue(&node, &board.queue(path, StateFilter::All, 0)?.items),
     };
-    Ok(page(path, Some(path), &content))
+    page(board, path, Some(path), &content)
 }
 
 /// A note as `#note` holds it: version `version` (the current one if
@@ -129,11 +129,11 @@ fn inbox_html(board: &Board) -> Result<Html, Failure> {
 }
 
 pub fn inbox(board: &Board) -> Answer {
-    Ok(page("inbox", None, &html::swapped("inbox", &inbox_html(board)?)))
+    page(board, "inbox", None, &html::swapped("inbox", &inbox_html(board)?))
 }
 
 pub fn keys(board: &Board) -> Answer {
-    Ok(page("keys", None, &html::swapped("keys", &html::keys(&board.keys()?))))
+    page(board, "keys", None, &html::swapped("keys", &html::keys(&board.keys()?)))
 }
 
 /// A signed form's write; the piece of page it changed, or the refusal

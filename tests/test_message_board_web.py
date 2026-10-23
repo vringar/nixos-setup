@@ -522,3 +522,14 @@ globalThis.fetch = async (url, init) => {
     assert [(m["body"], m["signed_by"]) for m in mine] == [("from the page", team.alice.fingerprint)]
     note = board.note("rev/state")
     assert (note["version"], note["body"], note["from"]) == (2, "web text", "alice")
+
+
+def test_every_page_carries_a_tree_sidebar_that_marks_the_current_path(board, team):
+    _furnish(team)
+    page = board.get("/view/rev/log").text
+    assert '<aside class="side">' in page and "@media (min-width: 960px)" in page
+    assert re.search(r'<li class="thread on"[^>]*><a href="/view/rev/log" aria-current="page"', page)
+    assert re.search(r'<li class="container above"[^>]*><a href="/view/rev"', page)
+    assert "<nav><a href=\"/\">tree</a>" in page  # the narrow-screen way in stays
+    for path in ("/", "/ui/inbox", "/ui/keys"):
+        assert 'href="/view/rev"' in board.get(path).text.split("<main>")[0]

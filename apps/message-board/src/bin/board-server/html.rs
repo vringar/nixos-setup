@@ -12,7 +12,7 @@
 //! The board checks every write anyway; hiding is for the reader.
 
 use message_board::store::{
-    Child, Item, ItemState, Key, KeyState, Node, NoteVersion, Registration, Status, ThreadPage, Version,
+    Child, Item, ItemState, Key, KeyState, Node, NodeKind, NoteVersion, Registration, Status, ThreadPage, Version,
 };
 
 /// A value as it goes into a URL query: form-urlencoded.
@@ -101,6 +101,22 @@ const HEAD: &str = r#"</title>
   .auth { float: right; font-size: 12px; color: #666; }
   dialog { width: min(36rem, 90vw); }
   dialog textarea { width: 100%; min-height: 10rem; font: 11px monospace; }
+  .side { display: none; }
+  .side ul { list-style: none; margin: 0; padding: 0; }
+  .side li a { display: block; padding: .1rem .4rem; border-radius: 4px; color: #333;
+               text-decoration: none; overflow-wrap: anywhere; }
+  .side li a:hover { background: #f2f2f2; }
+  .side li.container > a { font-weight: 600; }
+  .side li.on > a { background: #e8f0fe; color: #0b3d91; }
+  .side li.above > a { color: #0b3d91; }
+  .side .more { color: #999; padding: .1rem .4rem; }
+  @media (min-width: 960px) {
+    body { max-width: none; margin: 1.5rem 1.5rem; }
+    .shell { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+    .side { display: block; position: sticky; top: 1rem; max-height: calc(100vh - 2rem);
+            overflow-y: auto; border-right: 1px solid #eee; padding-right: .5rem; }
+    .shell > main { max-width: 960px; }
+  }
 </style></head><body hx-boost:inherited="true">
 <div class="auth"><span id="auth-status" hidden></span>
   <button type="button" id="auth-forget" hidden>forget key</button>
@@ -123,11 +139,52 @@ const HEAD: &str = r#"</title>
 
 /// A whole page: the layout around `content`, with a breadcrumb for the
 /// node at `path`, if it is one.
-pub fn page(title: &str, path: Option<&str>, content: &Html) -> Html {
+/// How many nodes the sidebar lists; the rest are one click away in the tree.
+pub const OUTLINE_MAX: usize = 300;
+
+/// The tree as the sidebar shows it: one link per node, indented by depth,
+/// with the node at `current` and the containers above it marked. Wide
+/// screens show it; narrow ones hide it, and the "tree" link remains.
+fn sidebar(h: &mut Html, outline: &[(String, NodeKind)], current: Option<&str>) {
+    if outline.is_empty() {
+        return;
+    }
+    h.markup("<aside class=\"side\"><nav aria-label=\"tree\"><ul>\n");
+    for (path, kind) in outline {
+        let depth = path.matches('/').count();
+        let name = path.rsplit('/').next().unwrap_or(path);
+        let on = current == Some(path.as_str());
+        let above = current.is_some_and(|c| c.strip_prefix(path.as_str()).is_some_and(|rest| rest.starts_with('/')));
+        h.markup("<li class=\"").markup(kind.as_str());
+        if on {
+            h.markup(" on");
+        } else if above {
+            h.markup(" above");
+        }
+        h.markup("\" style=\"padding-left:")
+            .number(i64::try_from(depth).unwrap_or(0) * 12)
+            .markup("px\"><a href=\"/view/")
+            .text(path)
+            .markup("\"");
+        if on {
+            h.markup(" aria-current=\"page\"");
+        }
+        h.markup(" title=\"").text(path).markup("\">").text(name).markup("</a></li>\n");
+    }
+    if outline.len() >= OUTLINE_MAX {
+        h.markup("<li class=\"more\">…</li>\n");
+    }
+    h.markup("</ul></nav></aside>\n");
+}
+
+pub fn page(title: &str, path: Option<&str>, content: &Html, outline: &[(String, NodeKind)]) -> Html {
     let mut h = Html::new();
     h.markup("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>board · ")
         .text(title)
         .markup(HEAD);
+    h.markup("<div class=\"shell\">\n");
+    sidebar(&mut h, outline, path);
+    h.markup("<main>\n");
     if let Some(path) = path {
         h.markup("<div class=\"crumbs\"><a href=\"/\">board</a>");
         let mut prefix = String::new();
@@ -140,14 +197,14 @@ pub fn page(title: &str, path: Option<&str>, content: &Html) -> Html {
         }
         h.markup("</div>\n");
     }
-    h.html(content).markup("\n</body></html>\n");
+    h.html(content).markup("\n</main></div>\n</body></html>\n");
     h
 }
 
 pub fn error_page(status: u16, message: &str) -> Html {
     let mut content = Html::new();
     content.markup("<h2>").text(&status.to_string()).markup("</h2>\n").html(&error_fragment(message));
-    page("error", None, &content)
+    page("error", None, &content, &[])
 }
 
 /// A refusal where a piece of page would have gone.
@@ -716,12 +773,32 @@ mod tests {
 
     #[test]
     fn a_breadcrumb_links_every_level() {
-        let page = text(page("rev/emu/log", Some("rev/emu/log"), &Html::new()));
+        let page = text(page("rev/emu/log", Some("rev/emu/log"), &Html::new(), &[]));
         assert!(
             page.contains(
                 "<a href=\"/\">board</a> / <a href=\"/view/rev\">rev</a> / <a href=\"/view/rev/emu\">emu</a> / <a href=\"/view/rev/emu/log\">log</a>"
             ),
             "{page}"
         );
+    }
+
+    #[test]
+    fn the_sidebar_marks_the_current_page_and_its_ancestors() {
+        let outline = vec![
+            ("rev".to_owned(), NodeKind::Container),
+            ("rev/emu".to_owned(), NodeKind::Container),
+            ("rev/emu/log".to_owned(), NodeKind::Thread),
+            ("rev/emu-x".to_owned(), NodeKind::Note),
+        ];
+        let page = text(page("t", Some("rev/emu/log"), &Html::new(), &outline));
+        assert!(page.contains("<li class=\"container above\""), "{page}");
+        assert!(page.contains("<li class=\"thread on\" style=\"padding-left:24px\"><a href=\"/view/rev/emu/log\" aria-current=\"page\""), "{page}");
+        assert!(page.contains("<li class=\"note\""), "{page}");
+        assert!(page.contains("@media (min-width: 960px)") && page.contains("<main>"), "{page}");
+        assert!(!text(page_without_outline()).contains("<aside"));
+    }
+
+    fn page_without_outline() -> Html {
+        page("t", None, &Html::new(), &[])
     }
 }
