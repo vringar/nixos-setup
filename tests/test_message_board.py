@@ -16,8 +16,9 @@ import pytest
 
 from board_harness import (  # noqa: F401 (fixtures)
     FIRST_ID, HANG_TIMEOUT, OWNER, V1_POINTER, Server, board, cli, digest, free_port, isolated,
-    json_line, keyring, make_v1_db, owner_env, proxy, refusal, sql, team, watching,
+    json_line, keyring, make_v1_db, owner_env, program, proxy, refusal, sql, team, watching,
 )
+from board_harness import _env
 
 pytestmark = pytest.mark.usefixtures("isolated")
 
@@ -184,15 +185,60 @@ def test_cli_create_prints_what_it_made(board, team):
         {"type": "created", "path": "rev/cli-log", "kind": "thread"}
     assert set(made) == {"type", "path", "kind", "id"} and made["id"] > FIRST_ID
     assert children(cli("read", "rev").ok())["rev/cli-log"]["description"] == "made by the CLI"
-    note = cli("create", "note", "rev/charter", stdin="# charter\nbe kind\n",
+    note = cli("create", "note", "rev/charter", "--body", "-", stdin="# charter\nbe kind\n",
                key=team.owner.key).ok().result
     assert (note["type"], note["kind"]) == ("created", "note")
     [charter] = cli("read", "rev/charter").ok().of("note")
     assert (charter["version"], charter["body"], charter["from"]) == (1, "# charter\nbe kind\n", OWNER)
+    literal = cli("create", "note", "rev/literal", "--body", "just text", key=team.owner.key).ok().result
+    assert literal["kind"] == "note"
+    assert cli("read", "rev/literal").ok().of("note")[0]["body"] == "just text"
     queue = cli("create", "queue", "rev/bob", "--owner", "bob", key=team.owner.key).ok().result
     assert queue["kind"] == "queue"
     assert children(cli("read", "rev").ok())["rev/bob"]["owner"] == "bob"
     assert cli("create", "folder", "rev/x", key=team.owner.key).code == 2
+
+
+def test_read_tolerates_a_trailing_slash(board, team):
+    plain = cli("read", "rev").ok().lines
+    assert cli("read", "rev/").ok().lines == plain
+    assert cli("read", "rev/log/").ok().lines == cli("read", "rev/log").ok().lines
+    assert cli("read", "/").ok().lines == cli("read").ok().lines
+
+
+def test_create_p_of_an_existing_node_with_another_owner_or_description_fails(board, team):
+    o = team.owner
+    cli("create", "-p", "queue", "rev/qq", "--owner", "bob", "--description", "bob's", key=o.key).ok()
+    again = cli("create", "-p", "queue", "rev/qq", "--owner", "bob", "--description", "bob's", key=o.key).ok()
+    assert again.result["existed"] is True
+    plain = cli("create", "-p", "queue", "rev/qq", key=o.key).ok()  # nothing asked for, nothing differs
+    assert plain.result["existed"] is True
+    head = board.head_id()
+    run = cli("create", "-p", "queue", "rev/qq", "--owner", "carol", key=o.key)
+    assert (run.code, run.out) == (1, "") and 'rev/qq exists already' in run.err and 'owner is "bob", not "carol"' in run.err
+    run = cli("create", "-p", "queue", "rev/qq", "--description", "other", key=o.key)
+    assert run.code == 1 and 'description is "bob\'s", not "other"' in run.err
+    assert board.head_id() == head
+
+
+def test_create_note_reads_stdin_only_with_body_dash(board, team):
+    """A command that reads stdin unasked hangs when a launcher leaves one open."""
+    piped = "this would be the body\n"
+    run = cli("create", "note", "rev/empty-note", stdin=piped, key=team.owner.key).ok()
+    assert run.result["kind"] == "note"
+    assert cli("read", "rev/empty-note").of("note") == []  # version 0: no content yet
+    assert children(cli("read", "rev").ok())["rev/empty-note"]["version"] == 0
+    wrong = cli("create", "thread", "rev/t2", "--body", "x", key=team.owner.key)
+    assert wrong.code == 2 and "--body is for notes" in wrong.err
+    held = subprocess.Popen([program("board"), "create", "note", "rev/never-reads"],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            env=_env(None, team.owner.key))
+    try:  # stdin stays open and silent: the command must finish anyway
+        out, err = held.communicate(timeout=HANG_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        held.kill()
+        raise
+    assert held.returncode == 0, err
 
 
 def _created(run, path):
@@ -215,7 +261,7 @@ def test_create_p_makes_the_missing_containers_first(board, team, proxy):
         [("rev/emu", "container"), ("rev/emu/log", "thread")]
     assert board.node("rev/emu")["node"]["kind"] == "container"
     assert children(cli("read", "rev/emu").ok())["rev/emu/log"]["description"] == "emu's log"
-    cli("create", "-p", "note", "rev/emu/state", stdin="emu state\n", key=a.key).ok()
+    cli("create", "-p", "note", "rev/emu/state", "--body", "-", stdin="emu state\n", key=a.key).ok()
     assert [(s["path"], s["kind"]) for s in proxy.sent("/create")][2:] == [("rev/emu/state", "note")]
     assert cli("read", "rev/emu/state").ok().of("note")[0]["body"] == "emu state\n"
 
@@ -336,7 +382,7 @@ def test_a_note_is_versioned_against_the_version_it_was_based_on(board, team, pr
     """`--base` is required and a stale one is refused, never retried: two
     editors (the librarian and Stefan) must not lose each other's text."""
     o = team.owner
-    made = cli("create", "note", "rev/charter", stdin="# charter v1\n", key=o.key).ok().result
+    made = cli("create", "note", "rev/charter", "--body", "-", stdin="# charter v1\n", key=o.key).ok().result
     saved = cli("note", "set", "rev/charter", "--base", "1", stdin="# charter v2\n",
                 key=o.key).ok().result
     assert {k: saved[k] for k in ("type", "path", "version")} == \
@@ -538,6 +584,12 @@ def test_a_resolved_item_stays_resolved(board, team, first):
         with refusal(409, "item-not-open") as r:
             who.resolve(item, state, "a second word")
         assert (r.value["state"], r.value["resolved"]) == (first, done["id"])
+    for state in by:  # a party with no right to it hears that it is not open, not that it is forbidden
+        with refusal(409, "item-not-open") as r:
+            team.carol.resolve(item, state, "late and not even mine")
+        assert (r.value["state"], r.value["resolved"]) == (first, done["id"])
+    run = cli("answer", item, "late", key=team.carol.key)
+    assert (run.code, run.out) == (1, "") and "item-not-open" in run.err and "forbidden" not in run.err
     assert board.head_id() == head
 
 
@@ -588,6 +640,14 @@ def test_show_prints_one_event_with_its_full_body(board, team):
     shown = cli("show", item).ok().result
     assert (shown["type"], shown["id"], shown["state"], shown["body"]) == \
         ("item", item, "open", "the item\nin full")
+    answered = team.alice.resolve(item, "answered", "answer\nin full", ref=mid)
+    shown = cli("show", item).ok().result
+    assert (shown["type"], shown["state"]) == ("item", "answered")  # the item as it stands
+    resolution = cli("show", answered["id"]).ok().result  # the event that closed it, not the item
+    assert resolution == {"type": "resolution", "id": answered["id"], "ts": resolution["ts"],
+                          "event": "item_answered", "path": "rev/q", "item": item, "from": "alice",
+                          "signed_by": a.fingerprint, "revoked_at": None, "ref": mid,
+                          "body": "answer\nin full"}
     missing = cli("show", board.head_id() + 1000)
     assert (missing.code, missing.out) == (1, "")
     assert cli("show", "banana").code == 2
@@ -684,6 +744,24 @@ def test_v1_command_forms_point_to_the_skill(board, team, proxy, argv):
     assert run.code != 0 and run.out == ""
     assert V1_POINTER in run.err.splitlines()
     assert proxy.writes() == []
+
+
+@pytest.mark.parametrize("argv", [
+    ["post", "rev/log", "--from", "alice", "hi"],  # v1: the sender was an argument
+    ["post", "rev/log", "--from=alice", "hi"],
+    ["ask", "rev/q", "--from", "alice", "hi"],
+    ["answer", "10001", "--from", "alice", "hi"],
+])
+def test_a_v1_from_is_a_usage_error_not_a_post(board, team, proxy, argv):
+    run = cli(*argv, key=team.alice.key)
+    assert (run.code, run.out) == (2, "") and "--from" in run.err and "message-board skill" in run.err
+    assert proxy.writes() == []
+    assert [m["body"] for m in cli("read", "rev/log").ok().of("message")] == []
+
+
+def test_a_body_may_still_mention_from_after_its_first_word(board, team):
+    run = cli("post", "rev/log", "mail", "--from", "bob", key=team.alice.key).ok()
+    assert cli("show", run.result["id"]).ok().result["body"] == "mail --from bob"
 
 
 def test_a_v1_database_is_refused_and_left_as_it_was(tmp_path, keyring):

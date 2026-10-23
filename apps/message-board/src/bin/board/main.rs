@@ -193,7 +193,7 @@ enum Command {
     },
     #[command(about = "print one event in full")]
     Show { id: i64 },
-    #[command(about = "make a node; a note's first version comes from stdin, if any")]
+    #[command(about = "make a node; a note's first version with --body (a note made without one is at version 0)")]
     Create {
         #[arg(short = 'p', long = "parents", help = "make the missing containers along PATH first, like mkdir -p")]
         parents: bool,
@@ -204,6 +204,8 @@ enum Command {
         description: String,
         #[arg(long, value_name = "NAME", default_value = "", help = "a queue's owner (default: you)")]
         owner: String,
+        #[arg(long, value_name = "TEXT", help = "a note's first version; '-' reads it from stdin")]
+        body: Option<String>,
     },
     #[command(about = "append a message to a thread ('-' as the body reads stdin)")]
     Post {
@@ -452,7 +454,9 @@ fn run(cli: Cli) -> Result<(), Failure> {
                 _ => Range::Tail,
             };
             let options = ReadOptions { range, version, history, state, archived };
-            read::read(&api, path.as_deref().unwrap_or_default(), &options)
+            // "rev/" is "rev": a shell's tab completion leaves the slash
+            let path = path.as_deref().unwrap_or_default().trim_end_matches('/');
+            read::read(&api, path, &options)
         }
         Command::Watch { paths, mention, not_from, asked_by, owner, item, me, since, timeout, v1 } => {
             v1.refuse()?;
@@ -461,18 +465,36 @@ fn run(cli: Cli) -> Result<(), Failure> {
             watch::watch(&api, subscriptions, me, since, timeout)
         }
         Command::Show { id } => read::show(&api, id),
-        Command::Create { parents, kind, path, description, owner } => write::create(
-            &api,
-            &write::NewNode { kind: kind.into(), path: &path, description: &description, owner: &owner, parents },
-        ),
-        Command::Post { thread, body } => write::post(&api, &thread, &body),
+        Command::Create { parents, kind, path, description, owner, body } => {
+            let kind = kind.into();
+            let body = write::create_body(kind, body.as_deref(), io::stdin().lock())?;
+            let new =
+                write::NewNode { kind, path: &path, description: &description, owner: &owner, body: &body, parents };
+            write::create(&api, &new)
+        }
+        Command::Post { thread, body } => {
+            write::refuse_from(&body)?;
+            write::post(&api, &thread, &body)
+        }
         Command::Note { command: NoteCommand::Set { path, base, through } } => {
             write::note_set(&api, &path, base, through)
         }
-        Command::Ask { queue, body } => write::ask(&api, &queue, &body),
-        Command::Answer { item, reference, body } => write::resolve(&api, item, ItemState::Answered, &body, reference),
-        Command::Decline { item, body } => write::resolve(&api, item, ItemState::Declined, &body, None),
-        Command::Cancel { item, body } => write::resolve(&api, item, ItemState::Cancelled, &body, None),
+        Command::Ask { queue, body } => {
+            write::refuse_from(&body)?;
+            write::ask(&api, &queue, &body)
+        }
+        Command::Answer { item, reference, body } => {
+            write::refuse_from(&body)?;
+            write::resolve(&api, item, ItemState::Answered, &body, reference)
+        }
+        Command::Decline { item, body } => {
+            write::refuse_from(&body)?;
+            write::resolve(&api, item, ItemState::Declined, &body, None)
+        }
+        Command::Cancel { item, body } => {
+            write::refuse_from(&body)?;
+            write::resolve(&api, item, ItemState::Cancelled, &body, None)
+        }
         Command::Items { mine, owner, asked_by, state, after } => {
             let whose = if mine {
                 Whose::Mine

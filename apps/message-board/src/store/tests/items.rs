@@ -73,6 +73,24 @@ fn a_resolved_item_stays_resolved() -> TestResult {
 }
 
 #[test]
+fn a_resolved_item_is_not_open_to_the_wrong_party_either() -> TestResult {
+    let r = roles()?;
+    let item = r.f.file(&r.asker, "rev/q", "please")?.item;
+    r.f.resolve(&r.asker, item, ItemState::Cancelled, "never mind")?;
+    // not the queue owner's, so forbidden if it were open; it is not open
+    for (actor, state) in
+        [(&r.other, ItemState::Answered), (&r.other, ItemState::Cancelled), (&r.queue_owner, ItemState::Cancelled)]
+    {
+        let err = refused(r.f.resolve(actor, item, state, "late"))?;
+        assert!(matches!(err, Error::ItemNotOpen { state: ItemState::Cancelled, .. }), "{err}");
+    }
+    // open, the same parties are forbidden
+    let open = r.f.file(&r.asker, "rev/q", "again")?.item;
+    assert!(matches!(refused(r.f.resolve(&r.other, open, ItemState::Answered, "x"))?, Error::Forbidden(_)));
+    Ok(())
+}
+
+#[test]
 fn resolving_needs_a_reason_and_only_an_answer_refers() -> TestResult {
     let r = roles()?;
     let item = r.f.file(&r.asker, "rev/q", "please")?.item;

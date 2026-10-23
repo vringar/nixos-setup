@@ -337,8 +337,8 @@ impl Board {
     ///
     /// # Errors
     /// A refusal of the signature or key; [`Error::NotFound`];
-    /// [`Error::Forbidden`] as [`ItemState`]'s rules say;
-    /// [`Error::ItemNotOpen`]; [`Error::BadRequest`] for another state, a
+    /// [`Error::ItemNotOpen`] before [`Error::Forbidden`] as [`ItemState`]'s
+    /// rules say; [`Error::BadRequest`] for another state, a
     /// missing body, or a `ref` that is not a message or not on an answer.
     pub fn resolve(&self, signed: &Signed<'_, Resolve<'_>>) -> Result<Resolved, Error> {
         let resolve = &signed.action;
@@ -360,8 +360,10 @@ impl Board {
             |conn, stamp, author| {
                 let item =
                     get(conn, resolve.item)?.ok_or_else(|| Error::NotFound(format!("no item #{}", resolve.item)))?;
-                check_resolver(&item, resolve.state, author)?;
+                // Open first: whoever it is, an item that is resolved already
+                // is not open, and says what became of it.
                 check_open(&item)?;
+                check_resolver(&item, resolve.state, author)?;
                 let registration = item.path == REGISTER_QUEUE;
                 if registration && resolve.state == ItemState::Answered {
                     return Err(Error::BadRequest(format!(

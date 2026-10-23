@@ -22,6 +22,9 @@ pub struct Node {
     pub kind: NodeKind,
     /// Its `node_created` event.
     pub created: i64,
+    pub description: String,
+    /// A queue's owner.
+    pub owner: Option<String>,
 }
 
 /// `/n/<path>`: the node, and what it holds by kind. The top level (`/n/`)
@@ -316,6 +319,21 @@ pub enum Line<'a> {
     },
     Message(&'a Message),
     Item(&'a Item),
+    /// `show` of the event that resolved an item (answered, declined,
+    /// cancelled or reassigned): that event, not the item it closed.
+    Resolution {
+        id: i64,
+        ts: &'a str,
+        event: EventType,
+        path: &'a str,
+        item: i64,
+        from: Option<&'a str>,
+        signed_by: Option<&'a str>,
+        revoked_at: Option<i64>,
+        #[serde(rename = "ref")]
+        reference: Option<i64>,
+        body: &'a str,
+    },
     /// `show` of a `node_created` event.
     Node {
         id: i64,

@@ -231,8 +231,8 @@ pub fn brief(api: &Api, paths: &[String], as_name: Option<&str>) -> Result<(), F
 }
 
 /// One event in full: a message, a note version (with how far behind its
-/// thread it is now), an item (as it stands, with its resolution), or a
-/// node.
+/// thread it is now), the item a filing event made (as it stands, with its
+/// resolution), the event that resolved an item, or a node.
 pub fn show(api: &Api, id: i64) -> Result<(), Failure> {
     let event: store::Event = api.get::<wire::WireEvent>(&format!("/event/{id}"))?.into();
     match event.event {
@@ -251,14 +251,25 @@ pub fn show(api: &Api, id: i64) -> Result<(), Failure> {
             let read: NodeRead = api.get(&url)?;
             emit(&Line::Note(read.note.as_ref().ok_or_else(|| missing(&url, "note"))?))
         }
-        EventType::ItemFiled
-        | EventType::ItemAnswered
-        | EventType::ItemDeclined
-        | EventType::ItemCancelled
-        | EventType::ItemReassigned => {
+        EventType::ItemFiled => {
             let item = event.item.ok_or_else(|| missing(&format!("/event/{id}"), "item"))?;
             let detail: ItemDetail = api.get(&format!("/item/{item}"))?;
             emit(&Line::Item(&detail.item))
+        }
+        // What resolved an item is the event that did it; the item is `show <item id>`.
+        EventType::ItemAnswered | EventType::ItemDeclined | EventType::ItemCancelled | EventType::ItemReassigned => {
+            emit(&Line::Resolution {
+                id: event.id,
+                ts: &event.ts,
+                event: event.event,
+                path: &event.path,
+                item: event.item.ok_or_else(|| missing(&format!("/event/{id}"), "item"))?,
+                from: event.from.as_deref(),
+                signed_by: event.signed_by.as_deref(),
+                revoked_at: event.revoked_at,
+                reference: event.reference,
+                body: &event.body,
+            })
         }
         EventType::NodeCreated | EventType::NodeArchived | EventType::NodeUnarchived => emit(&Line::Node {
             id: event.id,

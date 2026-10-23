@@ -8,7 +8,7 @@
 //! the first result instead of writing twice, so a write that got no
 //! answer is simply sent again.
 
-use std::io::{self, IsTerminal as _, Read};
+use std::io::{self, Read};
 use std::thread;
 use std::time::Duration;
 
@@ -124,6 +124,30 @@ fn body_text(words: &[String], stdin: impl Read) -> Result<String, Failure> {
     }
 }
 
+/// A body that starts with `--from` is v1's `post <path> --from NAME <body>`
+/// habit: the key names the author now. Refused before anything is sent,
+/// rather than posted as the text "--from alice hi".
+pub fn refuse_from(words: &[String]) -> Result<(), Failure> {
+    match words.first() {
+        Some(first) if first == "--from" || first.starts_with("--from=") => {
+            Err(Failure::V1Form("--from (the signing key names the author)"))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// A new note's first version: `--body TEXT`, or all of `stdin` for
+/// `--body -`; nothing otherwise, and stdin is not touched (a command that
+/// reads it unasked hangs when nothing is piped in).
+pub fn create_body(kind: NodeKind, body: Option<&str>, stdin: impl Read) -> Result<String, Failure> {
+    match (kind, body) {
+        (_, None) => Ok(String::new()),
+        (NodeKind::Note, Some("-")) => read_all(stdin, "the note"),
+        (NodeKind::Note, Some(text)) => Ok(text.to_owned()),
+        (other, Some(_)) => Err(Failure::Arguments(format!("--body is for notes, and this is a {other}"))),
+    }
+}
+
 /// What `create -p` has to do.
 #[derive(Debug, PartialEq, Eq)]
 enum Plan {
@@ -171,6 +195,24 @@ fn node_at(api: &Api, path: &str) -> Result<Option<(NodeKind, i64)>, Failure> {
     Ok(read.and_then(|read| read.node).map(|node| (node.kind, node.created)))
 }
 
+/// How the node `create -p` found differs from what was asked for, if it
+/// does: a description or owner given must be the existing node's, or the
+/// caller would believe it had made what it asked for.
+fn existing_mismatch(new: &NewNode<'_>, description: &str, owner: Option<&str>) -> Option<String> {
+    let mut differs = Vec::new();
+    if !new.description.is_empty() && new.description != description {
+        differs.push(format!("its description is {description:?}, not {:?}", new.description));
+    }
+    if !new.owner.is_empty() && Some(new.owner) != owner {
+        differs.push(format!(
+            "its owner is {}, not {:?}",
+            owner.map_or_else(|| "none".to_owned(), |o| format!("{o:?}")),
+            new.owner
+        ));
+    }
+    if differs.is_empty() { None } else { Some(format!("{} exists already, but {}", new.path, differs.join(" and "))) }
+}
+
 /// What `create` makes.
 pub struct NewNode<'a> {
     pub kind: NodeKind,
@@ -178,6 +220,8 @@ pub struct NewNode<'a> {
     pub description: &'a str,
     /// A queue's owner; empty for the signer's own name.
     pub owner: &'a str,
+    /// A note's first version; empty for none.
+    pub body: &'a str,
     /// Make the missing containers along the path first, like `mkdir -p`.
     pub parents: bool,
 }
@@ -191,18 +235,19 @@ pub fn create(api: &Api, new: &NewNode<'_>) -> Result<(), Failure> {
         if new.parents { plan_parents(new.path, new.kind, |path| node_at(api, path))? } else { Plan::Make(vec![]) };
     let containers = match plan {
         Plan::Existed(id) => {
+            let read: NodeRead = api.get(&node_url(new.path))?;
+            let node = read
+                .node
+                .ok_or_else(|| Failure::BadAnswer { what: node_url(new.path), cause: "no node".to_owned() })?;
+            if let Some(mismatch) = existing_mismatch(new, &node.description, node.owner.as_deref()) {
+                return Err(Failure::Exit(mismatch));
+            }
             let created = Created { path: new.path.to_owned(), kind: new.kind, id, existed: true };
             return emit(&Line::Created(&created));
         }
         Plan::Make(containers) => containers,
     };
-    // A note's first version comes from stdin, if there is any. A terminal
-    // is no input: reading one would sit waiting for typing.
-    let body = if new.kind == NodeKind::Note && !io::stdin().is_terminal() {
-        read_all(io::stdin().lock(), "the note")?
-    } else {
-        String::new()
-    };
+    let body = new.body;
     let make = |path: &str, kind, description, owner, body| -> Result<(), Failure> {
         let action = Create { path, kind, description, owner, body };
         let created: Created = submit(api, &signer, "/create", &action)?;
@@ -211,7 +256,7 @@ pub fn create(api: &Api, new: &NewNode<'_>) -> Result<(), Failure> {
     for container in &containers {
         make(container, NodeKind::Container, "", "", "")?;
     }
-    make(new.path, new.kind, new.description, new.owner, &body)
+    make(new.path, new.kind, new.description, new.owner, body)
 }
 
 pub fn post(api: &Api, thread: &str, words: &[String]) -> Result<(), Failure> {
@@ -326,6 +371,48 @@ mod tests {
         assert_eq!(body_text(&words(&["one"]), "unread".as_bytes())?, "one");
         assert_eq!(body_text(&[], "unread".as_bytes())?, "");
         Ok(())
+    }
+
+    #[test]
+    fn a_v1_from_is_refused_before_anything_is_sent() {
+        let words = |words: &[&str]| words.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+        for v1 in [&["--from", "alice", "hi"][..], &["--from=alice", "hi"]] {
+            assert!(matches!(refuse_from(&words(v1)), Err(Failure::V1Form(_))), "{v1:?}");
+        }
+        for body in [&["hi", "--from", "alice"][..], &["from", "alice"], &["--fromage"], &[]] {
+            assert!(refuse_from(&words(body)).is_ok(), "{body:?}");
+        }
+    }
+
+    #[test]
+    fn a_note_body_comes_from_stdin_only_when_asked() -> Result<(), Failure> {
+        let unread = || -> &[u8] { b"unread" };
+        assert_eq!(create_body(NodeKind::Note, None, unread())?, "");
+        assert_eq!(create_body(NodeKind::Note, Some("-"), "piped".as_bytes())?, "piped");
+        assert_eq!(create_body(NodeKind::Note, Some("text"), unread())?, "text");
+        assert!(matches!(create_body(NodeKind::Thread, Some("x"), unread()), Err(Failure::Arguments(_))));
+        assert_eq!(create_body(NodeKind::Thread, None, unread())?, "");
+        Ok(())
+    }
+
+    #[test]
+    fn create_p_on_an_existing_node_names_what_differs() {
+        let new = |description, owner| NewNode {
+            kind: NodeKind::Queue,
+            path: "r/q",
+            description,
+            owner,
+            body: "",
+            parents: true,
+        };
+        assert_eq!(existing_mismatch(&new("", ""), "whatever", Some("alice")), None);
+        assert_eq!(existing_mismatch(&new("same", "alice"), "same", Some("alice")), None);
+        let owner = existing_mismatch(&new("", "bob"), "d", Some("alice")).unwrap_or_default();
+        assert!(owner.contains("r/q exists already") && owner.contains(r#"owner is "alice", not "bob""#), "{owner}");
+        let both = existing_mismatch(&new("new", "bob"), "old", Some("alice")).unwrap_or_default();
+        assert!(both.contains(r#"description is "old", not "new""#) && both.contains(" and its owner"), "{both}");
+        let none = existing_mismatch(&new("", "bob"), "", None).unwrap_or_default();
+        assert!(none.contains("owner is none"), "{none}");
     }
 
     /// `plan_parents` against a fixed tree, recording what it asked.

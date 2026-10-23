@@ -193,6 +193,8 @@ def test_a_container_watch_hears_only_its_direct_children_come_and_change(board,
                              ("note_version", "rev/charter", ["child"]),
                              ("node_created", "rev/last", ["child"])]
     assert (events[1]["id"], events[1]["summary"]) == (saved["id"], "note updated: rev/charter v2")
+    # a node's creation has no body worth quoting: the bell says what happened
+    assert [e["summary"] for e in (events[0], events[2])] == ["created thread rev/new", "created thread rev/last"]
 
 
 def test_a_root_watch_hears_only_top_level_nodes_come(board, team):

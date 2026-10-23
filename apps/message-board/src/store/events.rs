@@ -115,12 +115,19 @@ const SUMMARY_MAX: usize = 200;
 
 impl Event {
     /// The event as one doorbell line: a note's new version by its number
-    /// (its body is the whole note), anything else by the first line of its
-    /// body, cut at 200 characters.
+    /// (its body is the whole note), a node's creation or archiving by what
+    /// it did (its body is the description, if any), anything else by the
+    /// first line of its body, cut at 200 characters.
     #[must_use]
     pub fn summary(&self) -> String {
         if self.event == EventType::NoteVersion {
             return format!("note updated: {} v{}", self.path, self.version.unwrap_or_default());
+        }
+        match self.event {
+            EventType::NodeCreated => return format!("created {} {}", self.kind, self.path),
+            EventType::NodeArchived => return format!("archived {} {}", self.kind, self.path),
+            EventType::NodeUnarchived => return format!("unarchived {} {}", self.kind, self.path),
+            _ => {}
         }
         let first = self.body.trim().lines().next().unwrap_or_default();
         if first.chars().count() > SUMMARY_MAX {
@@ -296,6 +303,8 @@ mod tests {
         assert_eq!(event(EventType::Message, &"é".repeat(300)).summary(), format!("{}...", "é".repeat(197)));
         assert_eq!(event(EventType::Message, "").summary(), "");
         assert_eq!(event(EventType::NoteVersion, "# the whole note").summary(), "note updated: a/n v3");
+        assert_eq!(event(EventType::NodeCreated, "").summary(), "created note a/n");
+        assert_eq!(event(EventType::NodeCreated, "a long description").summary(), "created note a/n");
     }
 
     #[test]
