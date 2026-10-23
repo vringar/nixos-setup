@@ -170,6 +170,7 @@
     "/ui/resolve": KINDS.resolve,
     "/ui/revoke": KINDS.revoke,
     "/ui/archive": KINDS.archive,
+    "/ui/register": KINDS.register,
   };
   // The key states each kind of control is shown to: `data-needs="trusted"`
   // (post, edit, create) to any key the board trusts, `data-needs="owner"`
@@ -179,7 +180,10 @@
   // `data-needs="named"` is for the key named by `data-name` alone, and
   // `data-name` on any other control adds that name to who sees it (a queue's
   // owner answers, and the owner key or the queue's owner declines).
-  const SHOWN_TO = { trusted: ["trusted", "owner"], owner: ["owner"], named: [] };
+  // `data-needs="unregistered"` (the register form) is for a key the board
+  // does not know yet.
+  const SHOWN_TO = { trusted: ["trusted", "owner"], owner: ["owner"], named: [],
+    unregistered: ["unregistered"] };
   const signedForm = (path) => typeof path === "string" && Object.hasOwn(FORMS, path);
 
   // Re-applied after every swap and every insertion of controls: a boosted

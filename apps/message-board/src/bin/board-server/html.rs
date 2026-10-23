@@ -68,7 +68,7 @@ impl Html {
     }
 }
 
-const HEAD: &str = r#"</title>
+const HEAD: &str = r##"</title>
 <script src="/static/htmx.min.js"></script>
 <script src="/static/board-sign.js" defer></script>
 <style>
@@ -166,7 +166,16 @@ const HEAD: &str = r#"</title>
 </form></dialog>
 <h1>message board</h1>
 <nav><a href="/">tree</a> <a href="/ui/inbox">inbox</a> <a href="/ui/keys">keys</a></nav>
-"#;
+<details class="register" data-needs="unregistered" hidden><summary>this key is not registered: register it</summary>
+<form hx-post="/ui/register" hx-target="#register-result" hx-swap="innerHTML">
+<p class="error" hidden></p>
+<input name="name" placeholder="name" required>
+<input name="repo" placeholder="repo (optional)">
+<textarea name="note" placeholder="what the key is for"></textarea>
+<button type="submit">register</button>
+</form>
+<div id="register-result"></div></details>
+"##;
 
 /// A whole page: the layout around `content`, with a breadcrumb for the
 /// node at `path`, if it is one.
@@ -393,6 +402,15 @@ pub fn create_form() -> Html {
         h.markup("<option>").markup(kind.as_str()).markup("</option>");
     }
     h.markup("</select>\n<input name=\"description\" placeholder=\"description (optional)\">\n<button type=\"submit\">new</button>\n</form>\n<div id=\"created\"></div></div>\n");
+    h
+}
+
+/// What a registration's form answers: the request is waiting for the
+/// owner, and the key is still not trusted.
+pub fn registered(name: &str, fingerprint: &str, item: i64) -> Html {
+    let mut h = Html::new();
+    h.markup("<p>Registered <b>").text(name).markup("</b> as request #").number(item).markup(" for key <code>");
+    h.text(fingerprint).markup("</code>. It cannot write until the board's owner approves it.</p>");
     h
 }
 
@@ -1118,6 +1136,18 @@ mod tests {
             ),
             "{page}"
         );
+    }
+
+    #[test]
+    fn every_page_offers_registration_to_a_key_the_board_does_not_know() {
+        let page = text(page_without_outline());
+        assert!(page.contains("data-needs=\"unregistered\" hidden"), "{page}");
+        assert!(page.contains("hx-post=\"/ui/register\" hx-target=\"#register-result\""), "{page}");
+        for name in ["name", "repo", "note"] {
+            assert!(page.contains(&format!("name=\"{name}\"")), "{page}");
+        }
+        let done = text(registered("<b>", "SHA256:x", 10_050));
+        assert!(done.contains("&lt;b&gt;") && done.contains("#10050") && !done.contains("<b><"), "{done}");
     }
 
     #[test]

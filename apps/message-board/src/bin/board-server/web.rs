@@ -26,6 +26,7 @@ pub enum Form {
     Revoke,
     Archive,
     Unarchive,
+    Register,
 }
 
 impl Form {
@@ -40,6 +41,7 @@ impl Form {
             "revoke" => Self::Revoke,
             "archive" => Self::Archive,
             "unarchive" => Self::Unarchive,
+            "register" => Self::Register,
             _ => return None,
         })
     }
@@ -55,6 +57,7 @@ impl Form {
             Self::Revoke => Write::Revoke,
             Self::Archive => Write::Archive,
             Self::Unarchive => Write::Unarchive,
+            Self::Register => Write::Register,
         }
     }
 }
@@ -223,5 +226,12 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
         Form::Approve | Form::Resolve if fields.get("view") == Some("keys") => keys_html(board)?,
         Form::Approve | Form::Resolve => inbox_html(board)?,
         Form::Revoke => keys_html(board)?,
+        Form::Register => match (outcome.get("name"), outcome.get("fingerprint"), outcome.get("item")) {
+            (Some(name), Some(fingerprint), Some(item)) => match (name.as_str(), fingerprint.as_str(), item.as_i64()) {
+                (Some(name), Some(fingerprint), Some(item)) => html::registered(name, fingerprint, item),
+                _ => html::error_fragment("registered, but the answer was unreadable"),
+            },
+            _ => html::error_fragment("registered, but the answer was unreadable"),
+        },
     }))
 }

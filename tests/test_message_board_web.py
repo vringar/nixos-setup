@@ -970,3 +970,59 @@ def test_the_page_shows_cancel_to_the_asker_alone(board, team, tmp_path):
     controls = [["named", "alice"], ["named", "bob"]]
     assert _stand_in_gate(board, tmp_path, team.alice.key.path, controls) == [True, False]
     assert _stand_in_gate(board, tmp_path, board.owner.key.path, controls) == [False, False]
+
+
+# --- registering from the page ------------------------------------------------------------------
+
+def test_every_page_offers_registration_for_a_key_the_board_does_not_know(board, team):
+    team.owner.create("rev/q", "queue")
+    for path in ("/", "/view/rev/log", "/view/rev/q", "/ui/inbox", "/ui/keys"):
+        form = forms(board.get(path).text)["/ui/register"]
+        assert {"name", "repo", "note"} <= set(form), path
+    parser = _Controls()
+    parser.feed(board.get("/").text)
+    assert parser.shown == []
+
+
+def test_a_signed_web_registration_waits_for_the_owner_and_shows_the_result(board, team, keyring):
+    key = keyring["webnewbie"]
+    r = _web(board, "register", key, "register", name="webnewbie", note="<b>for the phone</b>",
+             repo="/home/x/repo")
+    assert r.status == 200 and "webnewbie" in r.text and key.fingerprint in r.text, r.text
+    assert "<b>for the phone</b>" not in r.text
+    info = board.key_info(key.fingerprint)
+    assert (info["name"], info["state"], info["note"]) == ("webnewbie", "pending", "<b>for the phone</b>")
+    [waiting] = [r for r in board.get_json("/registrations") if r["name"] == "webnewbie"]
+    assert waiting["repo"] == "/home/x/repo"
+    assert "webnewbie" in board.get("/ui/inbox").text
+    # a refusal is plain text with its code: a name that cannot be one
+    r = _web(board, "register", keyring["other"], "register", name="no spaces allowed!")
+    assert r.status >= 400 and r.headers["Board-Error"] and "<" not in r.text
+    # and nothing unsigned is taken
+    r = request(f"{board.url}/ui/register", {"name": "x", "note": "", "repo": "", "key": new_client_key(),
+                                             "nonce": str(board.head_id())}, form=True)
+    assert r.status == 401
+
+
+def test_the_page_registers_an_unregistered_key_and_only_that_key(board, team, keyring, tmp_path):
+    controls = [["unregistered", None], ["trusted", None]]
+    assert _stand_in_gate(board, tmp_path, keyring["fresh"].path, controls) == [True, False]
+    assert _stand_in_gate(board, tmp_path, team.alice.key.path, controls) == [False, True]
+    script = tmp_path / "register.js"
+    script.write_text("""
+const fs = require("fs");
+const [js, mine, base] = process.argv.slice(2);
+require(js);
+const B = globalThis.BoardSign;
+(async () => {
+  const signer = await B.importKey(fs.readFileSync(mine, "utf8"));
+  const r = await B.postSigned(signer, B.KINDS.register, base + "/ui/register",
+    { name: "fresh", note: "from node", repo: "", key: crypto.randomUUID() });
+  console.log(JSON.stringify({ status: r.status, text: await r.text() }));
+})();
+""")
+    run = subprocess.run(["node", script, _served_js(board, tmp_path), keyring["fresh"].path, board.url],
+                         capture_output=True, text=True, check=True, timeout=60)
+    got = json.loads(run.stdout)
+    assert got["status"] == 200 and "fresh" in got["text"], got
+    assert board.key_info(keyring["fresh"].fingerprint)["state"] == "pending"
