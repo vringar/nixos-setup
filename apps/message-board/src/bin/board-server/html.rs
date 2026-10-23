@@ -72,56 +72,77 @@ const HEAD: &str = r#"</title>
 <script src="/static/htmx.min.js"></script>
 <script src="/static/board-sign.js" defer></script>
 <style>
+  :root { color-scheme: light dark;
+    --bg: #fff; --fg: #1a1a1a; --muted: #666; --faint: #999; --head: #555;
+    --border: #ddd; --rule: #eee; --rule-soft: #f0f0f0; --hover: #f2f2f2; --side-fg: #333; --marker: #777;
+    --note-bg: #fffbea; --note-border: #e3c96b;
+    --accent: #0b3d91; --accent-bg: #eef3fc;
+    --error: #a00; --flag: #8a5a00;
+    --field-bg: #fff; --field-fg: #1a1a1a; --field-border: #767676; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16181d; --fg: #e4e6eb; --muted: #a0a6b0; --faint: #8b919b; --head: #b4bac4;
+      --border: #3a3f48; --rule: #2a2e36; --rule-soft: #262a31; --hover: #252932; --side-fg: #d0d4db; --marker: #9aa0aa;
+      --note-bg: #2a2619; --note-border: #6b5d2a;
+      --accent: #8ab4f8; --accent-bg: #1f2b44;
+      --error: #ff8a80; --flag: #e0b252;
+      --field-bg: #1e2128; --field-fg: #e4e6eb; --field-border: #5a606b; }
+    a:link { color: #8ab4f8; }
+    a:visited { color: #c6a1f0; }
+    input, textarea, button, dialog { background: var(--field-bg); color: var(--field-fg); }
+    input, textarea, button, dialog { border: 1px solid var(--field-border); border-radius: 3px; }
+    dialog::backdrop { background: rgba(0, 0, 0, .5); }
+  }
+  body { background: var(--bg); }
   body { font: 14px system-ui, sans-serif; max-width: 960px; margin: 1.5rem auto;
-         padding: 0 1rem; color: #1a1a1a; }
+         padding: 0 1rem; color: var(--fg); }
   nav a { margin-right: .6rem; }
-  .crumbs { color: #666; margin: .3rem 0 .8rem; }
+  .crumbs { color: var(--muted); margin: .3rem 0 .8rem; }
   table { border-collapse: collapse; width: 100%; margin: .6rem 0; }
-  th, td { text-align: left; vertical-align: top; padding: .3rem .5rem; border-bottom: 1px solid #eee; }
-  th { font-weight: 600; color: #555; font-size: 12px; }
+  th, td { text-align: left; vertical-align: top; padding: .3rem .5rem; border-bottom: 1px solid var(--rule); }
+  th { font-weight: 600; color: var(--head); font-size: 12px; }
   code { font: 12px ui-monospace, monospace; word-break: break-all; }
-  .meta { color: #666; font-size: 12px; }
+  .meta { color: var(--muted); font-size: 12px; }
   .body { white-space: pre-wrap; margin-top: .15rem; }
-  .empty { color: #999; }
-  .error { color: #a00; margin: 0 0 .4rem; }
-  .flag { color: #8a5a00; margin: .2rem 0; }
-  .revoked { color: #a00; }
-  #messages { border: 1px solid #ddd; border-radius: 6px; padding: .5rem;
+  .empty { color: var(--faint); }
+  .error { color: var(--error); margin: 0 0 .4rem; }
+  .flag { color: var(--flag); margin: .2rem 0; }
+  .revoked { color: var(--error); }
+  #messages { border: 1px solid var(--border); border-radius: 6px; padding: .5rem;
               margin: .8rem 0; max-height: 60vh; overflow-y: auto; }
-  .msg, .item { padding: .4rem 0; border-bottom: 1px solid #f0f0f0; }
+  .msg, .item { padding: .4rem 0; border-bottom: 1px solid var(--rule-soft); }
   .msg:last-child, .item:last-child { border-bottom: 0; }
-  .note, .card { border: 1px solid #e3c96b; background: #fffbea; border-radius: 6px;
+  .note, .card { border: 1px solid var(--note-border); background: var(--note-bg); border-radius: 6px;
                  padding: .5rem .7rem; margin: .6rem 0; }
-  .card { border-color: #ddd; background: none; }
+  .card { border-color: var(--border); background: none; }
   .resolution { margin: .3rem 0 0 1rem; }
   .controls form { display: inline-block; margin: .3rem .6rem .3rem 0; vertical-align: top; }
   form input, form textarea { box-sizing: border-box; margin: .2rem 0; }
   form textarea { width: 100%; min-height: 5rem; }
   #note textarea { min-height: 14rem; }
-  .auth { float: right; font-size: 12px; color: #666; }
+  .auth { float: right; font-size: 12px; color: var(--muted); }
   dialog { width: min(36rem, 90vw); }
   dialog textarea { width: 100%; min-height: 10rem; font: 11px monospace; }
   .side { display: none; }
   .side ul { list-style: none; margin: 0; padding: 0; }
-  .side ul ul { margin-left: .5rem; padding-left: .5rem; border-left: 1px solid #ddd; }
-  .side li a { display: block; padding: .1rem .4rem; color: #333; text-decoration: none;
+  .side ul ul { margin-left: .5rem; padding-left: .5rem; border-left: 1px solid var(--border); }
+  .side li a { display: block; padding: .1rem .4rem; color: var(--side-fg); text-decoration: none;
                overflow-wrap: anywhere; border-left: 3px solid transparent; margin-left: -3px; }
-  .side li a:hover { background: #f2f2f2; }
+  .side li a:hover { background: var(--hover); }
   .side summary { cursor: pointer; display: flex; align-items: baseline; }
   .side summary a { flex: 1; min-width: 0; }
-  .side summary::before { content: "\25B8"; width: 1em; flex: none; color: #777; }
+  .side summary::before { content: "\25B8"; width: 1em; flex: none; color: var(--marker); }
   .side details[open] > summary::before { content: "\25BE"; }
   .side li:not(.tree-container) > a { padding-left: calc(.4rem + 1em); }
   .side li.tree-container > details > summary a { font-weight: 600; }
-  .side li.tree-above > details > summary a { color: #0b3d91; }
-  .side li.tree-on > a, .side li.tree-on > details > summary a { border-left-color: #0b3d91;
-      background: #eef3fc; color: #0b3d91; font-weight: 700; }
-  .side .more { color: #999; padding: .1rem .4rem; }
+  .side li.tree-above > details > summary a { color: var(--accent); }
+  .side li.tree-on > a, .side li.tree-on > details > summary a { border-left-color: var(--accent);
+      background: var(--accent-bg); color: var(--accent); font-weight: 700; }
+  .side .more { color: var(--faint); padding: .1rem .4rem; }
   @media (min-width: 960px) {
     body { max-width: none; margin: 1.5rem 1.5rem; }
     .shell { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 1.5rem; align-items: start; }
     .side { display: block; position: sticky; top: 1rem; max-height: calc(100vh - 2rem);
-            overflow-y: auto; border-right: 1px solid #eee; padding-right: .5rem; }
+            overflow-y: auto; border-right: 1px solid var(--rule); padding-right: .5rem; }
     .shell > main { max-width: 960px; }
   }
 </style></head><body hx-boost:inherited="true">
@@ -942,6 +963,20 @@ mod tests {
         }
         let made = text(created("a/<b>", NodeKind::Thread));
         assert!(made.contains("a/&lt;b&gt;") && !made.contains("<b>"), "{made}");
+    }
+
+    #[test]
+    fn the_page_follows_the_colour_scheme_through_custom_properties() {
+        let page = text(page_without_outline());
+        assert!(
+            page.contains("color-scheme: light dark") && page.contains("@media (prefers-color-scheme: dark)"),
+            "{page}"
+        );
+        assert!(page.contains("--bg:") && page.contains("body { background: var(--bg); }"), "{page}");
+        let (_, rules) = page.split_once("body { background").unwrap_or(("", ""));
+        for literal in ["#fff", "#e3c96b", "#0b3d91", "#a00", "#666", "#ddd"] {
+            assert!(!rules.contains(literal), "{literal} outside the properties");
+        }
     }
 
     #[test]
