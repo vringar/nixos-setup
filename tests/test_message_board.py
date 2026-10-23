@@ -16,7 +16,8 @@ import pytest
 
 from board_harness import (  # noqa: F401 (fixtures)
     FIRST_ID, HANG_TIMEOUT, OWNER, V1_POINTER, Server, board, cli, digest, free_port, isolated,
-    json_line, keyring, make_v1_db, owner_env, program, proxy, refusal, sql, team, watching,
+    json_line, keyring, kill_tree, make_v1_db, owner_env, program, proxy, refusal, spawn, sql, team,
+    watching,
 )
 from board_harness import _env
 
@@ -230,14 +231,13 @@ def test_create_note_reads_stdin_only_with_body_dash(board, team):
     assert children(cli("read", "rev").ok())["rev/empty-note"]["version"] == 0
     wrong = cli("create", "thread", "rev/t2", "--body", "x", key=team.owner.key)
     assert wrong.code == 2 and "--body is for notes" in wrong.err
-    held = subprocess.Popen([program("board"), "create", "note", "rev/never-reads"],
-                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            env=_env(None, team.owner.key))
+    held = spawn([program("board"), "create", "note", "rev/never-reads"],
+                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                 env=_env(None, team.owner.key))
     try:  # stdin stays open and silent: the command must finish anyway
         out, err = held.communicate(timeout=HANG_TIMEOUT)
-    except subprocess.TimeoutExpired:
-        held.kill()
-        raise
+    finally:
+        kill_tree(held)
     assert held.returncode == 0, err
 
 

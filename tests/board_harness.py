@@ -22,7 +22,9 @@ in-tree package (apps/message-board) with nix-build, so a plain `pytest`
 tests what this checkout would deploy.
 """
 
+import atexit
 import codecs
+import ctypes
 import fcntl
 import functools
 import hashlib
@@ -78,6 +80,57 @@ IDENTITY_CODES = ("not-registered", "registration-pending", "registration-declin
 
 _PACKAGE = ("let sources = import ./npins; pkgs = import sources.nixpkgs {};"
             " in import ./apps/message-board {inherit pkgs sources;}")
+
+
+# --- no process outlives the harness -------------------------------------------------
+#
+# Every program the harness starts is tied to it three ways, so that a
+# killed or timed-out pytest, a test that errors in setup, or a fixture torn
+# down half way leaves nothing running: the kernel kills it when the harness
+# process dies (however it dies: SIGKILL included, where no finalizer runs),
+# it leads its own process group so that its children go with it, and
+# whatever is still alive at a normal exit is killed then.
+
+_PR_SET_PDEATHSIG = 1  # <linux/prctl.h>
+_prctl = ctypes.CDLL(None, use_errno=True).prctl
+_OWNER = os.getpid()
+_LIVE = set()
+
+
+def _die_with_owner():
+    """A preexec_fn: SIGKILL this child when the harness process dies."""
+    if _prctl(_PR_SET_PDEATHSIG, signal.SIGKILL) != 0:
+        raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG)")
+    if os.getppid() != _OWNER:  # it died before prctl took effect
+        os._exit(1)
+
+
+# For subprocess.run / Popen: the first two of the three ties above.
+TIED = {"preexec_fn": _die_with_owner, "start_new_session": True}
+
+
+def spawn(argv, **kwargs):
+    """subprocess.Popen, tied to the harness (see above)."""
+    proc = subprocess.Popen(argv, **TIED, **kwargs)
+    _LIVE.add(proc)
+    return proc
+
+
+def kill_tree(proc):
+    """SIGKILL `proc` and everything in its process group, and reap it."""
+    _LIVE.discard(proc)
+    if proc.returncode is None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    proc.wait()
+
+
+@atexit.register
+def _kill_leftovers():
+    for proc in list(_LIVE):
+        kill_tree(proc)
 
 
 @functools.cache
@@ -290,7 +343,7 @@ def new_client_key():
 def ssh_keygen(*args, data=None, check=True):
     # never the terminal's stdin: a prompt (an existing file to overwrite)
     # fails instead of hanging the suite
-    return subprocess.run(["ssh-keygen", *map(str, args)], input=b"" if data is None else data,
+    return subprocess.run(["ssh-keygen", *map(str, args)], **TIED, input=b"" if data is None else data,
                           capture_output=True, check=check)
 
 
@@ -481,13 +534,20 @@ class Server:
         self.out_path = self.logs / f"server-{self.starts}.out"
         self.err_path = self.logs / f"server-{self.starts}.err"
         with open(self.out_path, "wb") as out, open(self.err_path, "wb") as err:
-            self.proc = subprocess.Popen([program("board-server")], env=self._env(env),
-                                         stdout=out, stderr=err)
+            self.proc = spawn([program("board-server")], env=self._env(env),
+                              stdout=out, stderr=err)
         return self.proc
 
     def start(self, **env):
         """Start it with these extra env vars, and wait until it answers."""
         self.launch(**env)
+        try:
+            return self._wait_until_up()
+        except BaseException:  # nobody holds a server that never started: not even a caller's finally
+            self.stop()
+            raise
+
+    def _wait_until_up(self):
         deadline = time.monotonic() + HANG_TIMEOUT
         while True:
             if self.proc.poll() is not None:
@@ -505,13 +565,15 @@ class Server:
     def stop(self):
         if self.proc is None:
             return
-        if self.proc.poll() is None:
-            self.proc.send_signal(signal.SIGTERM)
-            try:
-                self.proc.wait(timeout=HANG_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait()
+        try:
+            if self.proc.poll() is None:
+                self.proc.send_signal(signal.SIGTERM)
+                try:
+                    self.proc.wait(timeout=HANG_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    pass
+        finally:
+            kill_tree(self.proc)  # whatever is left of it, however stop got here
         self.returncode = self.proc.returncode
         self.proc = None
 
@@ -941,7 +1003,7 @@ def _env(env, key):
 def cli(*args, stdin="", env=None, key=None, timeout=HANG_TIMEOUT):
     """Run `board` in the current directory with the current environment,
     signing with `key` (a Key or a path) if given."""
-    done = subprocess.run([program("board"), *map(str, args)], input=stdin.encode(),
+    done = subprocess.run([program("board"), *map(str, args)], **TIED, input=stdin.encode(),
                           capture_output=True, cwd=os.getcwd(), env=_env(env, key),
                           timeout=timeout, check=False)
     return Run(done.returncode, done.stdout.decode(), done.stderr.decode())
@@ -952,9 +1014,9 @@ class Process:
 
     def __init__(self, *args, key=None, env=None):
         self.args = [str(a) for a in args]
-        self.proc = subprocess.Popen([program("board"), *self.args], cwd=os.getcwd(),
-                                     env=_env(env, key), stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE)
+        self.proc = spawn([program("board"), *self.args], cwd=os.getcwd(),
+                          env=_env(env, key), stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE)
         self.lines = queue.Queue()
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -999,9 +1061,12 @@ class Process:
         return out
 
     def stop(self):
-        if self.proc.poll() is None:
-            self.proc.terminate()
-        self.proc.wait(timeout=HANG_TIMEOUT)
+        try:
+            if self.proc.poll() is None:
+                self.proc.terminate()
+            self.proc.wait(timeout=HANG_TIMEOUT)
+        finally:
+            kill_tree(self.proc)
 
 
 class Watch(Process):
@@ -1457,7 +1522,7 @@ class TuiRun:
 def admin(env, timeout=HANG_TIMEOUT):
     """Run board-admin without a terminal (for the refusals that come before
     it draws anything)."""
-    done = subprocess.run([program("board-admin")], env=env, capture_output=True, text=True,
+    done = subprocess.run([program("board-admin")], **TIED, env=env, capture_output=True, text=True,
                           stdin=subprocess.DEVNULL, timeout=timeout, check=False)
     return Run(done.returncode, done.stdout, done.stderr)
 
@@ -1469,15 +1534,19 @@ def drive_tui(env, steps, rows=40, cols=120):
     `q`s to back out of wherever it is."""
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-    proc = subprocess.Popen([program("board-admin")], stdin=slave, stdout=slave,
-                            stderr=slave, env={**env, "TERM": "xterm"}, close_fds=True,
-                            start_new_session=True)
-    os.close(slave)
+    try:
+        proc = spawn([program("board-admin")], stdin=slave, stdout=slave,
+                     stderr=slave, env={**env, "TERM": "xterm"}, close_fds=True)
+    finally:
+        os.close(slave)
     term = Terminal(rows, cols)
     open_ = [True]
 
     def drain(seconds):
         end = time.monotonic() + seconds
+        if not open_[0]:  # the pty is gone: wait out the time, don't spin on it
+            time.sleep(seconds)
+            return
         while open_[0] and time.monotonic() < end:
             ready, _, _ = select.select([master], [], [], 0.05)
             if ready:
@@ -1533,10 +1602,9 @@ def drive_tui(env, steps, rows=40, cols=120):
         while proc.poll() is None and time.monotonic() < deadline:
             drain(0.1)
         if proc.poll() is None:
-            proc.kill()
-            proc.wait()
             raise AssertionError("board-admin did not exit; screen:\n" + term.text())
         drain(0.2)  # whatever it printed on the way out
     finally:
         os.close(master)
+        kill_tree(proc)
     return TuiRun(proc.returncode, term)

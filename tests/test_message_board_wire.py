@@ -18,7 +18,7 @@ import pytest
 from board_harness import (  # noqa: F401 (fixtures)
     DROP, FIRST_ID, HANG_TIMEOUT, KINDS, V1_KINDS, board, canonical, cli, error_answer,
     isolated, keyring, new_client_key, owner_env, parse_answer, program, proxy, refusal, request,
-    sent_signature_verifies, team, text, wait_until, wire,
+    sent_signature_verifies, spawn, kill_tree, team, text, wait_until, wire,
 )
 
 pytestmark = pytest.mark.usefixtures("isolated")
@@ -562,8 +562,8 @@ def test_an_empty_board_addr_is_the_default_not_every_interface(board, keyring):
 def test_port_zero_logs_the_port_the_system_chose(tmp_path):
     env = {k: v for k, v in os.environ.items() if not k.startswith("BOARD_")}
     env.update(BOARD_DB=str(tmp_path / "board-v2.db"), BOARD_PORT="0")
-    proc = subprocess.Popen([program("board-server")], env=env, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
+    proc = spawn([program("board-server")], env=env, stdout=subprocess.PIPE,
+                 stderr=subprocess.PIPE)
     try:
         while not (line := proc.stdout.readline().decode()).startswith("board on "):
             assert line, "board-server never said where it listens"
@@ -573,7 +573,10 @@ def test_port_zero_logs_the_port_the_system_chose(tmp_path):
         assert health["head"] >= FIRST_ID and health["owner"] is None
     finally:
         proc.terminate()
-        proc.wait(HANG_TIMEOUT)
+        try:
+            proc.wait(HANG_TIMEOUT)
+        finally:
+            kill_tree(proc)
 
 
 def test_the_server_exits_cleanly_on_sigterm(board):
