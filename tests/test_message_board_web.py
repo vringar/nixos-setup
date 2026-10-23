@@ -164,6 +164,30 @@ def test_the_keys_page_lists_the_trust_list_escaped(board, team, keyring):
     assert all(state in text for state in ("owner", "trusted", "revoked"))
 
 
+def test_a_pending_key_can_be_approved_from_the_keys_page(board, team, keyring):
+    """A pending key is not a dead end on the keys page: it carries the
+    owner-only Approve and Decline, which swap the keys page, and the pages
+    point at each other."""
+    key = keyring["newbie"]
+    item = board.register(key, "newbie")["item"]
+    page = board.get("/ui/keys").text
+    assert '<a href="/ui/inbox">inbox</a>' in page and "1 pending" in visible_text(page)
+    assert 'hx-post="/ui/approve" hx-target="#keys"' in page
+    assert 'hx-post="/ui/resolve" hx-target="#keys"' in page
+    controls = _Controls()
+    controls.feed(page)
+    assert controls.shown == [], controls.shown  # hidden until the owner authorizes
+    assert '<a href="/ui/keys">keys</a>' in board.get("/ui/inbox").text
+    # the answer is the piece of page the form sat on
+    body = board.signed("approve", board.owner.key,
+                        {"item": item, "name": "newbie", "fingerprint": key.fingerprint,
+                         "key": new_client_key()})
+    body["view"] = "keys"
+    answer = request(f"{board.url}/ui/approve", body, form=True)
+    assert answer.status == 200 and '<table class="keys">' in answer.text, answer.text
+    assert board.key_info(key.fingerprint)["state"] == "trusted"
+
+
 class _Controls(HTMLParser):
     """The write controls of a page, and whether each is shown before any
     key is authorized: hidden itself, inside a hidden element, or inside a

@@ -133,8 +133,12 @@ pub fn inbox(board: &Board) -> Answer {
     page(board, "inbox", None, &html::swapped("inbox", &inbox_html(board)?))
 }
 
+fn keys_html(board: &Board) -> Result<Html, Failure> {
+    Ok(html::keys(&board.keys()?, &board.registrations()?))
+}
+
 pub fn keys(board: &Board) -> Answer {
-    page(board, "keys", None, &html::swapped("keys", &html::keys(&board.keys()?)))
+    page(board, "keys", None, &html::swapped("keys", &keys_html(board)?))
 }
 
 /// A signed form's write; the piece of page it changed, or the refusal
@@ -173,7 +177,9 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
             html::messages(path, &board.thread(path, Range::Last(RECENT))?)
         }
         Form::Note => note_html(board, &board.node(path(fields)?)?, None)?,
+        // The page the form sat on gets its own piece back.
+        Form::Approve | Form::Resolve if fields.get("view") == Some("keys") => keys_html(board)?,
         Form::Approve | Form::Resolve => inbox_html(board)?,
-        Form::Revoke => html::keys(&board.keys()?),
+        Form::Revoke => keys_html(board)?,
     }))
 }

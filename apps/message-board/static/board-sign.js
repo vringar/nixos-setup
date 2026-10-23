@@ -235,6 +235,8 @@
     const data = new FormData(form);
     // Exactly the fields the kind signs; one the form leaves out is "".
     const values = Object.fromEntries(kind[1].filter((f) => f !== "nonce").map((f) => [f, data.get(f) ?? ""]));
+    // Not signed: which page's piece the answer should be, if the form says.
+    if (data.has("view")) values.view = data.get("view");
     values.key = crypto.randomUUID();  // one write, however often re-signed
     const send = (url, init) => (path === "/ui/create" ? postCreate(me, url, values, init) : postSigned(me, kind, url, values, init)).catch((e) => {
       showError(form, `not sent: ${e.message}`);

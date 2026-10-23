@@ -555,9 +555,10 @@ pub fn queue(node: &Node, items: &[Item]) -> Html {
 
 /// A form that resolves `item` as `state`, with the reason asked for;
 /// an answer may also name the message that holds it.
-fn resolve_form(h: &mut Html, item: i64, state: ItemState) {
-    h.markup("<form hx-post=\"/ui/resolve\" hx-target=\"#inbox\" hx-swap=\"innerHTML\">\n");
+fn resolve_form(h: &mut Html, item: i64, state: ItemState, view: &'static str) {
+    h.markup("<form hx-post=\"/ui/resolve\" hx-target=\"#").markup(view).markup("\" hx-swap=\"innerHTML\">\n");
     form_error(h, "");
+    hidden_input(h, "view", view);
     hidden_input(h, "item", &item.to_string());
     hidden_input(h, "state", state.as_str());
     if state == ItemState::Answered {
@@ -573,8 +574,9 @@ fn resolve_form(h: &mut Html, item: i64, state: ItemState) {
 }
 
 /// One registration: the key, what it says it is for, what approving it
-/// would do, and the owner's two answers.
-fn registration(h: &mut Html, r: &Registration) {
+/// would do, and the owner's two answers; `view` is the page (`inbox` or
+/// `keys`) whose piece of page the answer swaps.
+fn registration(h: &mut Html, r: &Registration, view: &'static str) {
     h.markup("<div class=\"card\"><div class=\"meta\">#").number(r.item).markup(" · ").text(&r.ts).markup("</div>\n");
     h.markup("<div>key <code>").text(&r.fingerprint).markup("</code></div>\n");
     if let Some(old) = &r.replaces {
@@ -588,13 +590,16 @@ fn registration(h: &mut Html, r: &Registration) {
         .markup("</code></div>\n<div class=\"body\">")
         .text(&r.note)
         .markup("</div>\n");
-    h.markup("<div class=\"controls\" data-needs=\"owner\" hidden>\n<form hx-post=\"/ui/approve\" hx-target=\"#inbox\" hx-swap=\"innerHTML\">\n");
+    h.markup("<div class=\"controls\" data-needs=\"owner\" hidden>\n<form hx-post=\"/ui/approve\" hx-target=\"#")
+        .markup(view)
+        .markup("\" hx-swap=\"innerHTML\">\n");
     form_error(h, "");
+    hidden_input(h, "view", view);
     hidden_input(h, "item", &r.item.to_string());
     hidden_input(h, "name", &r.name);
     hidden_input(h, "fingerprint", &r.fingerprint);
     h.markup("<button type=\"submit\">Approve</button>\n</form>\n");
-    resolve_form(h, r.item, ItemState::Declined);
+    resolve_form(h, r.item, ItemState::Declined, view);
     h.markup("</div></div>\n");
 }
 
@@ -612,6 +617,7 @@ pub struct Inbox<'a> {
 /// by the name they ask for, then the open items in the owner's queues.
 pub fn inbox(v: &Inbox<'_>) -> Html {
     let mut h = Html::new();
+    h.markup("<p class=\"meta\">Every key the board knows: <a href=\"/ui/keys\">keys</a></p>\n");
     if v.owner.is_none() {
         h.markup("<p class=\"flag\">No owner key is configured (BOARD_OWNER_NAME, BOARD_OWNER_PUBKEY): nothing can be approved.</p>\n");
     }
@@ -634,7 +640,7 @@ pub fn inbox(v: &Inbox<'_>) -> Html {
             h.markup(" keys ask for this name: approving one declines the others</p>\n");
         }
         for r in asking {
-            registration(&mut h, r);
+            registration(&mut h, r, "inbox");
         }
         h.markup("</section>\n");
     }
@@ -647,8 +653,8 @@ pub fn inbox(v: &Inbox<'_>) -> Html {
             h.markup("<div class=\"card\">");
             item(&mut h, i, true);
             h.markup("<div class=\"controls\" data-needs=\"owner\" hidden>\n");
-            resolve_form(&mut h, i.id, ItemState::Answered);
-            resolve_form(&mut h, i.id, ItemState::Declined);
+            resolve_form(&mut h, i.id, ItemState::Answered, "inbox");
+            resolve_form(&mut h, i.id, ItemState::Declined, "inbox");
             h.markup("</div></div>\n");
         }
     }
@@ -662,9 +668,16 @@ fn event_ref(h: &mut Html, id: Option<i64>) {
 }
 
 /// The trust list, the content of `#keys`: every key the board knows,
-/// with Revoke for each trusted one.
-pub fn keys(keys: &[Key]) -> Html {
+/// with Revoke for each trusted one, and for each pending one the
+/// registration to approve or decline (or, if it cannot be found, the way
+/// to the inbox).
+pub fn keys(keys: &[Key], registrations: &[Registration]) -> Html {
     let mut h = Html::new();
+    let pending = keys.iter().filter(|k| k.state == KeyState::Pending).count();
+    if pending > 0 {
+        h.markup("<p class=\"flag\">").number(i64::try_from(pending).unwrap_or(i64::MAX));
+        h.markup(" pending → <a href=\"/ui/inbox\">inbox</a></p>\n");
+    }
     h.markup("<p class=\"meta\">As the board writes it after every change: <a href=\"/view/_board/trust\">_board/trust</a></p>\n");
     h.markup("<table class=\"keys\"><thead><tr><th>name</th><th>state</th><th>fingerprint</th><th>approved</th><th>revoked</th><th>repo</th><th>note</th><th></th></tr></thead><tbody>\n");
     for key in keys {
@@ -680,6 +693,14 @@ pub fn keys(keys: &[Key]) -> Html {
             form_error(&mut h, "");
             hidden_input(&mut h, "fingerprint", &key.fingerprint);
             h.markup("<input name=\"reason\" placeholder=\"reason\">\n<button type=\"submit\">Revoke</button>\n</form></div>");
+        }
+        if key.state == KeyState::Pending {
+            match registrations.iter().find(|r| r.fingerprint == key.fingerprint) {
+                Some(r) => registration(&mut h, r, "keys"),
+                None => {
+                    h.markup("<a href=\"/ui/inbox\">inbox</a>");
+                }
+            }
         }
         h.markup("</td></tr>\n");
     }
@@ -741,6 +762,41 @@ mod tests {
         // every form sits in a control the page shows only to the owner key
         assert_eq!(page.matches("<form").count(), 6, "{page}");
         assert_eq!(page.matches("data-needs=\"owner\" hidden").count(), 3, "{page}");
+    }
+
+    fn key(name: &str, fingerprint: &str, state: KeyState) -> Key {
+        Key {
+            fingerprint: fingerprint.to_owned(),
+            pubkey: String::new(),
+            name: name.to_owned(),
+            state,
+            repo: String::new(),
+            note: String::new(),
+            item: None,
+            approved: None,
+            revoked: None,
+        }
+    }
+
+    #[test]
+    fn a_pending_key_can_be_approved_from_the_keys_page_and_is_never_a_dead_end() {
+        let known = registration("alice", "SHA256:new");
+        let keys = [
+            key("alice", "SHA256:new", KeyState::Pending),
+            key("bob", "SHA256:lost", KeyState::Pending),
+            key("carol", "SHA256:carol", KeyState::Trusted),
+        ];
+        let page = text(super::keys(&keys, &[known]));
+        assert!(page.contains("2 pending → <a href=\"/ui/inbox\">inbox</a>"), "{page}");
+        // alice: approve and decline, each swapping the keys page and saying so; bob: a way out
+        assert_eq!(page.matches("hx-post=\"/ui/approve\" hx-target=\"#keys\"").count(), 1, "{page}");
+        assert_eq!(page.matches("hx-post=\"/ui/resolve\" hx-target=\"#keys\"").count(), 1, "{page}");
+        assert_eq!(page.matches("name=\"view\" value=\"keys\"").count(), 2, "{page}");
+        assert!(page.contains("replaces <code>SHA256:old</code>"), "{page}");
+        assert!(page.contains("<td><a href=\"/ui/inbox\">inbox</a></td>"), "{page}");
+        // every form, revoke included, sits in a control only the owner is shown
+        assert_eq!(page.matches("<form").count(), 3, "{page}");
+        assert_eq!(page.matches("data-needs=\"owner\" hidden").count(), 2, "{page}");
     }
 
     #[test]
