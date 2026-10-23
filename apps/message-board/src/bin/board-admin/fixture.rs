@@ -5,6 +5,7 @@
 use std::cell::Cell;
 use std::error::Error;
 use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
 
 use message_board::sign::{self, PrivateKey, Verified};
 use message_board::store::{self, Action, Board, Create, File, ItemState, NodeKind, Post, Resolve, SetNote, Signed};
@@ -47,6 +48,7 @@ impl Fixture {
         // The key file goes through the same parser as a real one.
         let key_file = dir.path().join("owner_ed25519");
         fs::write(&key_file, sign::generate("board-admin test")?.private)?;
+        fs::set_permissions(&key_file, fs::Permissions::from_mode(0o600))?;
         let owner = sign::load_private_key(&key_file)?;
         board.set_owner("stefan", &Verified { public_line: owner.public_line(), fingerprint: owner.fingerprint() })?;
         let mut fixture = Self { dir, board, ids: Ids { first: 0, second: 0, third: 0 }, owner, next: Cell::new(1) };

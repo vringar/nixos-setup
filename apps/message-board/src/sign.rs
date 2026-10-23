@@ -16,7 +16,8 @@
 use std::error::Error as StdError;
 use std::fmt;
 use std::fs;
-use std::io;
+use std::io::{self, Read as _};
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 
 use base64::Engine as _;
@@ -437,12 +438,23 @@ fn parse_private(data: &[u8]) -> Result<[u8; 32], KeyFileError> {
 /// An unencrypted OpenSSH ed25519 private key from `path`.
 ///
 /// # Errors
-/// If the file cannot be read, is not an OpenSSH private key, is
+/// If the file cannot be read, is readable by group or others (as ssh
+/// refuses a key like that), is not an OpenSSH private key, is
 /// passphrase-protected, or holds another kind of key.
 pub fn load_private_key(path: &Path) -> Result<PrivateKey, SignatureError> {
     let shown = path.display();
-    let data =
-        fs::read(path).map_err(|err| SignatureError::new(format!("cannot read key {shown}: {}", strerror(&err))))?;
+    let cannot = |err: &std::io::Error| SignatureError::new(format!("cannot read key {shown}: {}", strerror(err)));
+    let mut file = fs::File::open(path).map_err(|err| cannot(&err))?;
+    // The open file's mode, not the path's: nothing can swap it in between.
+    let mode = file.metadata().map_err(|err| cannot(&err))?.permissions().mode();
+    if mode & 0o077 != 0 {
+        return Err(SignatureError::new(format!(
+            "key {shown} can be read by others (mode {:03o}); make it private first: chmod 600 {shown}",
+            mode & 0o777
+        )));
+    }
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).map_err(|err| cannot(&err))?;
     match parse_private(&data) {
         Ok(seed) => PrivateKey::from_seed(&seed),
         Err(KeyFileError::Format(why, cause)) => {
@@ -601,6 +613,7 @@ mod tests {
     fn vector_key(v: &Vectors, dir: &tempfile::TempDir) -> Result<PrivateKey, Box<dyn Error>> {
         let path = dir.path().join("key");
         fs::write(&path, &v.key.private)?;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
         Ok(load_private_key(&path)?)
     }
 
@@ -740,6 +753,7 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("key");
         fs::write(&path, &generated.private)?;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
         let key = load_private_key(&path)?;
         assert_eq!(key.fingerprint(), generated.fingerprint);
         assert!(generated.public.ends_with(" board:test\n"));
@@ -759,11 +773,31 @@ mod tests {
         assert_eq!(err.to_string(), format!("cannot read key {}: No such file or directory", missing.display()));
         let junk = dir.path().join("junk");
         fs::write(&junk, "not a key")?;
+        fs::set_permissions(&junk, fs::Permissions::from_mode(0o600))?;
         let err = load_private_key(&junk).err().ok_or("loaded junk")?;
         assert_eq!(
             err.to_string(),
             format!("{} is not an OpenSSH private key: Not OpenSSH private key format", junk.display())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_key_file_others_can_read_is_refused_like_ssh_does() -> Result<(), Box<dyn Error>> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("key");
+        fs::write(&path, generate("board:test")?.private)?;
+        for mode in [0o644, 0o640, 0o604, 0o660] {
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode))?;
+            let err = load_private_key(&path).err().ok_or("loaded a key others can read")?;
+            let message = err.to_string();
+            assert!(message.contains("can be read by others") && message.contains("chmod 600"), "{message}");
+            assert!(message.contains(&format!("mode {mode:03o}")), "{message}");
+        }
+        for mode in [0o600, 0o400] {
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode))?;
+            load_private_key(&path)?;
+        }
         Ok(())
     }
 

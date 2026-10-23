@@ -16,7 +16,7 @@ use message_board::store::{self, KeyState, Register};
 
 use crate::api::{Api, key_url};
 use crate::wire::{Key, Line, Registered};
-use crate::{Failure, emit, io_failure, write};
+use crate::{Failure, emit, io_failure, warn, write};
 
 /// Where `board keygen` puts the key, below the repository root.
 pub const KEY_FILE: &str = "scratch/board_ed25519";
@@ -101,15 +101,57 @@ pub fn keygen(name: &str) -> Result<(), Failure> {
         Err(err) if err.kind() == ErrorKind::AlreadyExists && scratch.is_dir() => {}
         Err(err) => return Err(Failure::Io { what: format!("cannot create {}", scratch.display()), cause: err }),
     }
-    let ignore = scratch.join(".gitignore");
-    // scratch/ is never tracked; an existing .gitignore is the repo's own business
-    if !ignore.try_exists().map_err(io_failure(format!("cannot check {}", ignore.display())))? {
-        fs::write(&ignore, "*\n").map_err(io_failure(format!("cannot write {}", ignore.display())))?;
-    }
+    keep_out_of_version_control(&scratch.join(".gitignore"))?;
     let generated = sign::generate(&format!("board:{name}"))?;
     write_new(&path, generated.private.as_bytes())?;
     write_new(&public, generated.public.as_bytes())?;
     emit(&Line::Key { path: path.display().to_string(), fingerprint: generated.fingerprint, name })
+}
+
+/// The lines of a `.gitignore` that, with nothing after them taking it
+/// back, keep `board_ed25519` and its `.pub` out of a commit.
+const COVERING: [&str; 5] = ["*", "board_ed25519*", "/board_ed25519*", "board_ed25519", "/board_ed25519"];
+
+/// Whether `ignore`'s text keeps the key out of a commit: a line from
+/// [`COVERING`] and no later `!` pattern that could take it back (one that
+/// names the key or starts with a wildcard).
+fn covers_the_key(ignore: &str) -> bool {
+    let mut covered = false;
+    for line in ignore.lines().map(str::trim) {
+        if COVERING.contains(&line) {
+            covered = true;
+        } else if line
+            .strip_prefix('!')
+            .is_some_and(|re| re.contains("board_ed25519") || re.starts_with(['*', '?', '[']))
+        {
+            covered = false;
+        }
+    }
+    covered
+}
+
+/// Make sure `scratch/.gitignore` keeps the key out of a commit: write it
+/// if there is none, and add a line to one that does not cover the key
+/// (saying so), since a private key must never be committable.
+fn keep_out_of_version_control(ignore: &Path) -> Result<(), Failure> {
+    let what = || format!("{}", ignore.display());
+    let existing = match fs::read(ignore) {
+        Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+        Err(err) if err.kind() == ErrorKind::NotFound => None,
+        Err(err) => return Err(Failure::Io { what: format!("cannot read {}", what()), cause: err }),
+    };
+    match existing {
+        None => fs::write(ignore, "*\n").map_err(io_failure(format!("cannot write {}", what()))),
+        Some(text) if covers_the_key(&text) => Ok(()),
+        Some(text) => {
+            let separator = if text.is_empty() || text.ends_with('\n') { "" } else { "\n" };
+            let mut file =
+                OpenOptions::new().append(true).open(ignore).map_err(io_failure(format!("cannot open {}", what())))?;
+            file.write_all(format!("{separator}board_ed25519*\n").as_bytes())
+                .map_err(io_failure(format!("cannot write {}", what())))?;
+            warn(&format!("board: {} did not keep the key out of a commit; added the line board_ed25519*", what()))
+        }
+    }
 }
 
 /// Write a file that must not exist yet, readable by its owner only.
@@ -182,6 +224,16 @@ pub fn register(api: &Api, name: &str, note: &str) -> Result<(), Failure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_gitignore_covers_the_key_only_if_nothing_takes_it_back() {
+        for covering in ["*\n", "board_ed25519*\n", "custom\n/board_ed25519\n", "  *  \n", "*\n!README\n"] {
+            assert!(covers_the_key(covering), "{covering:?}");
+        }
+        for open in ["", "custom\n", "*.log\n", "*\n!board_ed25519\n", "*\n!*\n", "# *\n", "board_ed25519.old\n"] {
+            assert!(!covers_the_key(open), "{open:?}");
+        }
+    }
 
     fn key(state: KeyState) -> Key {
         Key { name: "aspfuzz".to_owned(), state, item: Some(10_007), revoked: Some(10_020) }

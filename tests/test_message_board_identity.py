@@ -4,7 +4,9 @@ approving one specific key. Registration, its refusals and limits, approval
 revocation, the owner key itself, and the CLI's keys. See board_harness."""
 
 import json
+import os
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -487,21 +489,64 @@ def test_keygen_writes_an_ignored_key_at_the_repo_root(tmp_path, monkeypatch):
     assert r.result == {"type": "key", "path": str(key), "name": "agent",
                         "fingerprint": fingerprint_of(key.with_name(key.name + ".pub"))}
     assert (repo / "scratch" / ".gitignore").read_text() == "*\n"
+    assert "added" not in r.err
     assert stat.S_IMODE(key.stat().st_mode) == 0o600
     assert key.with_name(key.name + ".pub").read_text().split()[2] == "board:agent"
     again = cli("keygen", "--name", "agent")
     assert again.code == 1 and "already exists" in again.err
     other = tmp_path / "other"
-    (other / ".git").mkdir(parents=True)
+    # not the repository the hook runs in: GIT_DIR and friends would point git there
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    subprocess.run(["git", "init", "-q", str(other)], env=clean, check=True)
     (other / "scratch").mkdir()
     (other / "scratch" / ".gitignore").write_text("custom\n")
     monkeypatch.chdir(other)
-    assert cli("keygen", "--name", "x").code == 0
-    assert (other / "scratch" / ".gitignore").read_text() == "custom\n"
+    run = cli("keygen", "--name", "x")
+    assert run.code == 0
+    # a .gitignore that did not cover the key gets a line that does, and says so
+    assert (other / "scratch" / ".gitignore").read_text() == "custom\nboard_ed25519*\n"
+    assert "board_ed25519*" in run.err and "did not keep the key out of a commit" in run.err
+    assert subprocess.run(["git", "check-ignore", "-q", "scratch/board_ed25519"], cwd=other, env=clean).returncode == 0
+    covered = tmp_path / "covered"
+    (covered / ".git").mkdir(parents=True)
+    (covered / "scratch").mkdir()
+    (covered / "scratch" / ".gitignore").write_text("*.log\n*")  # covers it, with no final newline
+    monkeypatch.chdir(covered)
+    run = cli("keygen", "--name", "y")
+    assert (run.code, run.err) == (0, "")
+    assert (covered / "scratch" / ".gitignore").read_text() == "*.log\n*"
+    taken_back = tmp_path / "taken-back"
+    (taken_back / ".git").mkdir(parents=True)
+    (taken_back / "scratch").mkdir()
+    (taken_back / "scratch" / ".gitignore").write_text("*\n!board_ed25519\n")
+    monkeypatch.chdir(taken_back)
+    assert cli("keygen", "--name", "z").code == 0
+    assert (taken_back / "scratch" / ".gitignore").read_text() == "*\n!board_ed25519\nboard_ed25519*\n"
     monkeypatch.chdir(tmp_path)
     outside = cli("keygen", "--name", "x")
     assert outside.code == 1 and "not inside a repository" in outside.err
     assert cli("keygen", "--from", "x").code == 2  # v1's flag is gone
+
+
+def test_a_key_others_can_read_is_refused(tmp_path, monkeypatch):
+    (tmp_path / "repo" / ".git").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path / "repo")
+    key = Path(cli("keygen", "--name", "agent").ok().result["path"])
+    for mode in (0o644, 0o640, 0o604):
+        key.chmod(mode)
+        run = cli("post", "rev/log", "hi")
+        assert (run.code, run.out) == (1, "") and "can be read by others" in run.err and "chmod 600" in run.err
+    key.chmod(0o600)
+    run = cli("post", "rev/log", "hi")
+    assert "can be read by others" not in run.err  # private again: the key loads (no board is running here)
+
+
+def test_client_chosen_names_cannot_start_with_dash_or_underscore(board, keyring):
+    for name in ("-flag", "_board", "-"):
+        with refusal(400, "bad-request"):
+            board.register(keyring["stranger"], name)
+    run = cli("register", "--name", "_sneaky", key=keyring["stranger"])
+    assert (run.code, run.out) == (1, "") and "not allowed" in run.err
 
 
 def test_a_generated_key_is_an_ordinary_openssh_key(tmp_path, monkeypatch):
