@@ -609,3 +609,57 @@ def test_the_note_form_names_the_thread_and_a_web_edit_stores_it(board, team):
                                            "key": new_client_key(), **half})
         r = request(board.url + "/ui/note", bad, form=True)
         assert r.status == 400 and board.note("rev/state")["version"] == 2
+
+
+def test_controls_inserted_after_authorizing_are_shown_to_the_owner(board, tmp_path):
+    """The owner's Approve and Decline come served hidden and only
+    board-sign.js shows them. An authorized page must show controls that
+    arrive later by any route, not only ones htmx announces with its swap
+    event: board-sign.js is run under node against a stand-in page, authorized
+    with the owner key, and a control inserted afterwards is reported to the
+    script the way a browser reports it."""
+    _node()
+    script = tmp_path / "drive.js"
+    script.write_text("""
+const fs = require("fs");
+const [js, base, ownerKey] = process.argv.slice(2);
+const listeners = {};
+class El {
+  constructor(sel, needs) { this.sel = sel; this.hidden = true; this.dataset = needs ? { needs } : {};
+                            this.nodeType = 1; this.textContent = ""; this.value = ""; }
+  matches(sel) { return sel === "[data-needs]" && "needs" in this.dataset; }
+  querySelector() { return null; }
+  addEventListener() {} click() {} reset() {}
+}
+const page = { "#auth-open": new El(), "#auth-status": new El(), "#auth-forget": new El(),
+               "#auth-note": new El(), "#auth-error": new El(),
+               "#auth-dialog": Object.assign(new El(), { close() {} }), "#auth-form": new El() };
+page["#auth-form"].id = "auth-form";
+page["#auth-form"].elements = { privkey: page["#auth-form"] };
+const controls = [new El(null, "owner")];
+let observer = null;
+globalThis.MutationObserver = class { constructor(fn) { observer = fn; } observe() {} };
+globalThis.window = { isSecureContext: true, crypto: globalThis.crypto };
+globalThis.document = {
+  documentElement: {},
+  querySelector: (sel) => page[sel] ?? null,
+  querySelectorAll: (sel) => (sel === "[data-needs]" ? controls : []),
+  addEventListener: (name, fn) => { (listeners[name] ??= []).push(fn); },
+};
+const realFetch = globalThis.fetch;
+globalThis.fetch = (url, init) => realFetch(new URL(url, base), init);
+require(js);
+(async () => {
+  page["#auth-form"].value = fs.readFileSync(ownerKey, "utf8");
+  for (const fn of listeners.submit) fn({ target: page["#auth-form"], preventDefault() {} });
+  while (page["#auth-status"].hidden) await new Promise((r) => setTimeout(r, 20));
+  const late = new El(null, "owner");
+  controls.push(late);
+  if (observer) observer([{ addedNodes: [late] }]);
+  console.log(JSON.stringify({ watching: observer !== null, shown: controls.map((c) => !c.hidden) }));
+})();
+""")
+    run = subprocess.run(["node", script, _served_js(board, tmp_path), board.url, board.owner.key.path],
+                         capture_output=True, text=True, check=True, timeout=60)
+    got = json.loads(run.stdout)
+    assert got == {"watching": True, "shown": [True, True]}

@@ -176,7 +176,8 @@
   const SHOWN_TO = { trusted: ["trusted", "owner"], owner: ["owner"] };
   const signedForm = (path) => typeof path === "string" && Object.hasOwn(FORMS, path);
 
-  // Re-applied after every swap: a boosted link replaces the whole body.
+  // Re-applied after every swap and every insertion of controls: a boosted
+  // link replaces the whole body.
   function render() {
     const open = $("#auth-open");
     if (!open) return;
@@ -290,6 +291,14 @@
     if (e.target.id === "auth-dialog") $("#auth-form").reset();
   }, true);
 
+  // Whatever puts controls into the page, htmx's swap events or not (a
+  // history restore, a swap whose source left the page, a later htmx), they
+  // are hidden until this has seen them. Only an inserted element that is or
+  // holds a control counts, so render's own writes cannot loop back here.
+  const isControl = (n) => n.nodeType === 1 && (n.matches("[data-needs]") || n.querySelector("[data-needs]"));
+  new MutationObserver((changes) => {
+    if (changes.some((c) => Array.from(c.addedNodes).some(isControl))) render();
+  }).observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener("htmx:after:swap", render);
   render();
 })();
