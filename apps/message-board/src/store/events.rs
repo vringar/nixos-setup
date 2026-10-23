@@ -18,9 +18,10 @@ use super::{Board, DbError, NAME_MAX, NodeKind, opt_text, text};
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
     NodeCreated,
-    /// Phase 2; never written yet, but part of the schema's vocabulary.
+    /// A message or an item archived, with `ref` its id; a node archived
+    /// (phase 2, not written yet) has no `ref`.
     NodeArchived,
-    /// Phase 2, as `NodeArchived`.
+    /// As `NodeArchived`, the other way.
     NodeUnarchived,
     Message,
     NoteVersion,
@@ -104,10 +105,15 @@ pub struct Event {
     pub item: Option<i64>,
     /// A `note_version`'s version.
     pub version: Option<i64>,
-    /// A note version's `through`, an answer's message.
+    /// A note version's `through`, an answer's message, the message or item
+    /// an archive event archives.
     #[serde(rename = "ref")]
     pub reference: Option<i64>,
     pub body: String,
+    /// Archived: a message or filing that is, and an item's resolution
+    /// while its item is.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
 }
 
 /// The longest summary of a body, in characters.
@@ -116,12 +122,18 @@ const SUMMARY_MAX: usize = 200;
 impl Event {
     /// The event as one doorbell line: a note's new version by its number
     /// (its body is the whole note), a node's creation or archiving by what
-    /// it did (its body is the description, if any), anything else by the
-    /// first line of its body, cut at 200 characters.
+    /// it did (its body is the description, if any), the archiving of a
+    /// message or an item by its id (its body is the reason), anything else
+    /// by the first line of its body, cut at 200 characters.
     #[must_use]
     pub fn summary(&self) -> String {
         if self.event == EventType::NoteVersion {
             return format!("note updated: {} v{}", self.path, self.version.unwrap_or_default());
+        }
+        if let (EventType::NodeArchived | EventType::NodeUnarchived, Some(target)) = (self.event, self.reference) {
+            let what = if self.kind == NodeKind::Queue { "item" } else { "message" };
+            let did = if self.event == EventType::NodeArchived { "archived" } else { "unarchived" };
+            return format!("{did} {what} #{target} in {}", self.path);
         }
         match self.event {
             EventType::NodeCreated => return format!("created {} {}", self.kind, self.path),
@@ -148,18 +160,34 @@ pub struct Message {
     pub signed_by: Option<String>,
     pub revoked_at: Option<i64>,
     pub body: String,
+    /// Only in a read that asked for archived messages.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
 }
+
+/// Whether event `e` is hidden by an archive: the message or filing itself, or
+/// an item's resolution while the item's filing is. The archive events (which
+/// name the item they belong to) are never hidden.
+macro_rules! event_archived {
+    () => {
+        "(e.archived IS NOT NULL OR (e.item IS NOT NULL AND e.type NOT IN ('node_archived','node_unarchived') \
+          AND e.item IN (SELECT id FROM events WHERE archived IS NOT NULL)))"
+    };
+}
+pub(super) use event_archived;
 
 /// The columns [`event_row`] reads, from [`EVENT_FROM`]. Their names are
 /// distinct, so a query may select them in a subquery and refer to them
 /// by name outside it.
-pub(super) const EVENT_FIELDS: &str =
-    "e.id, e.ts, e.type, n.path, n.kind, e.actor, e.actor_fp, k.revoked, e.item, e.version, e.ref, e.body";
+pub(super) const EVENT_FIELDS: &str = concat!(
+    "e.id, e.ts, e.type, n.path, n.kind, e.actor, e.actor_fp, k.revoked, e.item, e.version, e.ref, e.body, ",
+    event_archived!()
+);
 pub(super) const EVENT_FROM: &str =
     "events e JOIN nodes n ON n.id = e.node LEFT JOIN keys k ON k.fingerprint = e.actor_fp";
 
 /// How many columns [`event_row`] reads; a query may select more after them.
-pub(super) const EVENT_COLUMNS: usize = 12;
+pub(super) const EVENT_COLUMNS: usize = 13;
 
 pub(super) fn event_row(r: &Row<'_>) -> rusqlite::Result<Event> {
     Ok(Event {
@@ -175,6 +203,7 @@ pub(super) fn event_row(r: &Row<'_>) -> rusqlite::Result<Event> {
         version: r.get(9)?,
         reference: r.get(10)?,
         body: text(r, 11)?,
+        archived: r.get(12)?,
     })
 }
 
@@ -185,6 +214,14 @@ pub(super) fn get(conn: &Connection, id: i64) -> rusqlite::Result<Option<Event>>
 /// The type of event `id`, if there is one.
 pub(super) fn type_of(conn: &Connection, id: i64) -> rusqlite::Result<Option<EventType>> {
     conn.query_row("SELECT type FROM events WHERE id=?", [id], |r| parsed(r, 0)).optional()
+}
+
+/// Whether event `id` is archived (a message or an item's filing).
+pub(super) fn is_archived(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
+    Ok(conn
+        .query_row("SELECT archived IS NOT NULL FROM events WHERE id=?", [id], |r| r.get(0))
+        .optional()?
+        .unwrap_or(false))
 }
 
 /// The node event `id` belongs to, if there is such an event.
@@ -306,6 +343,7 @@ mod tests {
             version: Some(3),
             reference: None,
             body: body.to_owned(),
+            archived: false,
         };
         assert_eq!(event(EventType::Message, "\n  first\nsecond").summary(), "first");
         assert_eq!(event(EventType::Message, &"é".repeat(300)).summary(), format!("{}...", "é".repeat(197)));
@@ -313,6 +351,21 @@ mod tests {
         assert_eq!(event(EventType::NoteVersion, "# the whole note").summary(), "note updated: a/n v3");
         assert_eq!(event(EventType::NodeCreated, "").summary(), "created note a/n");
         assert_eq!(event(EventType::NodeCreated, "a long description").summary(), "created note a/n");
+        // an archive event with a ref is a message's or an item's
+        let archive =
+            |kind, node_kind, reason: &str| Event { reference: Some(10_360), kind: node_kind, ..event(kind, reason) };
+        let summary = |e: Event| e.summary();
+        assert_eq!(
+            summary(archive(EventType::NodeArchived, NodeKind::Thread, "noise")),
+            "archived message #10360 in a/n"
+        );
+        assert_eq!(
+            summary(archive(EventType::NodeUnarchived, NodeKind::Thread, "")),
+            "unarchived message #10360 in a/n"
+        );
+        assert_eq!(summary(archive(EventType::NodeArchived, NodeKind::Queue, "")), "archived item #10360 in a/n");
+        // a node's own archiving has no ref
+        assert_eq!(event(EventType::NodeArchived, "").summary(), "archived note a/n");
     }
 
     #[test]

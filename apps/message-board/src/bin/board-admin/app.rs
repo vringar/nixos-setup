@@ -334,6 +334,29 @@ mod tests {
     }
 
     #[test]
+    fn an_archived_message_is_listed_marked_and_can_be_deleted() -> TestResult {
+        let f = Fixture::populated()?;
+        f.archive(f.ids.first)?;
+        let mut app = App::new(&f.board, f.audit())?;
+        pick(&mut app, "rev ", KeyCode::Enter)?;
+        pick(&mut app, "rev/log ", KeyCode::Enter)?;
+        press(&mut app, KeyCode::Home)?;
+        let Screen::Thread { picker, .. } = &app.screen else {
+            return Err("not a thread".into());
+        };
+        assert_eq!(picker.labels.len(), 3, "the operator sees every row");
+        assert!(picker.labels.first().is_some_and(|row| row.contains("[archived]")), "{:?}", picker.labels);
+        assert!(picker.labels.iter().skip(1).all(|row| !row.contains("[archived]")));
+
+        press(&mut app, KeyCode::Enter)?;
+        press(&mut app, KeyCode::Char('d'))?;
+        press(&mut app, KeyCode::Char('y'))?;
+        assert_eq!(app.notice, Some(format!("deleted #{} from rev/log", f.ids.first)));
+        assert_eq!(f.board.thread_with("rev/log", Range::All, true)?.messages.len(), 2);
+        Ok(())
+    }
+
+    #[test]
     fn a_message_something_points_to_stays() -> TestResult {
         let f = Fixture::populated()?;
         let mut app = App::new(&f.board, f.audit())?;

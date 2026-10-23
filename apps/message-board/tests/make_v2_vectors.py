@@ -26,6 +26,7 @@ KINDS = {
     "board2-register": ["name", "note", "repo", "key", "nonce"],
     "board2-approve": ["item", "name", "fingerprint", "key", "nonce"],
     "board2-revoke": ["fingerprint", "reason", "key", "nonce"],
+    "board2-archive": ["event", "archived", "reason", "key", "nonce"],
 }
 
 CASES = [
@@ -46,6 +47,8 @@ CASES = [
     ("board2-approve", ["10400", "psp-db", "SHA256:bkAKvEpsC35bXyEi1hTCV9Cd/77+M3t17LPDuSLMwCg", "a-1", "10402"]),
     ("board2-revoke", ["SHA256:bkAKvEpsC35bXyEi1hTCV9Cd/77+M3t17LPDuSLMwCg", "key leaked\nin a log", "v-1",
                        "999999"]),
+    ("board2-archive", ["10360", "1", "noise: a wrong guess\nkey:2:x", "ar-1", "10500"]),
+    ("board2-archive", ["10360", "0", "", "ar-2", "10501"]),
 ]
 
 DRIVER = r"""

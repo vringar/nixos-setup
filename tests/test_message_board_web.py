@@ -195,7 +195,7 @@ class _Controls(HTMLParser):
 
     VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source",
             "track", "wbr"}
-    WORDS = re.compile(r"approve|decline|revoke|answer|cancel", re.I)
+    WORDS = re.compile(r"approve|decline|revoke|answer|cancel|archive", re.I)
 
     def __init__(self):
         super().__init__()
@@ -293,7 +293,7 @@ const fieldsOf = (kind) => (Array.isArray(kind) ? kind[1] : kind.fields);
 
 SAMPLE = {"path": "rev/log", "kind": "thread", "description": "a d", "owner": "", "body":
           "line one\nfrom=evil ü🙂", "base_version": "3", "thread": "rev/log", "through": "10020", "item": "10022",
-          "state": "answered", "ref": "", "name": "newbie", "note": "repo, purpose",
+          "state": "answered", "ref": "", "event": "10360", "archived": "1", "name": "newbie", "note": "repo, purpose",
           "repo": "/home/x/repo", "reason": "replaced", "key": "0f3c", "nonce": "10041"}
 
 
@@ -710,3 +710,125 @@ require(js);
                          capture_output=True, text=True, check=True, timeout=60)
     got = json.loads(run.stdout)
     assert got == {"watching": True, "shown": [True, True]}
+
+
+# --- archive: the owner's control on messages and items ------------------------------------------
+
+def test_archived_messages_and_items_have_their_own_view_and_the_controls_stay_hidden(board, team):
+    a = team.alice
+    team.alice.create("rev/q", "queue")
+    keep, noise = a.post("rev/log", "keep this"), a.post("rev/log", "<b>noise</b>")
+    item = team.bob.ask("rev/q", "a request")
+    team.owner.archive(noise, "off topic")
+    team.owner.archive(item)
+
+    page = board.get("/view/rev/log").text
+    assert "keep this" in page and "noise" not in page
+    assert 'href="/view/rev/log?archived=1">show archived' in page
+    shown = forms(page)
+    assert shown["/ui/archive"] == {"view": "", "event": str(keep), "archived": "1", "reason": ""}
+    assert "/ui/unarchive" not in shown
+    everything = board.get("/view/rev/log?archived=1").text
+    assert "&lt;b&gt;noise&lt;/b&gt;" in everything and "<b>noise" not in everything
+    assert 'hide archived' in everything and visible_text(everything).count("archived") >= 2
+    shown = forms(everything)
+    assert shown["/ui/unarchive"] == {"view": "archived", "event": str(noise), "archived": "0", "reason": ""}
+    assert shown["/ui/archive"]["event"] == str(keep)
+    # the live refresh keeps the view it was loaded in
+    assert "/ui/messages?path=rev%2Flog&amp;archived=1" in everything
+    assert "noise" in board.get("/ui/messages?path=rev/log&archived=1").text
+    assert "noise" not in board.get("/ui/messages?path=rev/log").text
+
+    queue = board.get("/view/rev/q").text
+    assert "a request" not in queue and "nothing open" in queue
+    with_archived = board.get("/view/rev/q?archived=1").text
+    assert "a request" in with_archived and forms(with_archived)["/ui/unarchive"]["event"] == str(item)
+    assert "a request" not in board.get("/ui/inbox").text
+
+    for path in ("/view/rev/log", "/view/rev/log?archived=1", "/view/rev/q?archived=1"):
+        controls = _Controls()
+        controls.feed(board.get(path).text)
+        assert controls.shown == [], (path, controls.shown)  # hidden until the owner authorizes
+
+
+def test_a_signed_web_archive_is_the_owners_and_answers_with_the_list(board, team):
+    a = team.alice
+    noise = a.post("rev/log", "noise")
+    keep = a.post("rev/log", "keep")
+
+    def send(route, key, event, archived, **extra):
+        body = board.signed("archive", key, {"event": event, "archived": archived, "reason": "r",
+                                             "key": new_client_key()})
+        return request(f"{board.url}/ui/{route}", {**body, **extra}, form=True)
+
+    head = board.head_id()
+    r = send("archive", a.key, noise, "1")
+    assert (r.status, r.headers["Board-Error"]) == (403, "forbidden") and board.head_id() == head
+    unsigned = request(board.url + "/ui/archive", {"event": str(noise), "archived": "1", "reason": "",
+                                                   "key": new_client_key(), "nonce": str(head)}, form=True)
+    assert (unsigned.status, unsigned.headers["Board-Error"]) == (401, "unsigned")
+    assert send("archive", board.owner.key, 99999, "1").status == 404
+
+    r = send("archive", board.owner.key, noise, "1", view="")
+    assert r.status == 200 and "keep" in r.text and "noise" not in r.text
+    assert [m["id"] for m in board.messages("rev/log")] == [keep]
+    r = send("unarchive", board.owner.key, noise, "0", view="archived")
+    assert r.status == 200 and "noise" in r.text and "keep" in r.text and 'tag">archived' not in r.text
+    assert [m["id"] for m in board.messages("rev/log")] == [noise, keep]
+    r = send("archive", board.owner.key, noise, "1", view="archived")
+    assert r.status == 200 and 'tag">archived' in r.text and "noise" in r.text
+    # a form posted to the other endpoint than its field says is refused
+    assert send("unarchive", board.owner.key, noise, "1").status == 400
+
+
+def test_the_archive_control_is_shown_to_the_owner_key_and_no_other(board, team, tmp_path):
+    """board-sign.js under node against a stand-in page: authorized with the
+    owner key it shows `data-needs="owner"` controls (Archive among them),
+    authorized with a trusted agent's it shows only the `trusted` ones."""
+    _node()
+    script = tmp_path / "drive.js"
+    script.write_text("""
+const fs = require("fs");
+const [js, base, key] = process.argv.slice(2);
+const listeners = {};
+class El {
+  constructor(needs) { this.hidden = true; this.dataset = needs ? { needs } : {}; this.nodeType = 1;
+                       this.textContent = ""; this.value = ""; }
+  matches(sel) { return sel === "[data-needs]" && "needs" in this.dataset; }
+  querySelector() { return null; }
+  addEventListener() {} click() {} reset() {}
+}
+const page = { "#auth-open": new El(), "#auth-status": new El(), "#auth-forget": new El(),
+               "#auth-note": new El(), "#auth-error": new El(),
+               "#auth-dialog": Object.assign(new El(), { close() {} }), "#auth-form": new El() };
+page["#auth-form"].id = "auth-form";
+page["#auth-form"].elements = { privkey: page["#auth-form"] };
+const controls = [new El("owner"), new El("trusted")];
+globalThis.MutationObserver = class { observe() {} };
+globalThis.window = { isSecureContext: true, crypto: globalThis.crypto };
+globalThis.document = {
+  documentElement: {},
+  querySelector: (sel) => page[sel] ?? null,
+  querySelectorAll: (sel) => (sel === "[data-needs]" ? controls : []),
+  addEventListener: (name, fn) => { (listeners[name] ??= []).push(fn); },
+};
+const realFetch = globalThis.fetch;
+globalThis.fetch = (url, init) => realFetch(new URL(url, base), init);
+require(js);
+(async () => {
+  page["#auth-form"].value = fs.readFileSync(key, "utf8");
+  for (const fn of listeners.submit) fn({ target: page["#auth-form"], preventDefault() {} });
+  while (page["#auth-status"].hidden) await new Promise((r) => setTimeout(r, 20));
+  console.log(JSON.stringify(controls.map((c) => !c.hidden)));
+})();
+""")
+    served = _served_js(board, tmp_path)
+    for key, shown in ((board.owner.key, [True, True]), (team.alice.key, [False, True])):
+        run = subprocess.run(["node", script, served, board.url, key.path], capture_output=True,
+                             text=True, check=True, timeout=60)
+        assert json.loads(run.stdout) == shown, key
+    # and the served page puts every archive form in an owner control
+    team.owner.archive(team.alice.post("rev/log", "m"))
+    page = board.get("/view/rev/log?archived=1").text
+    assert page.count('data-needs="owner" hidden') == page.count("hx-post=\"/ui/unarchive\"") \
+        + page.count("hx-post=\"/ui/archive\"") > 0

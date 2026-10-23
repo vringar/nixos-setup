@@ -10,7 +10,7 @@ use std::str::FromStr;
 use serde_json::{Map, Value};
 
 use message_board::store::{
-    Approve, Board, Create, Error as StoreError, File, Post, Register, Resolve, Revoke, SetNote, Signed,
+    Approve, Archive, Board, Create, Error as StoreError, File, Post, Register, Resolve, Revoke, SetNote, Signed,
 };
 
 use crate::routes::{Failure, Params};
@@ -26,6 +26,10 @@ pub enum Write {
     Register,
     Approve,
     Revoke,
+    /// Both `/archive` and `/unarchive`: the same signed fields, and the
+    /// endpoint must agree with the `archived` field.
+    Archive,
+    Unarchive,
 }
 
 impl Write {
@@ -40,6 +44,8 @@ impl Write {
             "register" => Self::Register,
             "approve" => Self::Approve,
             "revoke" => Self::Revoke,
+            "archive" => Self::Archive,
+            "unarchive" => Self::Unarchive,
             _ => return None,
         })
     }
@@ -235,6 +241,21 @@ pub fn apply(board: &Board, write: Write, fields: &impl Fields) -> Result<Value,
             let revoke = Revoke { fingerprint: text("fingerprint")?, reason: text("reason")? };
             serde_json::to_value(board.revoke(&envelope.with(revoke))?)
         }
+        Write::Archive | Write::Unarchive => {
+            let archived = match fields.text("archived")? {
+                "1" => true,
+                "0" => false,
+                other => {
+                    return Err(StoreError::BadRequest(format!("field \"archived\" is 1 or 0, not {other:?}")).into());
+                }
+            };
+            if archived != (write == Write::Archive) {
+                let (endpoint, wanted) = if write == Write::Archive { ("archive", 1) } else { ("unarchive", 0) };
+                return Err(StoreError::BadRequest(format!("/{endpoint} takes \"archived\":{wanted}")).into());
+            }
+            let archive = Archive { event: required(fields, "event")?, archived, reason: text("reason")? };
+            serde_json::to_value(board.archive(&envelope.with(archive))?)
+        }
     };
     Ok(outcome?)
 }
@@ -261,6 +282,13 @@ mod tests {
         let form = Params::parse(b"item=7&ref=");
         assert_eq!((form.number("item")?, form.number("ref")?), (Some(7), None));
         Ok(())
+    }
+
+    #[test]
+    fn archive_and_unarchive_are_endpoints_of_one_signed_kind() {
+        assert_eq!(Write::named("archive"), Some(Write::Archive));
+        assert_eq!(Write::named("unarchive"), Some(Write::Unarchive));
+        assert_eq!(Write::named("archived"), None);
     }
 
     #[test]

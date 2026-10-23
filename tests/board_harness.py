@@ -252,6 +252,7 @@ KINDS = {
     "register": ("board2-register", ("name", "note", "repo", "key", "nonce")),
     "approve": ("board2-approve", ("item", "name", "fingerprint", "key", "nonce")),
     "revoke": ("board2-revoke", ("fingerprint", "reason", "key", "nonce")),
+    "archive": ("board2-archive", ("event", "archived", "reason", "key", "nonce")),
 }
 # The v1 kinds: a signature made for one of these must never verify in v2.
 V1_KINDS = {
@@ -661,7 +662,7 @@ class Board:
     def signed(self, action, key, values, nonce=None):
         """The body of a signed `action` with these field values (any not
         given are ""), its nonce the head as of now unless given."""
-        namespace, fields = KINDS[action]
+        namespace, fields = KINDS["archive" if action == "unarchive" else action]
         unknown = set(values) - set(fields)
         assert not unknown, f"{action} has no fields {unknown}"
         signed = {name: text(values.get(name)) for name in fields}
@@ -762,6 +763,14 @@ class Agent:
 
     def revoke(self, fingerprint, reason=""):
         return self.write("revoke", fingerprint=fingerprint, reason=reason)
+
+    def archive(self, event, reason=""):
+        """POST /archive: {id, event, archived: true}."""
+        return self.write("archive", event=event, archived="1", reason=reason)
+
+    def unarchive(self, event, reason=""):
+        """POST /unarchive: {id, event, archived: false}."""
+        return self.write("unarchive", event=event, archived="0", reason=reason)
 
 
 # --- a proxy: the network edge, where tests break the connection -------------------

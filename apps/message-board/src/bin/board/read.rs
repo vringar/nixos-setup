@@ -83,9 +83,13 @@ impl ReadOptions {
             ),
             (self.version.is_some() || self.history, NodeKind::Note, "--version/--history"),
             (self.state.is_some(), NodeKind::Queue, "--state"),
-            (self.archived, NodeKind::Container, "--archived"),
         ];
-        given.into_iter().find(|(set, applies, _)| *set && *applies != kind).map(|(_, _, flag)| flag)
+        let archived = self.archived && kind == NodeKind::Note;
+        given
+            .into_iter()
+            .find(|(set, applies, _)| *set && *applies != kind)
+            .map(|(_, _, flag)| flag)
+            .or(archived.then_some("--archived"))
     }
 }
 
@@ -244,6 +248,7 @@ pub fn show(api: &Api, id: i64) -> Result<(), Failure> {
             signed_by: event.signed_by,
             revoked_at: event.revoked_at,
             body: event.body,
+            archived: event.archived,
         })),
         EventType::NoteVersion => {
             let version = event.version.ok_or_else(|| missing(&format!("/event/{id}"), "version"))?;
@@ -269,8 +274,21 @@ pub fn show(api: &Api, id: i64) -> Result<(), Failure> {
                 revoked_at: event.revoked_at,
                 reference: event.reference,
                 body: &event.body,
+                archived: event.archived,
             })
         }
+        // An archive event of a message or item names it in `ref`.
+        EventType::NodeArchived | EventType::NodeUnarchived if event.reference.is_some() => emit(&Line::Archive {
+            id: event.id,
+            ts: &event.ts,
+            event: event.event,
+            path: &event.path,
+            from: event.from.as_deref(),
+            signed_by: event.signed_by.as_deref(),
+            revoked_at: event.revoked_at,
+            reference: event.reference.unwrap_or_default(),
+            body: &event.body,
+        }),
         EventType::NodeCreated | EventType::NodeArchived | EventType::NodeUnarchived => emit(&Line::Node {
             id: event.id,
             ts: &event.ts,
@@ -295,9 +313,12 @@ pub enum Whose<'a> {
     },
 }
 
-pub fn items(api: &Api, whose: &Whose<'_>, state: StateArg, after: Option<i64>) -> Result<(), Failure> {
+pub fn items(api: &Api, whose: &Whose<'_>, state: StateArg, after: Option<i64>, archived: bool) -> Result<(), Failure> {
     let list = |owner: Option<&str>, asker: Option<&str>| -> Result<Vec<Item>, Failure> {
         let mut pairs = vec![("state", state.as_str().to_owned())];
+        if archived {
+            pairs.push(("archived", "1".to_owned()));
+        }
         pairs.extend(owner.map(|name| ("owner", name.to_owned())));
         pairs.extend(asker.map(|name| ("asker", name.to_owned())));
         pairs.extend(after.map(|id| ("after", id.to_string())));
@@ -357,8 +378,12 @@ mod tests {
         assert_eq!(history.misplaced(Note), None);
         assert_eq!(history.misplaced(Queue), Some("--version/--history"));
         assert_eq!(ReadOptions { state: Some(StateArg::All), ..DEFAULT }.misplaced(Container), Some("--state"));
-        assert_eq!(ReadOptions { archived: true, ..DEFAULT }.misplaced(Thread), Some("--archived"));
-        assert_eq!(ReadOptions { archived: true, ..DEFAULT }.misplaced(Container), None);
+        // archived messages, archived items and a container's archived children; not a note's
+        let archived = ReadOptions { archived: true, ..DEFAULT };
+        assert_eq!(archived.misplaced(Note), Some("--archived"));
+        for kind in [Container, Thread, Queue] {
+            assert_eq!(archived.misplaced(kind), None);
+        }
     }
 
     #[test]
@@ -370,6 +395,7 @@ mod tests {
             "?all=1&state=all"
         );
         assert_eq!(ReadOptions { version: Some(3), ..DEFAULT }.query(), "?version=3");
+        assert_eq!(ReadOptions { archived: true, ..DEFAULT }.query(), "?archived=1");
     }
 
     #[test]

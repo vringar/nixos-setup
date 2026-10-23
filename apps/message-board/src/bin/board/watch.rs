@@ -127,6 +127,9 @@ fn doorbell(delivered: Delivered) -> Result<(), Failure> {
         item: event.item,
         state,
         version: event.version,
+        reference: event
+            .reference
+            .filter(|_| matches!(event.event, EventType::NodeArchived | EventType::NodeUnarchived)),
         why: &why,
         summary: event.summary(),
     })

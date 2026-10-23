@@ -27,6 +27,9 @@ const STEPS: &[M<'static>] = &[
     M::up(BASELINE),
     // 2: the thread a note version summarizes.
     M::up("ALTER TABLE events ADD COLUMN thread TEXT"),
+    // 3: the archive event that hides a message or an item's filing; NULL
+    // while it is visible. Existing events are all visible.
+    M::up("ALTER TABLE events ADD COLUMN archived INTEGER REFERENCES events(id)"),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(STEPS);
 

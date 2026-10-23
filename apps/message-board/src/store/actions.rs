@@ -211,6 +211,27 @@ impl Action for Revoke<'_> {
     }
 }
 
+/// The owner hides a message or an item (`archived`), or shows it again.
+#[derive(Debug, Clone, Copy)]
+pub struct Archive<'a> {
+    /// The message, or the item (which is its filing's id).
+    pub event: i64,
+    /// Signed as `1` or `0`.
+    pub archived: bool,
+    /// Why; at most [`ARCHIVE_REASON_MAX`] bytes.
+    pub reason: &'a str,
+}
+
+/// The longest reason for an archive, in bytes.
+pub const ARCHIVE_REASON_MAX: usize = 200;
+
+impl Action for Archive<'_> {
+    const KIND: Kind = sign::ARCHIVE;
+    fn fields(&self) -> Vec<String> {
+        vec![self.event.to_string(), u8::from(self.archived).to_string(), self.reason.to_owned()]
+    }
+}
+
 /// A number as signed: decimal, or empty for none.
 fn decimal(n: Option<i64>) -> String {
     n.map(|n| n.to_string()).unwrap_or_default()
@@ -255,6 +276,18 @@ pub struct Registered {
     pub item: i64,
     pub name: String,
     pub fingerprint: String,
+}
+
+/// An archive or unarchive done: `id` is the event that did it, or `None`
+/// when the target already was as asked and nothing was written.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Archived {
+    pub id: Option<i64>,
+    /// The message or item.
+    pub event: i64,
+    /// Whether it is archived now (`archived` on the wire).
+    #[serde(rename = "archived")]
+    pub hidden: bool,
 }
 
 /// A key revoked.
@@ -407,6 +440,7 @@ mod tests {
             (Register { name: "n", note: "", repo: "" }.values("k", "1").len(), Register::KIND),
             (Approve { item: 1, name: "n", fingerprint: "f" }.values("k", "1").len(), Approve::KIND),
             (Revoke { fingerprint: "f", reason: "" }.values("k", "1").len(), Revoke::KIND),
+            (Archive { event: 1, archived: true, reason: "" }.values("k", "1").len(), Archive::KIND),
         ];
         for (count, kind) in counts {
             assert_eq!(count, kind.fields.len(), "{}", kind.namespace);
@@ -416,6 +450,8 @@ mod tests {
         assert_eq!(named.first(), Some(&("path", "a/n".to_owned())));
         assert_eq!(named.last(), Some(&("nonce", "9".to_owned())));
         assert_eq!(resolve.fields(), ["1", "answered", "", ""]);
+        assert_eq!(Archive { event: 10_360, archived: true, reason: "noise" }.fields(), ["10360", "1", "noise"]);
+        assert_eq!(Archive { event: 10_360, archived: false, reason: "" }.fields(), ["10360", "0", ""]);
     }
 
     #[test]

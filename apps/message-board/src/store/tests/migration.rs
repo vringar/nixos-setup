@@ -84,11 +84,15 @@ fn pragma(path: &Path, name: &str) -> Result<i64, Box<dyn StdError>> {
     Ok(Connection::open(path)?.query_row(&format!("PRAGMA {name}"), [], |r| r.get(0))?)
 }
 
-fn has_thread_column(path: &Path) -> Result<bool, Box<dyn StdError>> {
+fn has_event_column(path: &Path, column: &str) -> Result<bool, Box<dyn StdError>> {
     let conn = Connection::open(path)?;
     let mut columns = conn.prepare("SELECT name FROM pragma_table_info('events')")?;
     let names = columns.query_map([], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
-    Ok(names.iter().any(|n| n == "thread"))
+    Ok(names.iter().any(|n| n == column))
+}
+
+fn has_thread_column(path: &Path) -> Result<bool, Box<dyn StdError>> {
+    has_event_column(path, "thread")
 }
 
 /// A board with some of everything (made by this code), and its data copied
@@ -133,7 +137,7 @@ fn old_database() -> Result<(Fixture, std::path::PathBuf), Box<dyn StdError>> {
 fn an_older_database_is_migrated_on_open_with_its_data_intact() -> TestResult {
     let (_f, old) = old_database()?;
     let migrated = Board::open(&old)?.board;
-    assert!(has_thread_column(&old)? && pragma(&old, "user_version")? == 2);
+    assert!(has_thread_column(&old)? && has_event_column(&old, "archived")? && pragma(&old, "user_version")? == 3);
 
     // the data is as it was
     let messages = migrated.thread("rev/log", Range::All)?.messages;
@@ -142,6 +146,12 @@ fn an_older_database_is_migrated_on_open_with_its_data_intact() -> TestResult {
     assert_eq!((note.body.as_str(), note.thread.as_deref()), ("summary", None));
     assert_eq!(migrated.queue("rev/q", StateFilter::All, 0)?.items.len(), 1);
     assert_eq!(migrated.keys()?.len(), 2);
+    // nothing is archived in what was there, and the owner can archive it
+    assert!(messages.iter().all(|m| !m.archived));
+    let first_id = messages.first().map(|m| m.id).ok_or("no message")?;
+    let archived = submit!(migrated, &key(1)?, archive, Archive { event: first_id, archived: true, reason: "" })?;
+    assert!(archived.hidden);
+    assert_eq!(migrated.thread("rev/log", Range::All)?.messages.len(), 0);
 
     // and the new thing works, signed by a key the old data holds
     let first = messages.first().map(|m| m.id).ok_or("no message")?;
@@ -162,7 +172,7 @@ fn opening_again_changes_nothing() -> TestResult {
     let schema = pragma(&old, "schema_version")?;
     let bytes = fs::metadata(&old)?.len();
     Board::open(&old)?.board.close()?;
-    assert_eq!((pragma(&old, "schema_version")?, pragma(&old, "user_version")?), (schema, 2));
+    assert_eq!((pragma(&old, "schema_version")?, pragma(&old, "user_version")?), (schema, 3));
     assert_eq!(fs::metadata(&old)?.len(), bytes);
     Ok(())
 }
@@ -171,7 +181,8 @@ fn opening_again_changes_nothing() -> TestResult {
 fn a_fresh_database_starts_at_the_latest_version() -> TestResult {
     let f = fixture()?;
     f.board.close()?;
-    assert_eq!((pragma(&f.path, "user_version")?, has_thread_column(&f.path)?), (2, true));
+    assert_eq!((pragma(&f.path, "user_version")?, has_thread_column(&f.path)?), (3, true));
+    assert!(has_event_column(&f.path, "archived")?);
     Ok(())
 }
 

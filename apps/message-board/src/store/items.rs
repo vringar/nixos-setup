@@ -92,6 +92,10 @@ pub struct Item {
     pub asker: Option<String>,
     pub state: ItemState,
     pub body: String,
+    /// The owner archived it (its resolution with it). Only in reads that
+    /// ask for archived items.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
     /// The event that resolved it, once one has.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<ItemResolution>,
@@ -125,6 +129,8 @@ pub struct ItemQuery<'a> {
     pub state: StateFilter,
     /// Only those with an id above this: the next page after a truncated one.
     pub after: i64,
+    /// The archived ones too.
+    pub archived: bool,
 }
 
 /// Items, oldest first, at most [`super::READ_ROWS_MAX`] of them.
@@ -137,7 +143,7 @@ pub struct ItemPage {
 }
 
 const ITEM_SELECT: &str = "SELECT i.id, f.ts, n.path, n.owner, i.asker, i.state, f.body,
-            r.id, r.type, r.actor, r.body, r.ref
+            r.id, r.type, r.actor, r.body, r.ref, f.archived IS NOT NULL
        FROM items i JOIN events f ON f.id = i.id JOIN nodes n ON n.id = i.queue
        LEFT JOIN events r ON r.id = i.resolved";
 
@@ -160,6 +166,7 @@ fn item_row(r: &Row<'_>) -> rusqlite::Result<Item> {
         asker: opt_text(r, 4)?,
         state: parsed(r, 5)?,
         body: text(r, 6)?,
+        archived: r.get(12)?,
         resolution,
     })
 }
@@ -186,6 +193,9 @@ pub(super) fn list(conn: &Connection, query: &ItemQuery<'_>, queue: Option<i64>)
     }
     if query.state == StateFilter::Open {
         sql.push_str(" AND i.state='open'");
+    }
+    if !query.archived {
+        sql.push_str(" AND f.archived IS NULL");
     }
     sql.push_str(" ORDER BY i.id");
     let mut statement = conn.prepare(&sql)?;
@@ -274,13 +284,21 @@ impl Board {
     /// # Errors
     /// As [`Board::node`], and [`Error::BadRequest`] for another kind.
     pub fn queue(&self, path: &str, state: StateFilter, after: i64) -> Result<ItemPage, Error> {
+        self.queue_with(path, state, after, false)
+    }
+
+    /// [`Board::queue`], with the archived items too (marked) if `archived`.
+    ///
+    /// # Errors
+    /// As [`Board::queue`].
+    pub fn queue_with(&self, path: &str, state: StateFilter, after: i64, archived: bool) -> Result<ItemPage, Error> {
         self.read(|conn| {
             let queue = nodes::require_kind(conn, path, NodeKind::Queue)?;
-            Ok(list(conn, &ItemQuery { state, after, ..ItemQuery::default() }, Some(queue.id))?)
+            Ok(list(conn, &ItemQuery { state, after, archived, ..ItemQuery::default() }, Some(queue.id))?)
         })
     }
 
-    /// One item and its events.
+    /// One item and its events, archived or not.
     ///
     /// # Errors
     /// On a database fault.
@@ -337,6 +355,7 @@ impl Board {
     ///
     /// # Errors
     /// A refusal of the signature or key; [`Error::NotFound`];
+    /// [`Error::Archived`] for an archived item or `ref`;
     /// [`Error::ItemNotOpen`] before [`Error::Forbidden`] as [`ItemState`]'s
     /// rules say; [`Error::BadRequest`] for another state, a
     /// missing body, or a `ref` that is not a message or not on an answer.
@@ -360,6 +379,9 @@ impl Board {
             |conn, stamp, author| {
                 let item =
                     get(conn, resolve.item)?.ok_or_else(|| Error::NotFound(format!("no item #{}", resolve.item)))?;
+                if item.archived {
+                    return Err(Error::Archived { id: item.id });
+                }
                 // Open first: whoever it is, an item that is resolved already
                 // is not open, and says what became of it.
                 check_open(&item)?;
@@ -375,6 +397,11 @@ impl Board {
                     && events::type_of(conn, reference)? != Some(EventType::Message)
                 {
                     return Err(Error::BadRequest(format!("ref #{reference} is not a message")));
+                }
+                if let Some(reference) = resolve.reference
+                    && events::is_archived(conn, reference)?
+                {
+                    return Err(Error::Archived { id: reference });
                 }
                 let queue = nodes::require(conn, &item.path)?;
                 let id = close(conn, stamp, &item, queue.id, resolve.state, resolve.body, resolve.reference)?;

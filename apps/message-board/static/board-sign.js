@@ -1,5 +1,5 @@
 // Signs the web view's writes (posts, note edits, and the owner's approvals,
-// declines, answers and revocations) with an SSH key the user pastes into
+// declines, answers, revocations and archiving) with an SSH key the user pastes into
 // the Authorize dialog. The key becomes a non-extractable WebCrypto key
 // held in one variable of this script: never stored, never sent, gone on
 // reload. The signatures are the same SSHSIG over the same canonical bytes
@@ -25,6 +25,7 @@
     register: ["board2-register", ["name", "note", "repo", "key", "nonce"]],
     approve: ["board2-approve", ["item", "name", "fingerprint", "key", "nonce"]],
     revoke: ["board2-revoke", ["fingerprint", "reason", "key", "nonce"]],
+    archive: ["board2-archive", ["event", "archived", "reason", "key", "nonce"]],
   };
   // Signed submits in a row that may go stale before giving up, as `board` does,
   // and the random wait (ms) before each new try, times the tries so far.
@@ -168,10 +169,11 @@
     "/ui/approve": KINDS.approve,
     "/ui/resolve": KINDS.resolve,
     "/ui/revoke": KINDS.revoke,
+    "/ui/archive": KINDS.archive,
   };
   // The key states each kind of control is shown to: `data-needs="trusted"`
   // (post, edit, create) to any key the board trusts, `data-needs="owner"`
-  // (approve, decline, answer, revoke) to the owner key only. The board
+  // (approve, decline, answer, revoke, archive) to the owner key only. The board
   // checks every write regardless; this only spares the reader buttons that
   // would be refused.
   const SHOWN_TO = { trusted: ["trusted", "owner"], owner: ["owner"] };

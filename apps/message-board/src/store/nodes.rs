@@ -319,20 +319,24 @@ fn child(conn: &Connection, node: Node) -> rusqlite::Result<Child> {
         NodeKind::Thread => {
             let (last_id, last_ts) = conn
                 .query_row(
-                    "SELECT id, ts FROM events WHERE node=? AND type='message' ORDER BY id DESC LIMIT 1",
+                    "SELECT id, ts FROM events WHERE node=? AND type='message' AND archived IS NULL
+                      ORDER BY id DESC LIMIT 1",
                     [node.id],
                     |r| Ok((Some(r.get(0)?), Some(text(r, 1)?))),
                 )
                 .optional()?
                 .unwrap_or_default();
-            let messages =
-                conn.query_row("SELECT count(*) FROM events WHERE node=? AND type='message'", [node.id], |r| r.get(0))?;
+            let messages = conn.query_row(
+                "SELECT count(*) FROM events WHERE node=? AND type='message' AND archived IS NULL",
+                [node.id],
+                |r| r.get(0),
+            )?;
             Status::Thread { last_id, last_ts, messages }
         }
         NodeKind::Queue => {
             let (open, oldest_open_ts) = conn.query_row(
                 "SELECT count(*), min(e.ts) FROM items i JOIN events e ON e.id = i.id
-                  WHERE i.queue=? AND i.state='open'",
+                  WHERE i.queue=? AND i.state='open' AND e.archived IS NULL",
                 [node.id],
                 |r| Ok((r.get(0)?, opt_text(r, 1)?)),
             )?;
@@ -353,7 +357,7 @@ fn child(conn: &Connection, node: Node) -> rusqlite::Result<Child> {
 fn behind(conn: &Connection, through: i64) -> rusqlite::Result<i64> {
     conn.query_row(
         "SELECT count(*) FROM events
-          WHERE type='message' AND node=(SELECT node FROM events WHERE id=?1) AND id>?1",
+          WHERE type='message' AND archived IS NULL AND node=(SELECT node FROM events WHERE id=?1) AND id>?1",
         [through],
         |r| r.get(0),
     )
@@ -433,10 +437,14 @@ pub(super) fn notes_in(conn: &Connection, container: i64) -> rusqlite::Result<Ve
     Ok(current)
 }
 
-fn messages(conn: &Connection, thread: &Node, range: Range) -> rusqlite::Result<ThreadPage> {
-    const SELECT: &str = "SELECT e.id, e.ts, e.actor, e.actor_fp, k.revoked, e.body
+fn messages(conn: &Connection, thread: &Node, range: Range, archived: bool) -> rusqlite::Result<ThreadPage> {
+    // The archived ones are left out unless asked for.
+    let visible = if archived { "" } else { " AND archived IS NULL" };
+    let select = format!(
+        "SELECT e.id, e.ts, e.actor, e.actor_fp, k.revoked, e.body, e.archived IS NOT NULL
            FROM events e LEFT JOIN keys k ON k.fingerprint = e.actor_fp
-          WHERE e.node=?1 AND e.type='message'";
+          WHERE e.node=?1 AND e.type='message'{visible}"
+    );
     let message = |r: &Row<'_>| {
         Ok(Message {
             id: r.get(0)?,
@@ -446,11 +454,12 @@ fn messages(conn: &Connection, thread: &Node, range: Range) -> rusqlite::Result<
             signed_by: opt_text(r, 3)?,
             revoked_at: r.get(4)?,
             body: text(r, 5)?,
+            archived: r.get(6)?,
         })
     };
     let count = |sql: &str, bound: i64| -> rusqlite::Result<i64> {
         conn.query_row(
-            &format!("SELECT count(*) FROM events WHERE node=?1 AND type='message'{sql}"),
+            &format!("SELECT count(*) FROM events WHERE node=?1 AND type='message'{visible}{sql}"),
             [thread.id, bound],
             |r| r.get(0),
         )
@@ -460,7 +469,7 @@ fn messages(conn: &Connection, thread: &Node, range: Range) -> rusqlite::Result<
             // LIMIT -1 would be no limit at all
             let n = n.max(0);
             let (mut newest, truncated) = capped(
-                conn.prepare_cached(&format!("{SELECT} ORDER BY e.id DESC LIMIT ?2"))?
+                conn.prepare_cached(&format!("{select} ORDER BY e.id DESC LIMIT ?2"))?
                     .query_map([thread.id, n], message)?,
                 |m| m.body.len(),
             )?;
@@ -470,7 +479,7 @@ fn messages(conn: &Connection, thread: &Node, range: Range) -> rusqlite::Result<
         }
         Range::Since(since) => {
             let (messages, truncated) = capped(
-                conn.prepare_cached(&format!("{SELECT} AND e.id>?2 ORDER BY e.id"))?
+                conn.prepare_cached(&format!("{select} AND e.id>?2 ORDER BY e.id"))?
                     .query_map([thread.id, since], message)?,
                 |m| m.body.len(),
             )?;
@@ -478,7 +487,7 @@ fn messages(conn: &Connection, thread: &Node, range: Range) -> rusqlite::Result<
         }
         Range::All => {
             let (messages, truncated) = capped(
-                conn.prepare_cached(&format!("{SELECT} ORDER BY e.id"))?.query_map([thread.id], message)?,
+                conn.prepare_cached(&format!("{select} ORDER BY e.id"))?.query_map([thread.id], message)?,
                 |m| m.body.len(),
             )?;
             Ok(ThreadPage { messages, earlier: 0, truncated })
@@ -629,12 +638,20 @@ impl Board {
         self.read(|conn| Ok(versions(conn, require_kind(conn, path, NodeKind::Note)?.id, false)?))
     }
 
-    /// Messages of the thread at `path`.
+    /// Messages of the thread at `path`, without the archived ones.
     ///
     /// # Errors
     /// As [`Board::node`], and [`Error::BadRequest`] for another kind.
     pub fn thread(&self, path: &str, range: Range) -> Result<ThreadPage, Error> {
-        self.read(|conn| Ok(messages(conn, &require_kind(conn, path, NodeKind::Thread)?, range)?))
+        self.thread_with(path, range, false)
+    }
+
+    /// [`Board::thread`], with the archived messages too (marked) if `archived`.
+    ///
+    /// # Errors
+    /// As [`Board::thread`].
+    pub fn thread_with(&self, path: &str, range: Range, archived: bool) -> Result<ThreadPage, Error> {
+        self.read(|conn| Ok(messages(conn, &require_kind(conn, path, NodeKind::Thread)?, range, archived)?))
     }
 
     /// Make a node: a top-level container (the owner only), a container in
@@ -860,7 +877,8 @@ impl Board {
             }
             let pointing: Option<(i64, EventType, String)> = conn
                 .query_row(
-                    "SELECT e.id, e.type, n.path FROM events e JOIN nodes n ON n.id = e.node WHERE e.ref=? LIMIT 1",
+                    "SELECT e.id, e.type, n.path FROM events e JOIN nodes n ON n.id = e.node
+                      WHERE e.ref=? AND e.type NOT IN ('node_archived','node_unarchived') LIMIT 1",
                     [id],
                     |r| Ok((r.get(0)?, parsed(r, 1)?, text(r, 2)?)),
                 )
@@ -868,6 +886,9 @@ impl Board {
             if let Some((by, kind, at)) = pointing {
                 return Err(Error::Forbidden(format!("#{by} ({kind} on {}) points to #{id}", quoted(&at))));
             }
+            // its archive events go with it
+            conn.execute("UPDATE events SET archived=NULL WHERE id=?", [id])?;
+            conn.execute("DELETE FROM events WHERE ref=? AND type IN ('node_archived','node_unarchived')", [id])?;
             conn.execute("DELETE FROM mentions WHERE event=?", [id])?;
             conn.execute("DELETE FROM events WHERE id=?", [id])?;
             Ok(())

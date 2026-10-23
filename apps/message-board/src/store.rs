@@ -43,6 +43,7 @@
 //! the server derives who wrote from the key, never from the request.
 
 mod actions;
+mod archive;
 mod events;
 mod items;
 mod keys;
@@ -61,7 +62,9 @@ use serde_json::{Value, json};
 use crate::sign::SignatureError;
 use crate::timefmt;
 
-pub use actions::{Action, Approve, Create, File, Post, Register, Resolve, Revoke, SetNote, Signed};
+pub use actions::{
+    ARCHIVE_REASON_MAX, Action, Approve, Archive, Create, File, Post, Register, Resolve, Revoke, SetNote, Signed,
+};
 pub use events::{Event, EventType, Message};
 pub use items::{Item, ItemDetail, ItemPage, ItemQuery, ItemResolution, ItemState, StateFilter};
 pub use keys::{Key, KeyState, Owner, OwnerChange, REGISTER_TEXT_MAX, Registration};
@@ -72,7 +75,7 @@ pub use nodes::{
 pub use poll::{Brief, BriefContainer, Delivered, Page, Watch, Why};
 
 /// The outcome of each write, as the client is told it.
-pub use actions::{Created, Filed, NoteSaved, Posted, Registered, Resolved, Revoked};
+pub use actions::{Archived, Created, Filed, NoteSaved, Posted, Registered, Resolved, Revoked};
 
 /// The first event id of a fresh board. The v1 board's ids end near 1100:
 /// text that cites `#1074` stays unambiguous, and no v2 id can be taken
@@ -210,6 +213,10 @@ pub enum Error {
     /// The note is no longer at the version the editor started from.
     #[error("the note is at v{version} now; read it and edit that version")]
     NoteChanged { version: i64 },
+    /// The message or item is archived: writes to it are refused until the
+    /// owner unarchives it.
+    #[error("#{id} is archived; the owner unarchives it first (board unarchive {id})")]
+    Archived { id: i64 },
     #[error("item #{item} is {state}, not open{}", .resolved.map(|id| format!(" (#{id})")).unwrap_or_default())]
     ItemNotOpen { item: i64, state: ItemState, resolved: Option<i64> },
     /// A client key already used for a different request, or a node that
@@ -254,6 +261,7 @@ impl Error {
             Self::NotFound(_) => "not-found",
             Self::StaleNonce { .. } => "stale-nonce",
             Self::NoteChanged { .. } => "note-changed",
+            Self::Archived { .. } => "archived",
             Self::ItemNotOpen { .. } => "item-not-open",
             Self::Conflict(_) => "conflict",
             Self::AlreadyRegistered { .. } => "already-registered",
@@ -276,6 +284,7 @@ impl Error {
             Self::NotFound(_) => 404,
             Self::StaleNonce { .. }
             | Self::NoteChanged { .. }
+            | Self::Archived { .. }
             | Self::ItemNotOpen { .. }
             | Self::Conflict(_)
             | Self::AlreadyRegistered { .. } => 409,
@@ -310,6 +319,7 @@ impl Error {
             Self::KeyRevoked { revoked_at } => json!({ "revoked_at": revoked_at }),
             Self::StaleNonce { head } => json!({ "head": head }),
             Self::NoteChanged { version } => json!({ "version": version }),
+            Self::Archived { id } => json!({ "id": id }),
             Self::ItemNotOpen { item, state, resolved } => {
                 json!({ "item": item, "state": state, "resolved": resolved })
             }

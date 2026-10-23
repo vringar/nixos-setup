@@ -24,6 +24,8 @@ pub enum Form {
     Approve,
     Resolve,
     Revoke,
+    Archive,
+    Unarchive,
 }
 
 impl Form {
@@ -36,6 +38,8 @@ impl Form {
             "approve" => Self::Approve,
             "resolve" => Self::Resolve,
             "revoke" => Self::Revoke,
+            "archive" => Self::Archive,
+            "unarchive" => Self::Unarchive,
             _ => return None,
         })
     }
@@ -49,6 +53,8 @@ impl Form {
             Self::Approve => Write::Approve,
             Self::Resolve => Write::Resolve,
             Self::Revoke => Write::Revoke,
+            Self::Archive => Write::Archive,
+            Self::Unarchive => Write::Unarchive,
         }
     }
 }
@@ -81,8 +87,14 @@ pub fn view(board: &Board, path: &str, q: &Params) -> Answer {
             h.html(&html::swapped("note", &note_html(board, &node, q.number("version")?)?));
             h
         }
-        NodeKind::Thread => html::thread(&node, &board.thread(path, Range::Last(RECENT))?),
-        NodeKind::Queue => html::queue(&node, &board.queue(path, StateFilter::All, 0)?.items),
+        NodeKind::Thread => {
+            let archived = q.flag("archived");
+            html::thread(&node, &board.thread_with(path, Range::Last(RECENT), archived)?, archived)
+        }
+        NodeKind::Queue => {
+            let archived = q.flag("archived");
+            html::queue(&node, &board.queue_with(path, StateFilter::All, 0, archived)?.items, archived)
+        }
     };
     page(board, path, Some(path), &content)
 }
@@ -106,7 +118,8 @@ fn path(q: &Params) -> Result<&str, StoreError> {
 /// `GET /ui/messages?path=`: a thread's messages, as its page refreshes them.
 pub fn messages(board: &Board, q: &Params) -> Answer {
     let path = path(q)?;
-    Ok(fragment(html::messages(path, &board.thread(path, Range::Last(RECENT))?)))
+    let archived = q.flag("archived");
+    Ok(fragment(html::messages(path, &board.thread_with(path, Range::Last(RECENT), archived)?, archived)))
 }
 
 /// `GET /ui/note?path=`: the note, as it is now (an edit's way back).
@@ -177,10 +190,28 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
         }
         Form::Post => {
             let path = path(fields)?;
-            html::messages(path, &board.thread(path, Range::Last(RECENT))?)
+            html::messages(path, &board.thread(path, Range::Last(RECENT))?, false)
         }
         Form::Note => note_html(board, &board.node(path(fields)?)?, None)?,
-        Form::Ask => html::queue_items(&board.queue(path(fields)?, StateFilter::All, 0)?.items),
+        Form::Ask => html::queue_items(&board.queue(path(fields)?, StateFilter::All, 0)?.items, false),
+        // The message's or the item's list, as the page shows it.
+        Form::Archive | Form::Unarchive => {
+            let archived = fields.get("view") == Some("archived");
+            let target =
+                outcome.get("event").and_then(serde_json::Value::as_i64).and_then(|id| board.event(id).transpose());
+            let target = target
+                .ok_or_else(|| StoreError::BadRequest("archived, but the answer was unreadable".to_owned()))??;
+            match target.kind {
+                NodeKind::Queue => {
+                    html::queue_items(&board.queue_with(&target.path, StateFilter::All, 0, archived)?.items, archived)
+                }
+                _ => html::messages(
+                    &target.path,
+                    &board.thread_with(&target.path, Range::Last(RECENT), archived)?,
+                    archived,
+                ),
+            }
+        }
         // The page the form sat on gets its own piece back.
         Form::Approve | Form::Resolve if fields.get("view") == Some("keys") => keys_html(board)?,
         Form::Approve | Form::Resolve => inbox_html(board)?,

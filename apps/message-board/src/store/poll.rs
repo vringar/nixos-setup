@@ -7,6 +7,12 @@
 //! gets the events that match any of those, minus those from `not_from`.
 //! The cursor it gets back is the head, so it moves past every event that
 //! did not match without fetching it.
+//!
+//! What the owner archived is not announced: a message or an item's filing
+//! that is archived, and an archived item's resolution, are skipped. The
+//! archive event itself is a doorbell on its node (the thread or queue, and
+//! the item's owner, asker and watchers), so that a watcher can drop what it
+//! heard; it is no structural event of the container above.
 
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
@@ -15,7 +21,7 @@ use rusqlite::Connection;
 use rusqlite::types::Value;
 use serde::Serialize;
 
-use super::events::{EVENT_COLUMNS, EVENT_FIELDS, EVENT_FROM, Event, EventType, event_row, parsed};
+use super::events::{EVENT_COLUMNS, EVENT_FIELDS, EVENT_FROM, Event, EventType, event_archived, event_row, parsed};
 use super::items::{self, Item, ItemQuery, ItemState, StateFilter};
 use super::nodes::{self, Child, NodeKind, NoteVersion};
 use super::{Board, DbError, Error, POLL_BYTES, POLL_CHECK, POLL_LIMIT, ROOT, head};
@@ -165,12 +171,19 @@ impl Filter {
         let (leaves, containers) = (id_list(&leaves), id_list(&containers));
         let structural = type_list(&STRUCTURAL);
         let child_types = type_list(&[&STRUCTURAL[..], &[EventType::NoteVersion]].concat());
+        // An archive event of a message or item (it has a `ref`) is its
+        // leaf's, not the container's: a container's watcher heard of no message.
+        let node_level = "(e.ref IS NULL OR e.type NOT IN ('node_archived','node_unarchived'))";
         let mut names = Vec::new();
         let mut flags = vec![
-            format!("e.node IN ({leaves}) OR (e.node IN ({containers}) AND e.type IN ({structural}))"),
+            format!("e.node IN ({leaves}) OR (e.node IN ({containers}) AND e.type IN ({structural}) AND {node_level})"),
             format!(
-                "(n.parent IN ({containers}) AND e.type IN ({child_types})){}",
-                if root { format!(" OR (n.parent IS NULL AND e.type IN ({structural}))") } else { String::new() }
+                "(n.parent IN ({containers}) AND e.type IN ({child_types}) AND {node_level}){}",
+                if root {
+                    format!(" OR (n.parent IS NULL AND e.type IN ({structural}) AND {node_level})")
+                } else {
+                    String::new()
+                }
             ),
         ];
         flags.push(if watch.mentions.is_empty() {
@@ -203,10 +216,11 @@ impl Filter {
         let sql = format!(
             "SELECT * FROM (SELECT {EVENT_FIELDS}, i.state AS item_state, {columns}
                               FROM {EVENT_FROM} LEFT JOIN items i ON i.id = e.item
-                             WHERE e.id > ?1)
+                             WHERE e.id > ?1 AND NOT {archived})
               WHERE ({any}){not_from}
               ORDER BY id LIMIT {POLL_LIMIT}",
-            columns = columns.join(", ")
+            columns = columns.join(", "),
+            archived = event_archived!()
         );
         Ok(Self { sql, names })
     }

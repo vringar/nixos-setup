@@ -126,6 +126,9 @@ pub struct Message {
     pub signed_by: Option<String>,
     pub revoked_at: Option<i64>,
     pub body: String,
+    /// Only in a read that asked for archived messages.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
 }
 
 /// Whose an item is, in `brief`.
@@ -148,6 +151,9 @@ pub struct Item {
     #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub role: Option<Role>,
     pub body: String,
+    /// Only in a read that asked for archived items.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<Resolution>,
 }
@@ -193,6 +199,8 @@ pub struct WireEvent {
     #[serde(rename = "ref")]
     pub reference: Option<i64>,
     pub body: String,
+    #[serde(default)]
+    pub archived: bool,
 }
 
 /// The store's own event, so that a doorbell's summary is made by the very
@@ -212,6 +220,7 @@ impl From<WireEvent> for store::Event {
             version: e.version,
             reference: e.reference,
             body: e.body,
+            archived: e.archived,
         }
     }
 }
@@ -338,6 +347,16 @@ pub struct Approved {
     pub id: i64,
 }
 
+/// What archiving or unarchiving answers: `id` is the event that did it, `null`
+/// when the target was as asked already and nothing was written.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Archived {
+    pub id: Option<i64>,
+    pub event: i64,
+    #[serde(rename = "archived")]
+    pub hidden: bool,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Revoked {
     pub fingerprint: String,
@@ -373,6 +392,22 @@ pub enum Line<'a> {
         #[serde(rename = "ref")]
         reference: Option<i64>,
         body: &'a str,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        archived: bool,
+    },
+    /// `show` of an archive or unarchive event: `ref` is the message or item.
+    Archive {
+        id: i64,
+        ts: &'a str,
+        event: EventType,
+        path: &'a str,
+        from: Option<&'a str>,
+        signed_by: Option<&'a str>,
+        revoked_at: Option<i64>,
+        #[serde(rename = "ref")]
+        reference: i64,
+        /// The reason; may be empty.
+        body: &'a str,
     },
     /// `show` of a `node_created` event.
     Node {
@@ -407,6 +442,10 @@ pub enum Line<'a> {
         item: Option<i64>,
         state: Option<ItemState>,
         version: Option<i64>,
+        /// Of an archive or unarchive: the message or item it is about, so
+        /// that a watcher can drop what it heard.
+        #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
+        reference: Option<i64>,
         why: &'a [String],
         summary: String,
     },
@@ -433,6 +472,7 @@ pub enum Line<'a> {
     Filed(&'a Filed),
     Resolved(&'a Resolved),
     Revoked(&'a Revoked),
+    Archived(&'a Archived),
     Approved(&'a Approved),
     Registration(&'a Registration),
 }
@@ -463,6 +503,7 @@ mod tests {
             signed_by: Some("SHA256:abc".to_owned()),
             revoked_at: None,
             body: body.to_owned(),
+            archived: false,
         };
         let text = json_line(&Line::Message(&message))?;
         assert!(!text.contains(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}']), "{text}");
@@ -531,6 +572,7 @@ mod tests {
             item: event.item,
             state: delivered.state,
             version: event.version,
+            reference: None,
             why: &why,
             summary: event.summary(),
         };
@@ -541,6 +583,27 @@ mod tests {
              \"from\":\"librarian\",\"signed_by\":\"SHA256:x\",\"revoked_at\":null,\"item\":null,\"state\":null,\
              \"version\":4,\"why\":[\"child\"],\"summary\":\"note updated: r/state v4\"}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn an_archive_answers_with_its_event_and_says_so_when_nothing_was_written() -> TestResult {
+        let done: Archived = serde_json::from_value(json!({"id": 10_361, "event": 10_360, "archived": true}))?;
+        assert_eq!(
+            json_line(&Line::Archived(&done))?,
+            r#"{"type":"archived","id":10361,"event":10360,"archived":true}"#
+        );
+        let noop: Archived = serde_json::from_value(json!({"id": null, "event": 10_360, "archived": false}))?;
+        assert_eq!(
+            json_line(&Line::Archived(&noop))?,
+            r#"{"type":"archived","id":null,"event":10360,"archived":false}"#
+        );
+        // a message or item is marked only when archived
+        let item: Item = serde_json::from_value(json!({
+            "id": 1, "ts": "t", "path": "a/q", "owner": "o", "asker": null, "state": "open", "body": "b",
+            "archived": true
+        }))?;
+        assert!(json_line(&Line::Item(&item))?.contains(r#""body":"b","archived":true"#));
         Ok(())
     }
 

@@ -16,14 +16,14 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
 use message_board::store::{
-    Action, Approve, Create, File, ItemState, KeyState, NodeKind, Post, Resolve, Revoke, SetNote,
+    Action, Approve, Archive, Create, File, ItemState, KeyState, NodeKind, Post, Resolve, Revoke, SetNote,
 };
 
 use crate::api::{Api, TIMEOUT, error_code, node_url, parse};
 use crate::client::HttpError;
 use crate::identity::{Signer, signer};
 use crate::wire::{
-    Approved, Created, Filed, Health, Key, Line, NodeRead, NoteSaved, Posted, Registration, Resolved, Revoked,
+    Approved, Archived, Created, Filed, Health, Key, Line, NodeRead, NoteSaved, Posted, Registration, Resolved, Revoked,
 };
 use crate::{Failure, emit, io_failure, warn};
 
@@ -361,6 +361,15 @@ pub fn approve(api: &Api, target: &str) -> Result<(), Failure> {
     let (item, name, fingerprint) = (registration.item, &registration.name, &registration.fingerprint);
     let resolved: Resolved = submit(api, &signer, "/approve", &Approve { item, name, fingerprint })?;
     emit(&Line::Approved(&Approved { item, name: name.clone(), fingerprint: fingerprint.clone(), id: resolved.id }))
+}
+
+/// Archive (or unarchive) message or item `id`; the owner key only.
+pub fn archive(api: &Api, id: i64, archived: bool, reason: &str) -> Result<(), Failure> {
+    let signer = signer()?;
+    let action = Archive { event: id, archived, reason };
+    let route = if archived { "/archive" } else { "/unarchive" };
+    let done: Archived = submit(api, &signer, route, &action)?;
+    emit(&Line::Archived(&done))
 }
 
 /// The fingerprint `target` names: itself, or the key bound to that name.

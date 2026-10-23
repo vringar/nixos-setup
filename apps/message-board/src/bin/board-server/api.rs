@@ -110,6 +110,11 @@ pub fn range(q: &Params) -> Result<Range, StoreError> {
     }
 }
 
+/// Whether a read asks for the archived messages or items too: `archived=1`.
+fn archived(q: &Params) -> bool {
+    q.flag("archived")
+}
+
 /// Which items a query asks for: `state=open` (the default) or `all`.
 pub fn state_filter(q: &Params) -> Result<StateFilter, StoreError> {
     match q.get("state").unwrap_or_default() {
@@ -131,7 +136,7 @@ pub fn node(board: &Board, path: &str, q: &Params) -> Answer {
         NodeKind::Note => Read::Note { note: board.note(path, q.number("version")?)?, node },
         NodeKind::Thread => {
             let range = range(q)?;
-            let page = board.thread(path, range)?;
+            let page = board.thread_with(path, range, archived(q))?;
             let cut = match (page.truncated, range) {
                 (false, _) => Cut::whole(),
                 // the oldest are missing: the newest are what was asked for
@@ -141,7 +146,7 @@ pub fn node(board: &Board, path: &str, q: &Params) -> Answer {
             Read::Thread { node, messages: page.messages, earlier: page.earlier, cut }
         }
         NodeKind::Queue => {
-            let page = board.queue(path, state_filter(q)?, q.number("since")?.unwrap_or(0))?;
+            let page = board.queue_with(path, state_filter(q)?, q.number("since")?.unwrap_or(0), archived(q))?;
             Read::Queue { cut: items_cut(&page, "since"), items: page.items, node }
         }
     };
@@ -189,6 +194,7 @@ pub fn items(board: &Board, q: &Params) -> Answer {
         asker: name(q, "asker")?,
         state: state_filter(q)?,
         after: q.number("after")?.unwrap_or(0),
+        archived: archived(q),
     };
     let page = board.items(&query)?;
     json(&Items { cut: items_cut(&page, "after"), items: page.items })

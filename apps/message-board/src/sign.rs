@@ -51,9 +51,12 @@ pub const REGISTER: Kind = Kind { namespace: "board2-register", fields: &["name"
 pub const APPROVE: Kind =
     Kind { namespace: "board2-approve", fields: &["item", "name", "fingerprint", "key", "nonce"] };
 pub const REVOKE: Kind = Kind { namespace: "board2-revoke", fields: &["fingerprint", "reason", "key", "nonce"] };
+/// Archive (`archived` is `1`) or unarchive (`0`) the message or item `event`.
+pub const ARCHIVE: Kind =
+    Kind { namespace: "board2-archive", fields: &["event", "archived", "reason", "key", "nonce"] };
 
 /// Every kind a board write can be signed as.
-pub const KINDS: [Kind; 8] = [CREATE, POST, NOTE, FILE, RESOLVE, REGISTER, APPROVE, REVOKE];
+pub const KINDS: [Kind; 9] = [CREATE, POST, NOTE, FILE, RESOLVE, REGISTER, APPROVE, REVOKE, ARCHIVE];
 
 const MAGIC: &[u8] = b"SSHSIG";
 const HASH: &str = "sha512";

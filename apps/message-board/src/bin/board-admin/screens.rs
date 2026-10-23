@@ -169,12 +169,21 @@ fn note(board: &Board, child: &Child) -> Result<Screen, Failure> {
 /// # Errors
 /// If the thread cannot be read.
 pub fn thread(board: &Board, path: &str, came_from: Option<i64>) -> Result<Screen, Failure> {
-    // All of it: an operator looking for what to delete needs every row,
-    // not the tail `board read` gives.
-    let messages = board.thread(path, Range::All)?.messages;
+    // All of it, archived ones too: an operator looking for what to delete
+    // needs every row, not the tail `board read` gives.
+    let messages = board.thread_with(path, Range::All, true)?.messages;
     let selected = reselect(messages.iter().map(|message| message.id), came_from);
     let title = format!("board-admin -- {path} (thread, {})", count(messages.len(), "message", "messages"));
-    let row = |m: &Message| format!("#{}  {}  {}: {}", m.id, m.ts, m.from, first_line(&m.body));
+    let row = |m: &Message| {
+        format!(
+            "#{}  {}  {}{}: {}",
+            m.id,
+            m.ts,
+            m.from,
+            if m.archived { " [archived]" } else { "" },
+            first_line(&m.body)
+        )
+    };
     let picker = Picker::new(title, messages, row, "enter: read a message    q: back", selected);
     Ok(Screen::Thread { path: path.to_owned(), picker })
 }
@@ -182,7 +191,8 @@ pub fn thread(board: &Board, path: &str, came_from: Option<i64>) -> Result<Scree
 /// One message, to read and maybe delete.
 pub fn message(message: Message) -> Screen {
     let signed = signature(message.signed_by.as_deref(), message.revoked_at);
-    let mut lines = vec![format!("from {} at {}, {signed}", message.from, message.ts), String::new()];
+    let archived = if message.archived { ", archived" } else { "" };
+    let mut lines = vec![format!("from {} at {}, {signed}{archived}", message.from, message.ts), String::new()];
     lines.extend(message.body.lines().map(str::to_owned));
     let title = format!("board-admin -- {} #{}", message.path, message.id);
     let pager = Pager::new(title, lines, "d: delete this message    j/k: scroll    q: back");
@@ -195,12 +205,13 @@ pub fn message(message: Message) -> Screen {
 /// If the queue cannot be read.
 pub fn queue(board: &Board, path: &str, came_from: Option<i64>) -> Result<Screen, Failure> {
     let owner = board.node(path)?.owner.unwrap_or_default();
-    let items = board.queue(path, StateFilter::All, 0)?.items;
+    let items = board.queue_with(path, StateFilter::All, 0, true)?.items;
     let selected = reselect(items.iter().map(|item| item.id), came_from);
     let title = format!("board-admin -- {path} ({owner}'s queue, {})", count(items.len(), "item", "items"));
     let row = |item: &Item| {
         let asker = item.asker.as_deref().unwrap_or("a new key");
-        format!("#{}  {}  {:<10}  {asker}: {}", item.id, item.ts, item.state.as_str(), first_line(&item.body))
+        let archived = if item.archived { " [archived]" } else { "" };
+        format!("#{}  {}  {:<10}  {asker}{archived}: {}", item.id, item.ts, item.state.as_str(), first_line(&item.body))
     };
     let picker = Picker::new(title, items, row, "enter: read an item    q: back", selected);
     Ok(Screen::Queue { path: path.to_owned(), picker })
@@ -217,7 +228,8 @@ pub fn item(board: &Board, path: &str, id: i64) -> Result<Screen, Failure> {
         .ok_or_else(|| Failure::Exit(format!("item #{id} is gone: something else is writing to the database")))?;
     let item = &detail.item;
     let asker = item.asker.as_deref().unwrap_or("a new key");
-    let mut lines = vec![format!("asked by {asker}, for {}: {}", item.owner, item.state)];
+    let archived = if item.archived { " (archived)" } else { "" };
+    let mut lines = vec![format!("asked by {asker}, for {}: {}{archived}", item.owner, item.state)];
     for event in &detail.events {
         let by = who(event.from.as_deref(), event.signed_by.as_deref());
         let reference = event.reference.map(|id| format!(", ref #{id}")).unwrap_or_default();
@@ -260,7 +272,7 @@ pub fn confirm_branch(board: &Board, child: &Child) -> Result<Screen, Failure> {
             Status::Thread { messages, .. } => count(*messages, "message", "messages"),
             // A listing counts the open items only; every item goes.
             Status::Queue { open, .. } => {
-                let items = board.queue(&node.path, StateFilter::All, 0)?.items.len();
+                let items = board.queue_with(&node.path, StateFilter::All, 0, true)?.items.len();
                 format!("{}, {open} open", count(items, "item", "items"))
             }
         };

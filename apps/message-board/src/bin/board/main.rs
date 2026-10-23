@@ -19,6 +19,7 @@
 //! board wait ITEM [--timeout S]              block until an item is resolved
 //! board registrations                        the pending registrations
 //! board approve TARGET / board revoke TARGET the owner key's
+//! board archive ID [--reason T] / unarchive ID  hide / show a message or item (owner key)
 //! ```
 //!
 //! Everything it prints on stdout is JSON Lines: one compact JSON object
@@ -160,7 +161,7 @@ enum Command {
         history: bool,
         #[arg(long, value_enum, help = "a queue's open items (default), or all")]
         state: Option<StateArg>,
-        #[arg(long, help = "a container's archived children too")]
+        #[arg(long, help = "a thread's or queue's archived messages and items too, marked archived:true")]
         archived: bool,
         #[command(flatten)]
         v1: V1Scope,
@@ -257,6 +258,8 @@ enum Command {
         state: StateArg,
         #[arg(long, value_name = "ID", help = "only items above this id: the next page after a truncated list")]
         after: Option<i64>,
+        #[arg(long, help = "the archived items too, marked archived:true")]
+        archived: bool,
     },
     #[command(about = "block until an item is resolved, and print how")]
     Wait {
@@ -271,6 +274,15 @@ enum Command {
         #[arg(value_name = "TARGET", help = "a pending registration: its name, key fingerprint or item number")]
         target: String,
     },
+    #[command(about = "hide a thread message or a queue item from reads and watches (the owner key only)")]
+    Archive {
+        #[arg(value_name = "ID", help = "a thread message's id, or a queue item's (which hides its resolution too)")]
+        id: i64,
+        #[arg(long, default_value = "", help = "why, at most 200 bytes")]
+        reason: String,
+    },
+    #[command(about = "show an archived message or item again (the owner key only)")]
+    Unarchive { id: i64 },
     #[command(about = "revoke a key (the owner key only)")]
     Revoke {
         #[arg(value_name = "TARGET", help = "a key: its fingerprint, or its name if one key is bound to it")]
@@ -509,17 +521,19 @@ fn run(cli: Cli) -> Result<(), Failure> {
             write::refuse_from(&body)?;
             write::resolve(&api, item, ItemState::Cancelled, &body, None)
         }
-        Command::Items { mine, owner, asked_by, state, after } => {
+        Command::Items { mine, owner, asked_by, state, after, archived } => {
             let whose = if mine {
                 Whose::Mine
             } else {
                 Whose::Filtered { owner: owner.as_deref(), asker: asked_by.as_deref() }
             };
-            read::items(&api, &whose, state, after)
+            read::items(&api, &whose, state, after, archived)
         }
         Command::Wait { item, timeout } => watch::wait(&api, item, timeout),
         Command::Registrations => read::registrations(&api),
         Command::Approve { target } => write::approve(&api, &target),
+        Command::Archive { id, reason } => write::archive(&api, id, true, &reason),
+        Command::Unarchive { id } => write::archive(&api, id, false, ""),
         Command::Revoke { target, reason } => write::revoke(&api, &target, &reason),
         Command::Pin { .. } => Err(Failure::V1Form("pins (notes replaced them)")),
         Command::Areas { .. } => Err(Failure::V1Form("areas")),

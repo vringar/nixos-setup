@@ -115,6 +115,8 @@ const HEAD: &str = r#"</title>
                  padding: .5rem .7rem; margin: .6rem 0; }
   .card { border-color: var(--border); background: none; }
   .resolution { margin: .3rem 0 0 1rem; }
+  .archived { opacity: .65; }
+  .archived .tag { border: 1px solid var(--border); border-radius: 3px; padding: 0 .3rem; margin-left: .3rem; }
   .controls form { display: inline-block; margin: .3rem .6rem .3rem 0; vertical-align: top; }
   form input, form textarea { box-sizing: border-box; margin: .2rem 0; }
   form textarea { width: 100%; min-height: 5rem; }
@@ -403,8 +405,35 @@ pub fn created(path: &str, kind: NodeKind) -> Html {
     h
 }
 
-/// A thread's messages, oldest first, with how many came before them.
-pub fn messages(path: &str, page: &ThreadPage) -> Html {
+/// The owner's Archive (or, on an archived one, Unarchive) form for the
+/// message or item `id`: `target` is the element the answer swaps, and
+/// `show_archived` says whether the page shows archived ones (the answer then
+/// does too).
+fn archive_form(h: &mut Html, id: i64, archive: bool, target: &'static str, show_archived: bool) {
+    h.markup("<div class=\"controls\" data-needs=\"owner\" hidden>\n<form hx-post=\"/ui/")
+        .markup(if archive { "archive" } else { "unarchive" })
+        .markup("\" hx-target=\"#")
+        .markup(target)
+        .markup("\" hx-swap=\"innerHTML\">\n");
+    form_error(h, "");
+    hidden_input(h, "view", if show_archived { "archived" } else { "" });
+    hidden_input(h, "event", &id.to_string());
+    hidden_input(h, "archived", if archive { "1" } else { "0" });
+    h.markup("<input name=\"reason\" placeholder=\"reason (optional)\" maxlength=\"200\">\n<button type=\"submit\">")
+        .markup(if archive { "Archive" } else { "Unarchive" })
+        .markup("</button>\n</form></div>\n");
+}
+
+/// The link between a node's page showing what is archived or not.
+fn archived_toggle(h: &mut Html, path: &str, show_archived: bool) {
+    h.markup("<p class=\"meta\"><a href=\"/view/").text(path);
+    h.markup(if show_archived { "\">hide archived</a></p>\n" } else { "?archived=1\">show archived</a></p>\n" });
+}
+
+/// A thread's messages, oldest first, with how many came before them;
+/// the archived ones (in `page` only if asked for) are marked, and the owner
+/// gets Archive (or Unarchive) by each.
+pub fn messages(path: &str, page: &ThreadPage, show_archived: bool) -> Html {
     let mut h = Html::new();
     if page.earlier > 0 {
         h.markup("<p class=\"meta\">");
@@ -415,20 +444,29 @@ pub fn messages(path: &str, page: &ThreadPage) -> Html {
         h.markup("<p class=\"empty\">no messages yet</p>");
     }
     for m in &page.messages {
-        h.markup("<div class=\"msg\"><div class=\"meta\">#").number(m.id).markup(" · ");
+        h.markup(if m.archived { "<div class=\"msg archived\">" } else { "<div class=\"msg\">" });
+        h.markup("<div class=\"meta\">#").number(m.id).markup(" · ");
         author(&mut h, &m.from, m.signed_by.as_deref(), m.revoked_at);
-        h.markup(" · ").text(&m.ts).markup("</div><div class=\"body\">").text(&m.body).markup("</div></div>\n");
+        h.markup(" · ").text(&m.ts);
+        if m.archived {
+            h.markup(" <span class=\"tag\">archived</span>");
+        }
+        h.markup("</div><div class=\"body\">").text(&m.body).markup("</div>\n");
+        archive_form(&mut h, m.id, !m.archived, "messages", show_archived);
+        h.markup("</div>\n");
     }
     h
 }
 
 /// A thread: its messages, refreshed every 3 s, and the form to post.
-pub fn thread(node: &Node, page: &ThreadPage) -> Html {
+pub fn thread(node: &Node, page: &ThreadPage, show_archived: bool) -> Html {
     let mut h = heading(node);
+    archived_toggle(&mut h, &node.path, show_archived);
     h.markup("<div id=\"messages\" hx-get=\"/ui/messages?path=")
         .text(&encoded(&node.path))
+        .markup(if show_archived { "&amp;archived=1" } else { "" })
         .markup("\" hx-trigger=\"every 3s\" hx-swap=\"innerHTML\">")
-        .html(&messages(&node.path, page))
+        .html(&messages(&node.path, page, show_archived))
         .markup("</div>\n");
     if !node.generated {
         h.markup("<div data-needs=\"trusted\" hidden>\n<form hx-post=\"/ui/post\" hx-target=\"#messages\" hx-swap=\"innerHTML\">\n");
@@ -567,8 +605,11 @@ fn item(h: &mut Html, item: &Item, with_queue: bool) {
         Some(asker) => h.markup("asked by ").text(asker),
         None => h.markup("a registration"),
     };
-    h.markup(" · ").text(&item.ts).markup(" · ").text(item.state.as_str()).markup("</div>\n");
-    h.markup("<div class=\"body\">").text(&item.body).markup("</div>\n");
+    h.markup(" · ").text(&item.ts).markup(" · ").text(item.state.as_str());
+    if item.archived {
+        h.markup(" <span class=\"tag\">archived</span>");
+    }
+    h.markup("</div>\n<div class=\"body\">").text(&item.body).markup("</div>\n");
     if let Some(r) = &item.resolution {
         h.markup("<div class=\"resolution\"><div class=\"meta\">#").number(r.id).markup(" ").text(r.event.as_str());
         if let Some(from) = &r.from {
@@ -581,40 +622,47 @@ fn item(h: &mut Html, item: &Item, with_queue: bool) {
     }
 }
 
-/// A queue: the form to file a request, and its items.
-pub fn queue(node: &Node, items: &[Item]) -> Html {
+/// A queue: the form to file a request, and its items (the archived ones
+/// too, marked, if `show_archived`).
+pub fn queue(node: &Node, items: &[Item], show_archived: bool) -> Html {
     let mut h = heading(node);
+    archived_toggle(&mut h, &node.path, show_archived);
     if !node.generated {
         h.markup("<div data-needs=\"trusted\" hidden>\n<form hx-post=\"/ui/ask\" hx-target=\"#queue-items\" hx-swap=\"innerHTML\">\n");
         form_error(&mut h, "");
         hidden_input(&mut h, "path", &node.path);
         h.markup("<textarea name=\"body\" placeholder=\"new request\" required></textarea>\n<button type=\"submit\">file request</button>\n</form></div>\n");
     }
-    h.markup("<div id=\"queue-items\">").html(&queue_items(items)).markup("</div>\n");
+    h.markup("<div id=\"queue-items\">").html(&queue_items(items, show_archived)).markup("</div>\n");
     h
 }
 
+/// One item of a queue, with the owner's Archive (or Unarchive) control.
+fn queue_item(h: &mut Html, i: &Item, show_archived: bool) {
+    h.markup(if i.archived { "<div class=\"item archived\">" } else { "<div class=\"item\">" });
+    item(h, i, false);
+    archive_form(h, i.id, !i.archived, "queue-items", show_archived);
+    h.markup("</div>\n");
+}
+
 /// A queue's items, as `#queue-items` holds them: the open ones oldest
-/// first, and the resolved ones folded away.
-pub fn queue_items(items: &[Item]) -> Html {
+/// first, and the resolved ones folded away; `items` has the archived ones
+/// only if `show_archived`.
+pub fn queue_items(items: &[Item], show_archived: bool) -> Html {
     let mut h = Html::new();
     let (open, resolved): (Vec<&Item>, Vec<&Item>) = items.iter().partition(|i| i.state == ItemState::Open);
     if open.is_empty() {
         h.markup("<p class=\"empty\">nothing open</p>\n");
     }
     for i in open {
-        h.markup("<div class=\"item\">");
-        item(&mut h, i, false);
-        h.markup("</div>\n");
+        queue_item(&mut h, i, show_archived);
     }
     if !resolved.is_empty() {
         h.markup("<details><summary>");
         plural(&mut h, i64::try_from(resolved.len()).unwrap_or(i64::MAX), "resolved item", "resolved items");
         h.markup("</summary>\n");
         for i in resolved {
-            h.markup("<div class=\"item\">");
-            item(&mut h, i, false);
-            h.markup("</div>\n");
+            queue_item(&mut h, i, show_archived);
         }
         h.markup("</details>\n");
     }
@@ -789,6 +837,54 @@ mod tests {
     const HOSTILE: &str = "<script>alert('x' & \"y\")</script>";
     const ESCAPED: &str = "&lt;script&gt;alert(&#39;x&#39; &amp; &#34;y&#34;)&lt;/script&gt;";
 
+    fn message(id: i64, archived: bool) -> message_board::store::Message {
+        message_board::store::Message {
+            id,
+            ts: "2026-10-22T00:00:00Z".to_owned(),
+            path: "rev/log".to_owned(),
+            from: "agent".to_owned(),
+            signed_by: None,
+            revoked_at: None,
+            body: HOSTILE.to_owned(),
+            archived,
+        }
+    }
+
+    /// Archive and Unarchive are the owner's: each form sits in a control the
+    /// page shows to the owner key only, and archived ones are marked.
+    #[test]
+    fn archive_controls_are_for_the_owner_and_archived_ones_are_marked() {
+        let page =
+            ThreadPage { messages: vec![message(10_010, false), message(10_011, true)], earlier: 0, truncated: false };
+        let shown = text(messages("rev/log", &page, true));
+        assert!(!shown.contains(HOSTILE) && shown.contains(ESCAPED), "{shown}");
+        assert_eq!(shown.matches("<form").count(), 2, "{shown}");
+        assert_eq!(shown.matches("data-needs=\"owner\" hidden").count(), 2, "{shown}");
+        assert_eq!(shown.matches("hx-post=\"/ui/archive\"").count(), 1, "{shown}");
+        assert_eq!(shown.matches("hx-post=\"/ui/unarchive\"").count(), 1, "{shown}");
+        assert_eq!(shown.matches("<span class=\"tag\">archived</span>").count(), 1, "{shown}");
+        assert!(shown.contains("name=\"view\" value=\"archived\""), "{shown}");
+        // the form posts what it signs: event, archived, reason
+        assert!(shown.contains("name=\"event\" value=\"10010\"") && shown.contains("name=\"archived\" value=\"1\""));
+        assert!(shown.contains("name=\"event\" value=\"10011\"") && shown.contains("name=\"archived\" value=\"0\""));
+        let node = Node {
+            id: 1,
+            path: "rev/log".to_owned(),
+            parent: None,
+            kind: NodeKind::Thread,
+            description: String::new(),
+            creator: "agent".to_owned(),
+            owner: None,
+            generated: false,
+            created: 1,
+            archived: None,
+        };
+        let thread_page = text(thread(&node, &page, false));
+        assert!(thread_page.contains("href=\"/view/rev/log?archived=1\">show archived"), "{thread_page}");
+        let with = text(thread(&node, &page, true));
+        assert!(with.contains("hide archived") && with.contains("&amp;archived=1"), "{with}");
+    }
+
     #[test]
     fn text_is_escaped_and_markup_is_not() {
         let mut h = Html::new();
@@ -820,6 +916,7 @@ mod tests {
             asker: Some("alice".to_owned()),
             state: ItemState::Open,
             body: HOSTILE.to_owned(),
+            archived: false,
             resolution: None,
         };
         let page = text(inbox(&Inbox { owner: Some("Stefan"), registrations: &registrations, items: &[item] }));
@@ -881,13 +978,13 @@ mod tests {
             created: 10_010,
             archived: None,
         };
-        let page = text(queue(&node, &[]));
+        let page = text(queue(&node, &[], false));
         assert!(page.contains("<div data-needs=\"trusted\" hidden>"), "{page}");
         assert!(page.contains("hx-post=\"/ui/ask\" hx-target=\"#queue-items\""), "{page}");
         assert!(page.contains("name=\"path\" value=\"rev/q\"") && page.contains("<textarea name=\"body\""), "{page}");
         assert!(page.contains("<div id=\"queue-items\"><p class=\"empty\">nothing open</p>"), "{page}");
         let generated = Node { generated: true, ..node };
-        assert!(!text(queue(&generated, &[])).contains("/ui/ask"));
+        assert!(!text(queue(&generated, &[], false)).contains("/ui/ask"));
     }
 
     #[test]
@@ -936,6 +1033,7 @@ mod tests {
             asker: None,
             state: ItemState::Answered,
             body: "q".to_owned(),
+            archived: false,
             resolution: Some(ItemResolution {
                 id: 10_031,
                 event: EventType::ItemAnswered,

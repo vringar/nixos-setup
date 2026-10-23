@@ -8,7 +8,9 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 
 use message_board::sign::{self, PrivateKey, Verified};
-use message_board::store::{self, Action, Board, Create, File, ItemState, NodeKind, Post, Resolve, SetNote, Signed};
+use message_board::store::{
+    self, Action, Archive, Board, Create, File, ItemState, NodeKind, Post, Resolve, SetNote, Signed,
+};
 
 use crate::audit::Audit;
 
@@ -90,6 +92,11 @@ impl Fixture {
         let nonce = self.board.head()?.to_string();
         let signature = action.sign(&self.owner, &key, &nonce)?;
         Ok(write(&self.board, &Signed { action, key: &key, nonce: &nonce, signature: &signature })?)
+    }
+
+    /// The owner archives message or item `event`.
+    pub fn archive(&self, event: i64) -> Fallible<()> {
+        self.write(Archive { event, archived: true, reason: "" }, Board::archive).map(drop)
     }
 
     pub fn audit(&self) -> Audit {

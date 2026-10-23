@@ -2,6 +2,7 @@
 //! keys and signatures. The helpers here sign every write as a client
 //! would: against the board's head, with a fresh client key.
 
+mod archive;
 mod files;
 mod identity;
 mod items;
@@ -113,6 +114,10 @@ impl Fixture {
 
     fn revoke(&self, by: &PrivateKey, fingerprint: &str, reason: &str) -> Result<Revoked, Error> {
         submit!(self.board, by, revoke, Revoke { fingerprint, reason })
+    }
+
+    fn archive(&self, by: &PrivateKey, event: i64, archived: bool, reason: &str) -> Result<Archived, Error> {
+        submit!(self.board, by, archive, Archive { event, archived, reason })
     }
 
     fn create(&self, by: &PrivateKey, path: &str, kind: NodeKind) -> Result<Created, Error> {
