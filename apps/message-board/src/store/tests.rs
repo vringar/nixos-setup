@@ -5,6 +5,7 @@
 mod files;
 mod identity;
 mod items;
+mod migration;
 mod notes;
 mod paths;
 mod poll;

@@ -135,6 +135,13 @@ pub enum DbError {
     /// write v2 tables into it. Nothing was written.
     #[error("{0}")]
     NotABoard(String),
+    /// A newer board has migrated the file further than this one knows.
+    /// Nothing was written.
+    #[error("the database is at schema version {found}, but this board knows only up to {known}; upgrade the board")]
+    Newer { found: i64, known: i64 },
+    /// A schema migration failed and was rolled back.
+    #[error("migrating the database schema failed: {0}")]
+    Migration(String),
 }
 
 impl DbError {
@@ -466,15 +473,16 @@ impl Board {
     /// be opened or bootstrapped.
     pub fn open(path: &Path) -> Result<Opened, DbError> {
         let fresh = schema::probe(path)?;
-        let conn = Connection::open(path)?;
+        let mut conn = Connection::open(path)?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
         let journal_mode: String = conn.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
         conn.execute_batch("PRAGMA foreign_keys=ON")?;
+        schema::migrate(&mut conn, fresh)?;
         let board = Self { db: Mutex::new(Some(conn)), changed: Condvar::new() };
-        if fresh {
-            board.write(|conn, now| Ok(schema::bootstrap(conn, now)?)).map_err(|err| match err {
+        if board.read_db(schema::unseeded)? {
+            board.write(|conn, now| Ok(schema::seed(conn, now)?)).map_err(|err| match err {
                 Error::Db(db) => db,
-                // bootstrap fails only in SQLite, but the type cannot say so
+                // seeding fails only in SQLite, but the type cannot say so
                 other => DbError::NotABoard(format!("bootstrapping the board failed: {other}")),
             })?;
         }

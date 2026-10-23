@@ -10,18 +10,57 @@ use std::os::unix::ffi::OsStrExt as _;
 use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
+use rusqlite_migration::{M, Migrations};
 
 use super::actions::Stamp;
 use super::nodes::{self, NewNode, NodeKind};
-use super::{BOARD_NODE, DbError, FIRST_ID, REGISTER_QUEUE, SERVER_NAME, TRUST_NOTE};
+use super::{BOARD_NODE, DbError, REGISTER_QUEUE, SERVER_NAME, TRUST_NOTE};
 
 /// The `meta` row that marks a v2 board.
 pub(super) const SCHEMA_NAME: &str = "board-v2";
 
+/// The schema's history, in order; a database at version `n` (its
+/// `PRAGMA user_version`) has had the first `n` steps. Never edit a step
+/// that has shipped: add one. A fresh database runs them all.
+const STEPS: &[M<'static>] = &[
+    // 1: the first schema, with the board's marker and event counter.
+    M::up(BASELINE),
+    // 2: the thread a note version summarizes.
+    M::up("ALTER TABLE events ADD COLUMN thread TEXT"),
+];
+const MIGRATIONS: Migrations<'static> = Migrations::from_slice(STEPS);
+
+/// Bring the database to the latest schema: a fresh one is made, an older
+/// one migrated, each in one transaction (so a failure leaves the file as
+/// it was); a current one is not written. A database that predates
+/// versions (`user_version` 0 with tables) is taken at the step its tables
+/// show.
+///
+/// # Errors
+/// [`DbError::Newer`] for a database a newer board has migrated further,
+/// and [`DbError::Migration`] for a step that fails.
+pub(super) fn migrate(conn: &mut Connection, fresh: bool) -> Result<(), DbError> {
+    if !fresh && version(conn)? == 0 {
+        let threaded: i64 =
+            conn.query_row("SELECT count(*) FROM pragma_table_info('events') WHERE name='thread'", [], |r| r.get(0))?;
+        conn.pragma_update(None, "user_version", if threaded > 0 { 2 } else { 1 })?;
+    }
+    MIGRATIONS.to_latest(conn).map_err(|err| match err {
+        rusqlite_migration::Error::MigrationDefinition(
+            rusqlite_migration::MigrationDefinitionError::DatabaseTooFarAhead,
+        ) => DbError::Newer { found: version(conn).unwrap_or(-1), known: i64::try_from(STEPS.len()).unwrap_or(-1) },
+        other => DbError::Migration(other.to_string()),
+    })
+}
+
+fn version(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.query_row("PRAGMA user_version", [], |r| r.get(0))
+}
+
 /// The tables, as the spec has them, with a few more constraints: a check
 /// on every enum column, keys that carry their item and revocation as
 /// their state says, and a partial index to find what points at an event.
-const SCHEMA: &str = "
+const BASELINE: &str = "
     CREATE TABLE meta(k TEXT PRIMARY KEY, v TEXT NOT NULL);
 
     CREATE TABLE nodes(
@@ -51,7 +90,6 @@ const SCHEMA: &str = "
         body         TEXT NOT NULL DEFAULT '',
         version      INTEGER,                          -- note_version
         ref          INTEGER REFERENCES events(id),    -- through / answer ref
-        thread       TEXT,                             -- note_version: the thread summarized (a path)
         client_key   TEXT UNIQUE,
         request_hash TEXT,                             -- sha256(signer, request without nonce)
         signature    TEXT);
@@ -90,6 +128,12 @@ const SCHEMA: &str = "
     -- phase 2
     CREATE TABLE note_editors(note INTEGER NOT NULL REFERENCES nodes(id), name TEXT NOT NULL,
                               PRIMARY KEY(note, name)) WITHOUT ROWID;
+
+    -- what marks a v2 board, and the counter, so that the first event is 10001
+    -- (store::FIRST_ID; a test holds the two together). sqlite_sequence is
+    -- an ordinary table that AUTOINCREMENT reads the next id from.
+    INSERT INTO meta(k, v) VALUES('schema', 'board-v2');
+    INSERT INTO sqlite_sequence(name, seq) VALUES('events', 10000);
 ";
 
 /// Whether `path` is a new board (no file, or an empty database), checked
@@ -163,14 +207,14 @@ fn verdict(conn: &Connection, path: &Path) -> Result<bool, DbError> {
     Err(DbError::NotABoard(format!("{shown}: this database is not a message board's; point BOARD_DB at a new file")))
 }
 
-/// Make the schema and the board's own nodes in a fresh database. The
-/// counter is set so that the first event is [`FIRST_ID`].
-pub(super) fn bootstrap(conn: &Connection, now: &str) -> rusqlite::Result<()> {
-    conn.execute_batch(SCHEMA)?;
-    conn.execute("INSERT INTO meta(k, v) VALUES('schema', ?)", [SCHEMA_NAME])?;
-    // sqlite_sequence is an ordinary table that AUTOINCREMENT reads the
-    // next id from; creating `events` made it.
-    conn.execute("INSERT INTO sqlite_sequence(name, seq) VALUES('events', ?)", [FIRST_ID - 1])?;
+/// Whether the board's own nodes are missing: a new file whose first
+/// transaction was the schema's.
+pub(super) fn unseeded(conn: &Connection) -> rusqlite::Result<bool> {
+    conn.query_row("SELECT count(*) FROM nodes WHERE path=?", [BOARD_NODE], |r| r.get::<_, i64>(0)).map(|n| n == 0)
+}
+
+/// Make the board's own nodes in a database `migrate` has made.
+pub(super) fn seed(conn: &Connection, now: &str) -> rusqlite::Result<()> {
     let stamp = Stamp::board(now);
     let own = |path, parent, kind, description, owner| NewNode {
         path,
