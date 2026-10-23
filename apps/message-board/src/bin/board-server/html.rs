@@ -103,12 +103,19 @@ const HEAD: &str = r#"</title>
   dialog textarea { width: 100%; min-height: 10rem; font: 11px monospace; }
   .side { display: none; }
   .side ul { list-style: none; margin: 0; padding: 0; }
-  .side li a { display: block; padding: .1rem .4rem; border-radius: 4px; color: #333;
-               text-decoration: none; overflow-wrap: anywhere; }
+  .side ul ul { margin-left: .5rem; padding-left: .5rem; border-left: 1px solid #ddd; }
+  .side li a { display: block; padding: .1rem .4rem; color: #333; text-decoration: none;
+               overflow-wrap: anywhere; border-left: 3px solid transparent; margin-left: -3px; }
   .side li a:hover { background: #f2f2f2; }
-  .side li.container > a { font-weight: 600; }
-  .side li.on > a { background: #e8f0fe; color: #0b3d91; }
-  .side li.above > a { color: #0b3d91; }
+  .side summary { cursor: pointer; display: flex; align-items: baseline; }
+  .side summary a { flex: 1; min-width: 0; }
+  .side summary::before { content: "\25B8"; width: 1em; flex: none; color: #777; }
+  .side details[open] > summary::before { content: "\25BE"; }
+  .side li:not(.tree-container) > a { padding-left: calc(.4rem + 1em); }
+  .side li.tree-container > details > summary a { font-weight: 600; }
+  .side li.tree-above > details > summary a { color: #0b3d91; }
+  .side li.tree-on > a, .side li.tree-on > details > summary a { border-left-color: #0b3d91;
+      background: #eef3fc; color: #0b3d91; font-weight: 700; }
   .side .more { color: #999; padding: .1rem .4rem; }
   @media (min-width: 960px) {
     body { max-width: none; margin: 1.5rem 1.5rem; }
@@ -142,34 +149,50 @@ const HEAD: &str = r#"</title>
 /// How many nodes the sidebar lists; the rest are one click away in the tree.
 pub const OUTLINE_MAX: usize = 300;
 
-/// The tree as the sidebar shows it: one link per node, indented by depth,
-/// with the node at `current` and the containers above it marked. Wide
-/// screens show it; narrow ones hide it, and the "tree" link remains.
+/// The tree as the sidebar shows it: nested lists, with every container a
+/// native `<details>` that is open when it holds the page at `current` (or is
+/// it) and closed otherwise. `outline` is in tree order, so a container's
+/// children follow it. Wide screens show the sidebar; narrow ones hide it,
+/// and the "tree" link remains.
 fn sidebar(h: &mut Html, outline: &[(String, NodeKind)], current: Option<&str>) {
     if outline.is_empty() {
         return;
     }
     h.markup("<aside class=\"side\"><nav aria-label=\"tree\"><ul>\n");
+    let mut open: Vec<&str> = Vec::new();
     for (path, kind) in outline {
-        let depth = path.matches('/').count();
+        while open.last().is_some_and(|top| !path.strip_prefix(top).is_some_and(|rest| rest.starts_with('/'))) {
+            open.pop();
+            h.markup("</ul></details></li>\n");
+        }
         let name = path.rsplit('/').next().unwrap_or(path);
         let on = current == Some(path.as_str());
         let above = current.is_some_and(|c| c.strip_prefix(path.as_str()).is_some_and(|rest| rest.starts_with('/')));
-        h.markup("<li class=\"").markup(kind.as_str());
+        let container = *kind == NodeKind::Container;
+        h.markup("<li class=\"tree-").markup(kind.as_str());
         if on {
-            h.markup(" on");
+            h.markup(" tree-on");
         } else if above {
-            h.markup(" above");
+            h.markup(" tree-above");
         }
-        h.markup("\" style=\"padding-left:")
-            .number(i64::try_from(depth).unwrap_or(0) * 12)
-            .markup("px\"><a href=\"/view/")
-            .text(path)
-            .markup("\"");
+        h.markup("\">");
+        if container {
+            h.markup(if on || above { "<details open><summary>" } else { "<details><summary>" });
+        }
+        h.markup("<a href=\"/view/").text(path).markup("\"");
         if on {
             h.markup(" aria-current=\"page\"");
         }
-        h.markup(" title=\"").text(path).markup("\">").text(name).markup("</a></li>\n");
+        h.markup(" title=\"").text(path).markup("\">").text(name).markup("</a>");
+        if container {
+            h.markup("</summary><ul>\n");
+            open.push(path);
+        } else {
+            h.markup("</li>\n");
+        }
+    }
+    for _ in open {
+        h.markup("</ul></details></li>\n");
     }
     if outline.len() >= OUTLINE_MAX {
         h.markup("<li class=\"more\">…</li>\n");
@@ -885,19 +908,55 @@ mod tests {
     }
 
     #[test]
-    fn the_sidebar_marks_the_current_page_and_its_ancestors() {
+    fn the_sidebar_folds_containers_and_opens_the_current_path() {
         let outline = vec![
             ("rev".to_owned(), NodeKind::Container),
             ("rev/emu".to_owned(), NodeKind::Container),
             ("rev/emu/log".to_owned(), NodeKind::Thread),
             ("rev/emu-x".to_owned(), NodeKind::Note),
+            ("ops".to_owned(), NodeKind::Container),
+            ("ops/a".to_owned(), NodeKind::Note),
         ];
         let page = text(page("t", Some("rev/emu/log"), &Html::new(), &outline));
-        assert!(page.contains("<li class=\"container above\""), "{page}");
-        assert!(page.contains("<li class=\"thread on\" style=\"padding-left:24px\"><a href=\"/view/rev/emu/log\" aria-current=\"page\""), "{page}");
-        assert!(page.contains("<li class=\"note\""), "{page}");
+        assert!(
+            page.contains("<li class=\"tree-container tree-above\"><details open><summary><a href=\"/view/rev\""),
+            "{page}"
+        );
+        assert!(
+            page.contains("<li class=\"tree-container tree-above\"><details open><summary><a href=\"/view/rev/emu\""),
+            "{page}"
+        );
+        assert!(page.contains("<li class=\"tree-container\"><details><summary><a href=\"/view/ops\""), "{page}");
+        assert!(
+            page.contains("<li class=\"tree-thread tree-on\"><a href=\"/view/rev/emu/log\" aria-current=\"page\""),
+            "{page}"
+        );
+        assert!(!aside_of(&page).contains("class=\"note"), "bare note class");
+        assert_eq!(page.matches("aria-current").count(), 1, "{page}");
+        assert!(page.contains("<li class=\"tree-note\"><a href=\"/view/rev/emu-x\""), "{page}");
+        assert_eq!(page.matches("<details").count(), page.matches("</details>").count(), "{page}");
+        assert_eq!(page.matches("<li").count(), page.matches("</li>").count(), "{page}");
+        let aside =
+            page.split_once("<aside").and_then(|(_, rest)| rest.split_once("</aside>")).map_or("", |(aside, _)| aside);
+        assert_eq!(aside.matches("<ul>").count(), aside.matches("</ul>").count(), "{aside}");
+        // emu-x is a sibling of emu, not nested under it
+        assert!(
+            aside.find("</details></li>\n<li class=\"tree-note\"><a href=\"/view/rev/emu-x\"").is_some(),
+            "{aside}"
+        );
+        let off = text(page_for_sidebar_test(Some("ops/a"), &outline));
+        assert!(off.contains("<details><summary><a href=\"/view/rev\""), "{off}");
+        assert!(off.contains("<details open><summary><a href=\"/view/ops\""), "{off}");
         assert!(page.contains("@media (min-width: 960px)") && page.contains("<main>"), "{page}");
         assert!(!text(page_without_outline()).contains("<aside"));
+    }
+
+    fn aside_of(page: &str) -> &str {
+        page.split_once("<aside").and_then(|(_, rest)| rest.split_once("</aside>")).map_or("", |(aside, _)| aside)
+    }
+
+    fn page_for_sidebar_test(path: Option<&str>, outline: &[(String, NodeKind)]) -> Html {
+        page("t", path, &Html::new(), outline)
     }
 
     fn page_without_outline() -> Html {
