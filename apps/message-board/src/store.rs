@@ -39,6 +39,15 @@
 //!    still be the head, which makes a signature good for one write;
 //! 5. done, or refused with nothing written.
 //!
+//! # Archive
+//!
+//! The owner key can hide a thread message or a queue item ([`Board::archive`],
+//! reversible; see `archive.rs`). Nothing is deleted: the event keeps its id
+//! and its `archived` column holds the archive event while it is hidden.
+//! Reads leave hidden rows out unless asked (`thread_with`, `queue_with`,
+//! `ItemQuery::archived`) and a watch does not announce them; by id they are
+//! still found, marked. Archiving a whole node is a later phase.
+//!
 //! Names are bound to keys by the owner's approval ([`Board::approve`]);
 //! the server derives who wrote from the key, never from the request.
 
