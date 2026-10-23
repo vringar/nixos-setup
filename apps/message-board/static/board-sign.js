@@ -191,7 +191,15 @@
     return postSigned(signer, KINDS.create, url, values, init);
   }
 
-  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate, refusalText, clientKey, keyUsed, RETRY };
+  // The pages that refresh themselves (`data-live`: a queue's items, the
+  // inbox, the keys) do not while the tab is hidden, nor over something the
+  // reader is in the middle of: a field with text in it or in focus, a
+  // fold opened, a refusal still shown.
+  const liveBusy = (live, active) =>
+    (live.contains(active) && !!active.matches?.("input, textarea, select")) ||
+    Array.from(live.querySelectorAll("input, textarea")).some((f) => f.value !== f.defaultValue) ||
+    live.querySelector("details[open], .error:not([hidden])") !== null;
+  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate, refusalText, clientKey, keyUsed, RETRY, liveBusy };
   if (typeof document === "undefined") return;
 
   // --- the page --------------------------------------------------------------
@@ -347,6 +355,13 @@
   document.addEventListener("close", (e) => {
     if (e.target.id === "auth-dialog") $("#auth-form").reset();
   }, true);
+
+  document.addEventListener("htmx:before:request", (e) => {
+    const live = e.target;
+    if (live.hasAttribute?.("data-live") && (document.hidden || liveBusy(live, document.activeElement))) {
+      e.preventDefault();
+    }
+  });
 
   // Whatever puts controls into the page, htmx's swap events or not (a
   // history restore, a swap whose source left the page, a later htmx), they

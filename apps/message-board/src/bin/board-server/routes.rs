@@ -127,7 +127,7 @@ impl Reply {
     fn of(method: &str, path: &str) -> Self {
         match (method, path.strip_prefix("/ui/")) {
             ("POST", Some(_)) => Self::Text,
-            (_, Some("messages" | "note")) => Self::Fragment,
+            (_, Some("messages" | "note" | "live/queue" | "live/inbox" | "live/keys")) => Self::Fragment,
             (_, Some(_)) => Self::Page,
             _ if path == "/" || path.starts_with("/view/") => Self::Page,
             _ => Self::Json,
@@ -270,6 +270,9 @@ fn get(app: &App, path: &str, q: &Params, ctx: &Context<'_>) -> Answer {
         "/ui/inbox" => web::inbox(board, q),
         "/ui/keys" => web::keys(board),
         "/ui/messages" => web::messages(board, q),
+        "/ui/live/queue" => web::live_queue(board, q),
+        "/ui/live/inbox" => web::live_inbox(board, q),
+        "/ui/live/keys" => web::live_keys(board),
         "/ui/note" => web::note(board, q),
         _ => {
             let (prefix, rest) = path.get(1..).and_then(|p| p.split_once('/')).ok_or_else(not_found)?;
@@ -438,6 +441,7 @@ mod tests {
         assert_eq!(Reply::of("GET", "/view/rev/log"), Reply::Page);
         assert_eq!(Reply::of("GET", "/ui/messages"), Reply::Fragment);
         assert_eq!(Reply::of("GET", "/ui/note"), Reply::Fragment);
+        assert_eq!(Reply::of("GET", "/ui/live/inbox"), Reply::Fragment);
         assert_eq!(Reply::of("POST", "/ui/note"), Reply::Text);
     }
 

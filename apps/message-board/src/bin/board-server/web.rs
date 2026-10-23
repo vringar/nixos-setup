@@ -110,7 +110,7 @@ pub fn view(board: &Board, path: &str, q: &Params) -> Answer {
         NodeKind::Queue => {
             let archived = q.flag("archived");
             let after = q.number("after")?.unwrap_or(0);
-            html::queue(&node, &board.queue_with(path, StateFilter::All, after, archived)?, archived)
+            html::queue(&node, &board.queue_with(path, StateFilter::All, after, archived)?, after, archived)
         }
     };
     page(board, path, Some(path), &content)
@@ -171,8 +171,29 @@ fn inbox_html(board: &Board, after: i64) -> Result<Html, Failure> {
     Ok(html::inbox(&Inbox { owner, registrations: &registrations, items: &items, more_after }))
 }
 
+/// `GET /ui/live/queue?path=&after=&archived=`: a queue's items, as its page
+/// refreshes them: the archived ones only if its page shows them.
+pub fn live_queue(board: &Board, q: &Params) -> Answer {
+    let path = path(q)?;
+    let archived = q.flag("archived");
+    let after = q.number("after")?.unwrap_or(0);
+    Ok(fragment(html::queue_items(path, &board.queue_with(path, StateFilter::All, after, archived)?, archived)))
+}
+
+/// `GET /ui/live/inbox?after=`: the inbox, as its page refreshes it.
+pub fn live_inbox(board: &Board, q: &Params) -> Answer {
+    Ok(fragment(inbox_html(board, q.number("after")?.unwrap_or(0))?))
+}
+
+/// `GET /ui/live/keys`: the trust list, as its page refreshes it.
+pub fn live_keys(board: &Board) -> Answer {
+    Ok(fragment(keys_html(board)?))
+}
+
 pub fn inbox(board: &Board, q: &Params) -> Answer {
-    page(board, "inbox", None, &html::swapped("inbox", &inbox_html(board, q.number("after")?.unwrap_or(0))?))
+    let after = q.number("after")?.unwrap_or(0);
+    let url = format!("/ui/live/inbox?after={after}");
+    page(board, "inbox", None, &html::live("inbox", &url, &inbox_html(board, after)?))
 }
 
 fn keys_html(board: &Board) -> Result<Html, Failure> {
@@ -180,7 +201,7 @@ fn keys_html(board: &Board) -> Result<Html, Failure> {
 }
 
 pub fn keys(board: &Board) -> Answer {
-    page(board, "keys", None, &html::swapped("keys", &keys_html(board)?))
+    page(board, "keys", None, &html::live("keys", "/ui/live/keys", &keys_html(board)?))
 }
 
 /// A signed form's write; the piece of page it changed, or the refusal

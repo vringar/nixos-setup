@@ -287,6 +287,19 @@ pub fn swapped(id: &'static str, content: &Html) -> Html {
     h
 }
 
+/// How often (s) a live piece of page asks for itself again.
+const LIVE_EVERY: u32 = 5;
+
+/// `content` in the element with id `id`, which asks `url` for its content
+/// every few seconds. board-sign.js holds the request back while the tab is
+/// hidden or something is being typed into the piece (`data-live`).
+pub fn live(id: &'static str, url: &str, content: &Html) -> Html {
+    let mut h = Html::new();
+    h.markup("<div id=\"").markup(id).markup("\" data-live hx-get=\"").text(url).markup("\" hx-trigger=\"every ");
+    h.number(i64::from(LIVE_EVERY)).markup("s\" hx-swap=\"innerHTML\">").html(content).markup("</div>\n");
+    h
+}
+
 /// A form's place for a refusal, which board-sign.js fills in.
 fn form_error(h: &mut Html, message: &str) {
     h.markup("<p class=\"error\"");
@@ -706,7 +719,7 @@ fn item(h: &mut Html, item: &Item, with_queue: bool) {
 
 /// A queue: the form to file a request, and its items (the archived ones
 /// too, marked, if `show_archived`).
-pub fn queue(node: &Node, page: &ItemPage, show_archived: bool) -> Html {
+pub fn queue(node: &Node, page: &ItemPage, after: i64, show_archived: bool) -> Html {
     let mut h = heading(node);
     archived_toggle(&mut h, &node.path, show_archived);
     if !node.generated {
@@ -718,7 +731,9 @@ pub fn queue(node: &Node, page: &ItemPage, show_archived: bool) -> Html {
         }
         h.markup("<textarea name=\"body\" placeholder=\"new request\" required></textarea>\n<button type=\"submit\">file request</button>\n</form></div>\n");
     }
-    h.markup("<div id=\"queue-items\">").html(&queue_items(&node.path, page, show_archived)).markup("</div>\n");
+    let archived = if show_archived { "&archived=1" } else { "" };
+    let url = format!("/ui/live/queue?path={}&after={after}{archived}", encoded(&node.path));
+    h.html(&live("queue-items", &url, &queue_items(&node.path, page, show_archived)));
     h
 }
 
@@ -1119,13 +1134,16 @@ mod tests {
             created: 10_010,
             archived: None,
         };
-        let page = text(queue(&node, &ItemPage { items: vec![], truncated: false }, false));
+        let page = text(queue(&node, &ItemPage { items: vec![], truncated: false }, 0, false));
         assert!(page.contains("<div data-needs=\"trusted\" hidden>"), "{page}");
         assert!(page.contains("hx-post=\"/ui/ask\" hx-target=\"#queue-items\""), "{page}");
         assert!(page.contains("name=\"path\" value=\"rev/q\"") && page.contains("<textarea name=\"body\""), "{page}");
-        assert!(page.contains("<div id=\"queue-items\"><p class=\"empty\">nothing open</p>"), "{page}");
+        assert!(
+            page.contains("<div id=\"queue-items\" data-live hx-get=\"/ui/live/queue?path=rev%2Fq&amp;after=0\" hx-trigger=\"every 5s\" hx-swap=\"innerHTML\"><p class=\"empty\">nothing open</p>"),
+            "{page}"
+        );
         let generated = Node { generated: true, ..node };
-        assert!(!text(queue(&generated, &ItemPage { items: vec![], truncated: false }, false)).contains("/ui/ask"));
+        assert!(!text(queue(&generated, &ItemPage { items: vec![], truncated: false }, 0, false)).contains("/ui/ask"));
     }
 
     fn open_item(id: i64, asker: Option<&str>) -> Item {

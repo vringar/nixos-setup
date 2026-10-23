@@ -1170,3 +1170,57 @@ globalThis.fetch = async (url, init) => {
     assert got["down"] == {"error": "fetch failed", "posts": 4}  # the first try and three resends
     assert [m["body"] for m in board.messages("rev/log")] == ["once"]  # once, and never the other
     assert got["keys"] == [True, False, False]
+
+
+# --- live refresh ------------------------------------------------------------------------------
+
+def test_queue_inbox_and_keys_pages_refresh_themselves_from_fragment_routes(board, team):
+    team.owner.create("rev/q", "queue")
+    team.owner.create("rev/stefan", "queue")
+    pages = {"/view/rev/q": "/ui/live/queue?path=rev%2Fq&amp;after=0",
+             "/ui/inbox": "/ui/live/inbox?after=0", "/ui/keys": "/ui/live/keys"}
+    for path, source in pages.items():
+        page = board.get(path).text
+        assert f'data-live hx-get="{source}" hx-trigger="every 5s"' in page, path
+        assert "[" not in re.search(r'hx-trigger="every[^"]*"', page).group(0)  # no filter: htmx evals them
+    team.bob.ask("rev/q", "fresh item")
+    team.bob.ask("rev/stefan", "for stefan")
+    queue = board.get("/ui/live/queue?path=rev/q")
+    assert queue.status == 200 and "fresh item" in queue.text and "<html" not in queue.text
+    inbox = board.get("/ui/live/inbox")
+    assert "for stefan" in inbox.text and "<html" not in inbox.text
+    keys = board.get("/ui/live/keys")
+    assert '<table class="keys">' in keys.text and "<html" not in keys.text
+    # a failing refresh is a fragment too, not a page swapped into the page
+    missing = board.get("/ui/live/queue?path=rev/nope")
+    assert missing.status == 404 and "<html" not in missing.text and 'class="error"' in missing.text
+    assert missing.headers["Board-Error"] == "not-found"
+
+
+def test_a_live_piece_holds_off_while_something_is_being_typed(board, tmp_path):
+    _node()
+    script = tmp_path / "busy.js"
+    script.write_text("""
+require(process.argv[2]);
+const busy = globalThis.BoardSign.liveBusy;
+const field = (value, defaultValue = "") => ({ value, defaultValue });
+const live = ({ fields = [], open = false, error = false, focused = false } = {}) => ({
+  contains: () => focused,
+  querySelectorAll: () => fields,
+  querySelector: (sel) => (sel.startsWith("details") && (open || error) ? {} : null),
+});
+const typing = { matches: () => true }, link = { matches: () => false };
+console.log(JSON.stringify([
+  busy(live(), link),                                          // nothing going on
+  busy(live({ fields: [field("")] }), link),                   // untouched fields
+  busy(live({ fields: [field("half an answer")] }), link),     // text typed in
+  busy(live({ fields: [field("x", "x")] }), link),             // a field that came with its text
+  busy(live({ focused: true }), typing),                       // focus in a field
+  busy(live({ focused: true }), link),                         // focus on a link
+  busy(live({ open: true }), link),                            // a fold opened
+  busy(live({ error: true }), link),                           // a refusal shown
+]));
+""")
+    run = subprocess.run(["node", script, _served_js(board, tmp_path)], capture_output=True, text=True,
+                         check=True, timeout=60)
+    assert json.loads(run.stdout) == [False, False, True, False, True, False, True, True]
