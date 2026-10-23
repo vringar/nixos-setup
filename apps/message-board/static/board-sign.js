@@ -31,6 +31,10 @@
   // and the random wait (ms) before each new try, times the tries so far.
   const NONCE_TRIES = 8;
   const BACKOFF_MS = [10, 100];
+  // A write nobody answered is sent again after each of these waits (ms), as
+  // `board` does; one that takes longer than WRITE_TIMEOUT_MS counts as that.
+  const RETRY = { transportWaitsMs: [1000, 2000, 4000] };
+  const WRITE_TIMEOUT_MS = 30000;
 
   const bytes = (x) => (typeof x === "string" ? enc.encode(x) : x);
   const concat = (...parts) => {
@@ -120,22 +124,51 @@
   // was rendered, since someone may type for minutes. If another write lands
   // in between, the board answers stale-nonce: read, sign and send again,
   // NONCE_TRIES times in all (after a random wait that grows with the tries),
-  // then hand back the refusal.
+  // then hand back the refusal. When no answer comes (the connection broke,
+  // or it took past WRITE_TIMEOUT_MS), the same write is sent again, as
+  // `board` does, waiting RETRY.transportWaitsMs before each resend and then
+  // giving up: `values.key` is the write's one client key, so a write that
+  // had landed is not made twice, only answered again.
   async function postSigned(signer, kind, url, values, init = {}) {
     const healthz = new URL("/healthz", new URL(url, globalThis.location?.href));
-    for (let attempt = 1; ; attempt++) {
-      const { head } = await (await fetch(healthz)).json();
-      const signed = { ...values, nonce: String(head) };
-      signed.signature = await sign(signer, kind, signed);
-      const response = await fetch(url, { ...init, method: "POST", body: new URLSearchParams(signed) });
+    let dropped = 0;
+    for (let attempt = 1; ; ) {
+      let response;
+      try {
+        const { head } = await (await fetch(healthz, { signal: AbortSignal.timeout(WRITE_TIMEOUT_MS) })).json();
+        const signed = { ...values, nonce: String(head) };
+        signed.signature = await sign(signer, kind, signed);
+        response = await fetch(url, { ...init, method: "POST", body: new URLSearchParams(signed),
+                                      signal: AbortSignal.timeout(WRITE_TIMEOUT_MS) });
+      } catch (e) {
+        if (dropped === RETRY.transportWaitsMs.length) throw e;
+        await new Promise((resolve) => setTimeout(resolve, RETRY.transportWaitsMs[dropped++]));
+        continue;
+      }
       if (attempt === NONCE_TRIES || response.headers.get("Board-Error") !== "stale-nonce") {
         return response;
       }
       const [low, high] = BACKOFF_MS;
       const wait = (low + Math.floor(Math.random() * (high - low + 1))) * attempt;
       await new Promise((resolve) => setTimeout(resolve, wait));
+      attempt++;
     }
   }
+
+  // The client key of a form's write: one per write, kept until the write
+  // lands, so that sending it again after an answer was lost (a click on the
+  // button once more) is the same write and cannot be made twice. A form
+  // whose content changed since is a different write and gets a new key.
+  const pending = new WeakMap();
+  function clientKey(form, values) {
+    const content = JSON.stringify(Object.entries(values).sort());
+    const kept = pending.get(form);
+    if (kept?.content === content) return kept.key;
+    const key = crypto.randomUUID();
+    pending.set(form, { content, key });
+    return key;
+  }
+  const keyUsed = (form) => pending.delete(form);
 
   // A refusal as the CLI prints it, `code: message`: the board's code is in
   // the Board-Error header, which a reader of the page never sees.
@@ -158,7 +191,7 @@
     return postSigned(signer, KINDS.create, url, values, init);
   }
 
-  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate, refusalText };
+  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate, refusalText, clientKey, keyUsed, RETRY };
   if (typeof document === "undefined") return;
 
   // --- the page --------------------------------------------------------------
@@ -257,7 +290,8 @@
     // Not signed: which page's piece the answer should be, and which window
     // of it (a thread's messages, a list's page), if the form says.
     for (const f of ["view", "shown", "last", "since", "all", "after"]) if (data.has(f)) values[f] = data.get(f);
-    values.key = crypto.randomUUID();  // one write, however often re-signed
+    // The signed fields are the write's content; its key stays while the same write is sent again.
+    values.key = clientKey(form, values);
     const send = (url, init) => (path === "/ui/create" ? postCreate(me, url, values, init) : postSigned(me, kind, url, values, init)).catch((e) => {
       showError(form, `not sent: ${e.message}`);
       throw e;
@@ -304,6 +338,7 @@
       showError(form, refusalText(ctx.response, ctx.text));
     } else {
       showError(form, "");
+      keyUsed(form);
       form.reset();
     }
   });

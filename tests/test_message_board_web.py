@@ -1116,3 +1116,57 @@ const B = globalThis.BoardSign;
     got = json.loads(run.stdout)
     assert got["status"] == 403 and got["text"] and got["shown"] == f"forbidden: {got['text']}"
     assert got["bare"] == "plain"
+
+
+# --- retries that cannot double-post -------------------------------------------------------------
+
+def test_a_lost_answer_is_resent_as_the_same_write_and_lands_once(board, team, tmp_path):
+    """The page sends a write again when no answer comes, as `board` does,
+    under the one client key it signed first: a write that had landed is
+    answered again, not made twice. And a form sent once more after a lost
+    answer keeps its key, until its content changes or it lands."""
+    _node()
+    script = tmp_path / "lost.js"
+    script.write_text("""
+const fs = require("fs");
+const [js, mine, base] = process.argv.slice(2);
+require(js);
+const B = globalThis.BoardSign;
+B.RETRY.transportWaitsMs = [5, 5, 5];
+const realFetch = globalThis.fetch;
+let posts = 0, mode = "ok";  // "lose": the board gets it, the answer never arrives; "down": it never gets there
+globalThis.fetch = async (url, init) => {
+  const isPost = init?.method === "POST";
+  if (isPost) posts++;
+  if (isPost && mode === "down") throw new TypeError("fetch failed");
+  const response = await realFetch(url, init);
+  if (isPost && mode === "lose") { mode = "ok"; throw new TypeError("fetch failed"); }
+  return response;
+};
+(async () => {
+  const signer = await B.importKey(fs.readFileSync(mine, "utf8"));
+  const out = {};
+  mode = "lose"; posts = 0;
+  const r = await B.postSigned(signer, B.KINDS.post, base + "/ui/post",
+    { path: "rev/log", body: "once", key: crypto.randomUUID() });
+  out.lost = { status: r.status, posts, text: await r.text() };
+  mode = "down"; posts = 0;
+  try {
+    await B.postSigned(signer, B.KINDS.post, base + "/ui/post", { path: "rev/log", body: "never", key: crypto.randomUUID() });
+    out.down = "resolved";
+  } catch (e) { out.down = { error: e.message, posts }; }
+  const form = {};
+  const a = B.clientKey(form, { body: "x" }), again = B.clientKey(form, { body: "x" });
+  const edited = B.clientKey(form, { body: "y" });
+  B.keyUsed(form);
+  out.keys = [a === again, a === edited, B.clientKey(form, { body: "y" }) === edited];
+  console.log(JSON.stringify(out));
+})();
+""")
+    run = subprocess.run(["node", script, _served_js(board, tmp_path), team.alice.key.path, board.url],
+                         capture_output=True, text=True, check=True, timeout=60)
+    got = json.loads(run.stdout)
+    assert got["lost"]["status"] == 200 and got["lost"]["posts"] == 2 and "once" in got["lost"]["text"]
+    assert got["down"] == {"error": "fetch failed", "posts": 4}  # the first try and three resends
+    assert [m["body"] for m in board.messages("rev/log")] == ["once"]  # once, and never the other
+    assert got["keys"] == [True, False, False]
