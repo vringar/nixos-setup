@@ -1085,3 +1085,34 @@ def test_a_queue_page_and_the_inbox_page_on_when_the_board_cuts_the_read(board, 
     inbox = board.get("/ui/inbox").text
     assert "more wait" in visible_text(inbox) and "/ui/inbox?after=" in inbox
     assert board.get("/ui/inbox?after=999999999").status == 200
+
+
+# --- errors show the board's code --------------------------------------------------------------
+
+def test_a_refusal_shows_the_board_code_with_the_message(board, team, tmp_path):
+    """A refused form's message comes with its code in Board-Error; the page
+    shows `code: message`, as the CLI does. Run under node against a real
+    refusal."""
+    _node()
+    team.bob.create("rev/bob", "queue")
+    item = team.alice.ask("rev/bob", "q")
+    script = tmp_path / "refusal.js"
+    script.write_text("""
+const fs = require("fs");
+const [js, mine, base, item] = process.argv.slice(2);
+require(js);
+const B = globalThis.BoardSign;
+(async () => {
+  const signer = await B.importKey(fs.readFileSync(mine, "utf8"));
+  const r = await B.postSigned(signer, B.KINDS.resolve, base + "/ui/resolve",
+    { item, state: "answered", body: "not mine to answer", ref: "", key: crypto.randomUUID() });
+  const text = await r.text();
+  console.log(JSON.stringify({ status: r.status, text, shown: B.refusalText(r, text),
+                               bare: B.refusalText({ headers: new Headers() }, "plain") }));
+})();
+""")
+    run = subprocess.run(["node", script, _served_js(board, tmp_path), team.carol.key.path, board.url,
+                          str(item)], capture_output=True, text=True, check=True, timeout=60)
+    got = json.loads(run.stdout)
+    assert got["status"] == 403 and got["text"] and got["shown"] == f"forbidden: {got['text']}"
+    assert got["bare"] == "plain"

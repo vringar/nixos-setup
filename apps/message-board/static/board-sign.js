@@ -137,6 +137,13 @@
     }
   }
 
+  // A refusal as the CLI prints it, `code: message`: the board's code is in
+  // the Board-Error header, which a reader of the page never sees.
+  const refusalText = (response, text) => {
+    const code = response.headers?.get("Board-Error");
+    return code ? `${code}: ${text}` : text;
+  };
+
   // `create -p`: a signed write carries one path, so the containers along
   // `values.path` are made first, each signed on its own. One that exists
   // already (a conflict) is as good as made; any other refusal is the answer.
@@ -151,7 +158,7 @@
     return postSigned(signer, KINDS.create, url, values, init);
   }
 
-  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate };
+  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate, refusalText };
   if (typeof document === "undefined") return;
 
   // --- the page --------------------------------------------------------------
@@ -294,7 +301,7 @@
     const { ctx } = e.detail;
     if (ctx.response.status >= 400) {
       e.preventDefault();
-      showError(form, ctx.text);
+      showError(form, refusalText(ctx.response, ctx.text));
     } else {
       showError(form, "");
       form.reset();
