@@ -27,6 +27,8 @@ KINDS = {
     "board2-approve": ["item", "name", "fingerprint", "key", "nonce"],
     "board2-revoke": ["fingerprint", "reason", "key", "nonce"],
     "board2-archive": ["event", "archived", "reason", "key", "nonce"],
+    "board2-blob": ["sha256", "size", "media_type", "filename", "key", "nonce"],
+    "board2-blobdel": ["sha256", "key", "nonce"],
 }
 
 CASES = [
@@ -49,6 +51,13 @@ CASES = [
                        "999999"]),
     ("board2-archive", ["10360", "1", "noise: a wrong guess\nkey:2:x", "ar-1", "10500"]),
     ("board2-archive", ["10360", "0", "", "ar-2", "10501"]),
+    ("board2-blob", ["3f786850e387550fdab836ed7e6dc881de23001b9e14a9f8b5a8d1c2e4f60a1b", "5242880",
+                     "application/octet-stream", "trace v1.bin", "b-1", "10600"]),
+    ("board2-blob", ["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "1", "text/plain", "",
+                     "", "10601"]),
+    ("board2-blob", ["0000000000000000000000000000000000000000000000000000000000000000", "8589934592",
+                     "image/svg+xml", "ü 🙂\n.png", "b-3", "0"]),
+    ("board2-blobdel", ["3f786850e387550fdab836ed7e6dc881de23001b9e14a9f8b5a8d1c2e4f60a1b", "bd-1", "10602"]),
 ]
 
 DRIVER = r"""

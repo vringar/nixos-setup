@@ -10,6 +10,7 @@ use rusqlite::{Connection, OptionalExtension as _, Row, params, params_from_iter
 use serde::{Deserialize, Serialize};
 
 use super::actions::{File, Filed, Resolve, Resolved, Signed, Stamp};
+use super::blobs;
 use super::events::{self, EVENT_FIELDS, EVENT_FROM, Event, EventType, NewEvent, event_row, parsed};
 use super::keys::{self, Author};
 use super::nodes::{self, NodeKind};
@@ -343,6 +344,7 @@ impl Board {
                 nodes::check_writable(&queue)?;
                 let id = insert(conn, stamp, queue.id, file.body, Some(&author.name))?;
                 events::record_mentions(conn, id, file.body)?;
+                blobs::record_refs(conn, id, file.body)?;
                 Ok(id)
             },
             |conn, id| Ok(Filed { item: id, path: nodes::event_of(conn, id)?.path }),
@@ -411,6 +413,7 @@ impl Board {
                     // The register queue's bodies carry what an unknown key
                     // wrote; nothing in it wakes anyone by name.
                     events::record_mentions(conn, id, resolve.body)?;
+                    blobs::record_refs(conn, id, resolve.body)?;
                 }
                 Ok(id)
             },

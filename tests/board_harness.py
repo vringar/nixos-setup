@@ -253,6 +253,8 @@ KINDS = {
     "approve": ("board2-approve", ("item", "name", "fingerprint", "key", "nonce")),
     "revoke": ("board2-revoke", ("fingerprint", "reason", "key", "nonce")),
     "archive": ("board2-archive", ("event", "archived", "reason", "key", "nonce")),
+    "blob": ("board2-blob", ("sha256", "size", "media_type", "filename", "key", "nonce")),
+    "blobdel": ("board2-blobdel", ("sha256", "key", "nonce")),
 }
 # The v1 kinds: a signature made for one of these must never verify in v2.
 V1_KINDS = {

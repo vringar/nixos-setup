@@ -26,6 +26,9 @@
     approve: ["board2-approve", ["item", "name", "fingerprint", "key", "nonce"]],
     revoke: ["board2-revoke", ["fingerprint", "reason", "key", "nonce"]],
     archive: ["board2-archive", ["event", "archived", "reason", "key", "nonce"]],
+    // uploading and deleting a blob (`board put`, `board blob-rm`); the web view signs neither yet
+    blob: ["board2-blob", ["sha256", "size", "media_type", "filename", "key", "nonce"]],
+    blobdel: ["board2-blobdel", ["sha256", "key", "nonce"]],
   };
   // Signed submits in a row that may go stale before giving up, as `board` does,
   // and the random wait (ms) before each new try, times the tries so far.

@@ -53,6 +53,7 @@
 
 mod actions;
 mod archive;
+mod blobs;
 mod events;
 mod items;
 mod keys;
@@ -72,7 +73,12 @@ use crate::sign::SignatureError;
 use crate::timefmt;
 
 pub use actions::{
-    ARCHIVE_REASON_MAX, Action, Approve, Archive, Create, File, Post, Register, Resolve, Revoke, SetNote, Signed,
+    ARCHIVE_REASON_MAX, Action, Approve, Archive, Create, DeleteBlob, File, Post, PutBlob, Register, Resolve, Revoke,
+    SetNote, Signed,
+};
+pub use blobs::{
+    Begun, BlobHolder, BlobInfo, BlobPage, BlobQuery, BlobRef, BlobStats, Landing, Limits, Pinner, RefState, StoreFull,
+    Uploader, Victim,
 };
 pub use events::{Event, EventType, Message};
 pub use items::{Item, ItemDetail, ItemPage, ItemQuery, ItemResolution, ItemState, StateFilter};
@@ -226,6 +232,35 @@ pub enum Error {
     /// owner unarchives it.
     #[error("#{id} is archived; the owner unarchives it first (board unarchive {id})")]
     Archived { id: i64 },
+    /// Text that starts like a blob reference and is not one.
+    #[error("{0}")]
+    BadReference(String),
+    #[error(
+        "board-blob://{hash} names no blob (never uploaded, or evicted: an unreferenced blob is evicted 1 h after \
+         upload when the store is full); upload it again (board put FILE); to keep a file, reference it from a \
+         note or a thread message"
+    )]
+    UnknownBlob { hash: String },
+    /// Something live pins the blob: nobody deletes it, the owner included.
+    #[error("{}", blobs::in_use_message(hash, refs, *total))]
+    BlobInUse { hash: String, refs: Vec<BlobHolder>, total: usize },
+    /// An archived message or item cannot come back: its file is gone.
+    #[error("{}", blobs::gone_message(hashes))]
+    BlobGone { hashes: Vec<String> },
+    #[error("a blob of {size} bytes is over the {max}-byte limit for one blob")]
+    BlobTooLarge { size: u64, max: u64 },
+    #[error("{0}")]
+    BlobStoreFull(Box<StoreFull>),
+    /// The bytes that arrived are not the bytes whose hash was signed.
+    #[error("the bytes hash to {got}, not the {expected} that was signed; nothing was stored")]
+    HashMismatch { expected: String, got: String },
+    #[error("a blob upload needs a Content-Length")]
+    LengthRequired,
+    #[error("{0} uploads are in progress already; try again shortly")]
+    UploadsBusy(usize),
+    /// A row without its file: an invariant broken, not a state.
+    #[error("the board has blob {hash} but not its file; the operator has to look at the blob directory")]
+    BlobMissing { hash: String },
     #[error("item #{item} is {state}, not open{}", .resolved.map(|id| format!(" (#{id})")).unwrap_or_default())]
     ItemNotOpen { item: i64, state: ItemState, resolved: Option<i64> },
     /// A client key already used for a different request, or a node that
@@ -261,6 +296,16 @@ impl Error {
     pub fn code(&self) -> &'static str {
         match self {
             Self::BadRequest(_) | Self::BadSignature(_) => "bad-request",
+            Self::BadReference(_) => "bad-reference",
+            Self::UnknownBlob { .. } => "unknown-blob",
+            Self::BlobInUse { .. } => "blob-in-use",
+            Self::BlobGone { .. } => "blob-gone",
+            Self::BlobTooLarge { .. } => "blob-too-large",
+            Self::BlobStoreFull(_) => "blob-store-full",
+            Self::HashMismatch { .. } => "hash-mismatch",
+            Self::LengthRequired => "length-required",
+            Self::UploadsBusy(_) => "busy",
+            Self::BlobMissing { .. } => "blob-missing",
             Self::EmptyNote => "empty-note",
             Self::NotRegistered { .. } => "not-registered",
             Self::RegistrationPending { .. } => "registration-pending",
@@ -284,7 +329,16 @@ impl Error {
     #[must_use]
     pub fn status(&self) -> u16 {
         match self {
-            Self::BadRequest(_) | Self::BadSignature(_) | Self::EmptyNote => 400,
+            Self::BadRequest(_)
+            | Self::BadSignature(_)
+            | Self::EmptyNote
+            | Self::BadReference(_)
+            | Self::UnknownBlob { .. }
+            | Self::HashMismatch { .. } => 400,
+            Self::LengthRequired => 411,
+            Self::BlobTooLarge { .. } => 413,
+            Self::BlobStoreFull(_) => 507,
+            Self::UploadsBusy(_) => 503,
             Self::NotRegistered { .. }
             | Self::RegistrationPending { .. }
             | Self::RegistrationDeclined { .. }
@@ -295,11 +349,13 @@ impl Error {
             | Self::NoteChanged { .. }
             | Self::Archived { .. }
             | Self::ItemNotOpen { .. }
+            | Self::BlobInUse { .. }
+            | Self::BlobGone { .. }
             | Self::Conflict(_)
             | Self::AlreadyRegistered { .. } => 409,
             Self::RegisterFull => 429,
             Self::Db(db) if db.is_busy() => 503,
-            Self::Db(_) => 500,
+            Self::Db(_) | Self::BlobMissing { .. } => 500,
         }
     }
 
@@ -333,6 +389,12 @@ impl Error {
                 json!({ "item": item, "state": state, "resolved": resolved })
             }
             Self::AlreadyRegistered { name } => json!({ "name": name }),
+            Self::UnknownBlob { hash } | Self::BlobMissing { hash } => json!({ "hash": hash }),
+            Self::BlobInUse { hash, refs, total } => json!({ "hash": hash, "refs": refs, "total": total }),
+            Self::BlobGone { hashes } => json!({ "hashes": hashes }),
+            Self::BlobTooLarge { size, max } => json!({ "size": size, "max": max }),
+            Self::BlobStoreFull(full) => full.to_json(),
+            Self::HashMismatch { expected, got } => json!({ "expected": expected, "got": got }),
             _ => Value::Null,
         };
         if let (Some(out), Value::Object(fields)) = (out.as_object_mut(), fields) {

@@ -14,6 +14,7 @@
 use rusqlite::{Connection, OptionalExtension as _};
 
 use super::actions::{ARCHIVE_REASON_MAX, Archive, Archived, Signed};
+use super::blobs;
 use super::events::{self, EventType, NewEvent, parsed};
 use super::keys;
 use super::nodes;
@@ -94,6 +95,10 @@ impl Board {
                 if archived.is_some() == archive.archived {
                     // as asked already: nothing to write
                     return Ok(latest(conn, target)?.unwrap_or(target));
+                }
+                if !archive.archived {
+                    // a file that was evicted meanwhile must not come back as a link
+                    blobs::check_unarchive(conn, target)?;
                 }
                 let kind = if archive.archived { EventType::NodeArchived } else { EventType::NodeUnarchived };
                 let event = NewEvent {

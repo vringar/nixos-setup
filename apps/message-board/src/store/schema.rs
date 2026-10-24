@@ -30,6 +30,9 @@ const STEPS: &[M<'static>] = &[
     // 3: the archive event that hides a message or an item's filing; NULL
     // while it is visible. Existing events are all visible.
     M::up("ALTER TABLE events ADD COLUMN archived INTEGER REFERENCES events(id)"),
+    // 4: the blob store's index (the bytes are files, see blobdir.rs) and what
+    // each body referenced.
+    M::up(BLOBS),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(STEPS);
 
@@ -59,6 +62,30 @@ pub(super) fn migrate(conn: &mut Connection, fresh: bool) -> Result<(), DbError>
 fn version(conn: &Connection) -> rusqlite::Result<i64> {
     conn.query_row("PRAGMA user_version", [], |r| r.get(0))
 }
+
+/// The blob tables: one row per stored content, and the references bodies
+/// made to them. Purely additive.
+const BLOBS: &str = "
+    CREATE TABLE blobs(
+        sha256      TEXT PRIMARY KEY CHECK(length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+        size        INTEGER NOT NULL CHECK(size > 0),
+        media_type  TEXT NOT NULL DEFAULT 'application/octet-stream',  -- first uploader's; never sniffed
+        filename    TEXT NOT NULL DEFAULT '',   -- first uploader's original file name: metadata only
+        uploader    TEXT NOT NULL,              -- the bound name at first upload
+        uploader_fp TEXT NOT NULL,
+        ts          TEXT NOT NULL,              -- UPLOAD TIME: refreshed whenever anyone uploads the same bytes
+        head        INTEGER NOT NULL,           -- the board's head when it landed
+        nonce       TEXT NOT NULL,
+        signature   TEXT NOT NULL               -- SSHSIG over the board2-blob fields
+    ) WITHOUT ROWID;
+
+    CREATE TABLE blob_refs(
+        event  INTEGER NOT NULL REFERENCES events(id),
+        sha256 TEXT NOT NULL,                   -- no FK on purpose: a reference outlives an evicted blob
+        PRIMARY KEY(event, sha256)
+    ) WITHOUT ROWID;
+    CREATE INDEX blob_refs_sha ON blob_refs(sha256);
+";
 
 /// The tables, as the spec has them, with a few more constraints: a check
 /// on every enum column, keys that carry their item and revocation as

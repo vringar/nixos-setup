@@ -91,6 +91,11 @@ fn has_event_column(path: &Path, column: &str) -> Result<bool, Box<dyn StdError>
     Ok(names.iter().any(|n| n == column))
 }
 
+fn has_table(path: &Path, table: &str) -> Result<bool, Box<dyn StdError>> {
+    let conn = Connection::open(path)?;
+    Ok(conn.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", [table], |r| r.get::<_, i64>(0))? > 0)
+}
+
 fn has_thread_column(path: &Path) -> Result<bool, Box<dyn StdError>> {
     has_event_column(path, "thread")
 }
@@ -137,7 +142,8 @@ fn old_database() -> Result<(Fixture, std::path::PathBuf), Box<dyn StdError>> {
 fn an_older_database_is_migrated_on_open_with_its_data_intact() -> TestResult {
     let (_f, old) = old_database()?;
     let migrated = Board::open(&old)?.board;
-    assert!(has_thread_column(&old)? && has_event_column(&old, "archived")? && pragma(&old, "user_version")? == 3);
+    assert!(has_thread_column(&old)? && has_event_column(&old, "archived")? && pragma(&old, "user_version")? == 4);
+    assert!(has_table(&old, "blobs")? && has_table(&old, "blob_refs")?);
 
     // the data is as it was
     let messages = migrated.thread("rev/log", Range::All)?.messages;
@@ -172,7 +178,7 @@ fn opening_again_changes_nothing() -> TestResult {
     let schema = pragma(&old, "schema_version")?;
     let bytes = fs::metadata(&old)?.len();
     Board::open(&old)?.board.close()?;
-    assert_eq!((pragma(&old, "schema_version")?, pragma(&old, "user_version")?), (schema, 3));
+    assert_eq!((pragma(&old, "schema_version")?, pragma(&old, "user_version")?), (schema, 4));
     assert_eq!(fs::metadata(&old)?.len(), bytes);
     Ok(())
 }
@@ -181,8 +187,30 @@ fn opening_again_changes_nothing() -> TestResult {
 fn a_fresh_database_starts_at_the_latest_version() -> TestResult {
     let f = fixture()?;
     f.board.close()?;
-    assert_eq!((pragma(&f.path, "user_version")?, has_thread_column(&f.path)?), (3, true));
+    assert_eq!((pragma(&f.path, "user_version")?, has_thread_column(&f.path)?), (4, true));
     assert!(has_event_column(&f.path, "archived")?);
+    assert!(has_table(&f.path, "blobs")? && has_table(&f.path, "blob_refs")?);
+    Ok(())
+}
+
+/// Version 3 (the archive column) gains the blob tables, with its data intact.
+#[test]
+fn a_version_3_database_gains_the_blob_tables() -> TestResult {
+    let f = fixture()?;
+    f.rev()?;
+    let agent = f.agent(2, "agent")?;
+    f.create(&agent, "rev/log", NodeKind::Thread)?;
+    f.post(&agent, "rev/log", "kept")?;
+    f.board.close()?;
+    Connection::open(&f.path)?
+        .execute_batch("DROP TABLE blob_refs; DROP TABLE blobs; PRAGMA user_version = 3")?;
+    assert!(!has_table(&f.path, "blobs")?);
+    let migrated = Board::open(&f.path)?.board;
+    assert!(has_table(&f.path, "blobs")? && has_table(&f.path, "blob_refs")?);
+    assert_eq!(pragma(&f.path, "user_version")?, 4);
+    assert_eq!(migrated.thread("rev/log", Range::All)?.messages.len(), 1);
+    assert_eq!(migrated.blob_stats()?.count, 0);
+    migrated.close()?;
     Ok(())
 }
 

@@ -55,8 +55,14 @@ pub const REVOKE: Kind = Kind { namespace: "board2-revoke", fields: &["fingerpri
 pub const ARCHIVE: Kind =
     Kind { namespace: "board2-archive", fields: &["event", "archived", "reason", "key", "nonce"] };
 
+/// Upload a blob: its address, size, media type and original file name.
+pub const BLOB: Kind =
+    Kind { namespace: "board2-blob", fields: &["sha256", "size", "media_type", "filename", "key", "nonce"] };
+/// Delete a blob.
+pub const BLOBDEL: Kind = Kind { namespace: "board2-blobdel", fields: &["sha256", "key", "nonce"] };
+
 /// Every kind a board write can be signed as.
-pub const KINDS: [Kind; 9] = [CREATE, POST, NOTE, FILE, RESOLVE, REGISTER, APPROVE, REVOKE, ARCHIVE];
+pub const KINDS: [Kind; 11] = [CREATE, POST, NOTE, FILE, RESOLVE, REGISTER, APPROVE, REVOKE, ARCHIVE, BLOB, BLOBDEL];
 
 const MAGIC: &[u8] = b"SSHSIG";
 const HASH: &str = "sha512";

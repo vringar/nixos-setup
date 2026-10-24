@@ -232,6 +232,38 @@ impl Action for Archive<'_> {
     }
 }
 
+/// Upload a blob: the fields the uploader signs before the first byte.
+#[derive(Debug, Clone, Copy)]
+pub struct PutBlob<'a> {
+    /// The address: 64 lowercase hex digits.
+    pub sha256: &'a str,
+    pub size: u64,
+    /// As [`crate::blob::media_type`] makes it.
+    pub media_type: &'a str,
+    /// The original file name, decoded; may be empty.
+    pub filename: &'a str,
+}
+
+impl Action for PutBlob<'_> {
+    const KIND: Kind = sign::BLOB;
+    fn fields(&self) -> Vec<String> {
+        vec![self.sha256.to_owned(), self.size.to_string(), self.media_type.to_owned(), self.filename.to_owned()]
+    }
+}
+
+/// Delete a blob that nothing pins.
+#[derive(Debug, Clone, Copy)]
+pub struct DeleteBlob<'a> {
+    pub sha256: &'a str,
+}
+
+impl Action for DeleteBlob<'_> {
+    const KIND: Kind = sign::BLOBDEL;
+    fn fields(&self) -> Vec<String> {
+        vec![self.sha256.to_owned()]
+    }
+}
+
 /// A number as signed: decimal, or empty for none.
 fn decimal(n: Option<i64>) -> String {
     n.map(|n| n.to_string()).unwrap_or_default()
@@ -368,12 +400,18 @@ fn replay(conn: &Connection, key: &str, hash: &str) -> Result<Option<i64>, Error
     }
 }
 
-fn check_nonce(conn: &Connection, nonce: &str) -> Result<(), Error> {
+pub(super) fn check_nonce(conn: &Connection, nonce: &str) -> Result<(), Error> {
     let head = head(conn)?;
     if nonce != head.to_string() {
         return Err(Error::StaleNonce { head });
     }
     Ok(())
+}
+
+/// Verify the signature of `signed` over the very fields it carries.
+pub(super) fn verify<A: Action>(signed: &Signed<'_, A>) -> Result<Verified, Error> {
+    let values = signed.action.values(signed.key, signed.nonce);
+    sign::verify(&A::KIND, &as_strs(&values), signed.signature).map_err(Error::BadSignature)
 }
 
 impl Board {
@@ -389,7 +427,7 @@ impl Board {
         outcome: impl FnOnce(&Connection, i64) -> Result<T, Error>,
     ) -> Result<T, Error> {
         let values = signed.action.values(signed.key, signed.nonce);
-        let verified = sign::verify(&A::KIND, &as_strs(&values), signed.signature).map_err(Error::BadSignature)?;
+        let verified = verify(signed)?;
         let hash = request_hash(&A::KIND, &values, &verified.fingerprint);
         let key = Some(signed.key).filter(|key| !key.is_empty());
         self.write(|conn, now| {
@@ -441,6 +479,8 @@ mod tests {
             (Approve { item: 1, name: "n", fingerprint: "f" }.values("k", "1").len(), Approve::KIND),
             (Revoke { fingerprint: "f", reason: "" }.values("k", "1").len(), Revoke::KIND),
             (Archive { event: 1, archived: true, reason: "" }.values("k", "1").len(), Archive::KIND),
+            (PutBlob { sha256: "h", size: 1, media_type: "a/b", filename: "" }.values("k", "1").len(), PutBlob::KIND),
+            (DeleteBlob { sha256: "h" }.values("k", "1").len(), DeleteBlob::KIND),
         ];
         for (count, kind) in counts {
             assert_eq!(count, kind.fields.len(), "{}", kind.namespace);

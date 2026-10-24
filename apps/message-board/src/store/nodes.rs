@@ -16,6 +16,7 @@ use rusqlite::{Connection, OptionalExtension as _, Row, params};
 use serde::{Deserialize, Serialize};
 
 use super::actions::{Create, Created, NoteSaved, Post, Posted, SetNote, Signed, Stamp};
+use super::blobs;
 use super::events::{self, EventType, Message, NewEvent, parsed};
 use super::keys::{self, Author};
 use super::{Board, DbError, Error, capped, check_name, opt_text, quoted, text};
@@ -693,7 +694,8 @@ impl Board {
                 if create.kind == NodeKind::Note && !create.body.trim().is_empty() {
                     let first =
                         NewEvent { version: Some(1), ..NewEvent::new(EventType::NoteVersion, node, create.body) };
-                    events::insert(conn, &stamp.later(), &first)?;
+                    let version = events::insert(conn, &stamp.later(), &first)?;
+                    blobs::record_refs(conn, version, create.body)?;
                 }
                 Ok(event)
             },
@@ -722,6 +724,7 @@ impl Board {
                 check_writable(&thread)?;
                 let id = events::insert(conn, stamp, &NewEvent::new(EventType::Message, thread.id, post.body))?;
                 events::record_mentions(conn, id, post.body)?;
+                blobs::record_refs(conn, id, post.body)?;
                 Ok(id)
             },
             |_, id| Ok(Posted { id }),
@@ -793,7 +796,9 @@ impl Board {
                     thread: (!thread.is_empty()).then_some(thread),
                     ..NewEvent::new(EventType::NoteVersion, note.id, save.body)
                 };
-                Ok(events::insert(conn, stamp, &event)?)
+                let id = events::insert(conn, stamp, &event)?;
+                blobs::record_refs(conn, id, save.body)?;
+                Ok(id)
             },
             |conn, id| {
                 let event = event_of(conn, id)?;
@@ -853,6 +858,10 @@ impl Board {
                 &format!("DELETE FROM mentions WHERE event IN (SELECT id FROM events WHERE node IN ({nodes}))"),
                 [],
             )?;
+            conn.execute(
+                &format!("DELETE FROM blob_refs WHERE event IN (SELECT id FROM events WHERE node IN ({nodes}))"),
+                [],
+            )?;
             let events = conn.execute(&format!("DELETE FROM events WHERE node IN ({nodes})"), [])?;
             conn.execute(&format!("DELETE FROM items WHERE queue IN ({nodes})"), [])?;
             let nodes = conn.execute(&format!("DELETE FROM nodes WHERE id IN ({nodes})"), [])?;
@@ -890,6 +899,7 @@ impl Board {
             conn.execute("UPDATE events SET archived=NULL WHERE id=?", [id])?;
             conn.execute("DELETE FROM events WHERE ref=? AND type IN ('node_archived','node_unarchived')", [id])?;
             conn.execute("DELETE FROM mentions WHERE event=?", [id])?;
+            conn.execute("DELETE FROM blob_refs WHERE event=?", [id])?;
             conn.execute("DELETE FROM events WHERE id=?", [id])?;
             Ok(())
         })
