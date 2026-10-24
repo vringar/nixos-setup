@@ -93,6 +93,8 @@ pub struct BlobInfo {
     pub refs: u64,
     /// Whether something live pins it.
     pub pinned: bool,
+    /// `pinned`, or `released`: it exists, nothing pins it, and it may go when the store is full.
+    pub state: RefState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
 }
@@ -352,6 +354,7 @@ fn info_row(r: &Row<'_>) -> rusqlite::Result<BlobInfo> {
         ts: text(r, 7)?,
         refs: count(r.get(8)?),
         pinned: r.get(9)?,
+        state: if r.get(9)? { RefState::Pinned } else { RefState::Released },
         signature: Some(text(r, 10)?),
     })
 }

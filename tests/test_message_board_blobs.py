@@ -110,7 +110,7 @@ def test_a_blob_round_trips_under_its_hash(board, team):
     info = board.get_json(f"/blobs/{h}")
     assert (info["hash"], info["size"], info["from"], info["pinned"], info["refs"]) == \
         (h, len(blob), "alice", False, 0)
-    assert info["signed_by"] == team.alice.fingerprint and info["signature"]
+    assert info["signed_by"] == team.alice.fingerprint and info["signature"] and info["state"] == "released"
 
 
 def test_an_upload_does_not_move_the_head_or_make_an_event(board, team):
