@@ -133,6 +133,15 @@ pub struct BlobHolder {
     pub path: String,
 }
 
+/// An event that references a blob, and whether it still keeps it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BlobReferrer {
+    pub event: i64,
+    pub path: String,
+    /// The holder is live: it pins the blob.
+    pub pinning: bool,
+}
+
 /// A node, with how much of the store its live references pin.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Pinner {
@@ -156,10 +165,24 @@ pub struct StoreFull {
     pub pinned_by: Vec<Pinner>,
     /// The disk is full, whatever the cap says.
     pub disk: bool,
+    /// With `disk`: the bytes free on the disk and the reserve the board
+    /// keeps free (`BOARD_BLOB_RESERVE`); both 0 when the disk gave out in
+    /// the middle of a write.
+    pub free: u64,
+    pub reserve: u64,
 }
 
 impl std::fmt::Display for StoreFull {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.disk && self.reserve > 0 {
+            return write!(
+                f,
+                "the disk has {} free and the board keeps {} of it in reserve: this {} blob does not fit",
+                blob::human(self.free),
+                blob::human(self.reserve),
+                blob::human(self.needed)
+            );
+        }
         if self.disk {
             return write!(f, "the disk is full: this {} blob does not fit", blob::human(self.needed));
         }
@@ -202,11 +225,17 @@ impl std::fmt::Display for StoreFull {
 impl StoreFull {
     #[must_use]
     pub fn to_json(&self) -> Json {
-        json!({
+        let mut json = json!({
             "used": self.used, "cap": self.cap, "needed": self.needed, "evictable": self.evictable,
             "pinned": self.pinned, "in_grace": self.in_grace, "grace_secs": self.grace,
             "pinned_by": self.pinned_by,
-        })
+        });
+        if let (true, Some(fields)) = (self.disk, json.as_object_mut()) {
+            fields.insert("disk".to_owned(), json!(true));
+            fields.insert("free".to_owned(), json!(self.free));
+            fields.insert("reserve".to_owned(), json!(self.reserve));
+        }
+        json
     }
 }
 
@@ -455,6 +484,8 @@ fn full(conn: &Connection, room: &Room, limits: &Limits, needed: u64) -> rusqlit
         grace: limits.grace,
         pinned_by: pinners(conn)?,
         disk: false,
+        free: 0,
+        reserve: 0,
     })
 }
 
@@ -472,7 +503,16 @@ impl StoreFull {
             grace: 0,
             pinned_by: Vec::new(),
             disk: true,
+            free: 0,
+            reserve: 0,
         }
+    }
+
+    /// The refusal for a disk with less than `reserve` bytes to spare after
+    /// this upload.
+    #[must_use]
+    pub fn reserve(needed: u64, free: u64, reserve: u64) -> Self {
+        Self { free, reserve, ..Self::disk(needed) }
     }
 }
 
@@ -505,6 +545,24 @@ pub(super) fn check_unarchive(conn: &Connection, target: i64) -> Result<(), Erro
         .query_map([target], |r| text(r, 0))?
         .collect::<rusqlite::Result<_>>()?;
     if hashes.is_empty() { Ok(()) } else { Err(Error::BlobGone { hashes }) }
+}
+
+/// Delete the row of blob `hash`, which exists, unless something live pins it.
+fn forget(conn: &Connection, hash: &str) -> Result<(), Error> {
+    let holders: Vec<BlobHolder> = conn
+        .prepare(&format!(
+            "SELECT e.id, n.path FROM blob_refs r JOIN events e ON e.id = r.event JOIN nodes n ON n.id = e.node
+              WHERE r.sha256 = ? AND {} ORDER BY e.id",
+            live("e")
+        ))?
+        .query_map([hash], |r| Ok(BlobHolder { event: r.get(0)?, path: text(r, 1)? }))?
+        .collect::<rusqlite::Result<_>>()?;
+    if !holders.is_empty() {
+        let total = holders.len();
+        return Err(Error::BlobInUse { hash: hash.to_owned(), refs: holders.into_iter().take(20).collect(), total });
+    }
+    conn.execute("DELETE FROM blobs WHERE sha256 = ?", [hash])?;
+    Ok(())
 }
 
 /// The ids of `events` as an SQL list: they are the board's own integers.
@@ -637,24 +695,71 @@ impl Board {
                     "only the key that uploaded a blob, or the owner key, deletes it".to_owned(),
                 ));
             }
-            let holders: Vec<BlobHolder> = conn
-                .prepare(&format!(
-                    "SELECT e.id, n.path FROM blob_refs r JOIN events e ON e.id = r.event JOIN nodes n ON n.id = e.node
-                      WHERE r.sha256 = ? AND {} ORDER BY e.id",
-                    live("e")
-                ))?
-                .query_map([hash], |r| Ok(BlobHolder { event: r.get(0)?, path: text(r, 1)? }))?
-                .collect::<rusqlite::Result<_>>()?;
-            if !holders.is_empty() {
-                let total = holders.len();
-                return Err(Error::BlobInUse {
-                    hash: hash.to_owned(),
-                    refs: holders.into_iter().take(20).collect(),
-                    total,
-                });
+            forget(conn, hash)
+        })
+    }
+
+    /// Delete blob `hash` from the index on the operator's say, with nobody's
+    /// key: nothing that pins it is ever deleted. The caller unlinks the file.
+    ///
+    /// # Errors
+    /// [`Error::NotFound`]; [`Error::BlobInUse`].
+    pub fn blob_delete_unsigned(&self, hash: &str) -> Result<(), Error> {
+        if !blob::is_hash(hash) {
+            return Err(Error::BadRequest("sha256 is 64 lowercase hex digits".to_owned()));
+        }
+        self.write(|conn, _| {
+            let there: bool =
+                conn.query_row("SELECT count(*) > 0 FROM blobs WHERE sha256 = ?", [hash], |r| r.get(0))?;
+            if !there {
+                return Err(Error::NotFound(format!("no blob {hash}")));
             }
-            conn.execute("DELETE FROM blobs WHERE sha256 = ?", [hash])?;
-            Ok(())
+            forget(conn, hash)
+        })
+    }
+
+    /// Every blob's address and size, by address: what the index says the
+    /// directory holds.
+    ///
+    /// # Errors
+    /// On a database fault.
+    pub fn blob_index(&self) -> Result<Vec<(String, u64)>, DbError> {
+        self.read_db(|conn| {
+            conn.prepare("SELECT sha256, size FROM blobs ORDER BY sha256")?
+                .query_map([], |r| Ok((text(r, 0)?, count(r.get(1)?))))?
+                .collect()
+        })
+    }
+
+    /// The references a live holder makes to blobs the board does not have:
+    /// each is an event and a hash. There should be none (the promise).
+    ///
+    /// # Errors
+    /// On a database fault.
+    pub fn pinned_without_blob(&self) -> Result<Vec<(i64, String)>, DbError> {
+        let sql = format!(
+            "SELECT r.event, r.sha256 FROM blob_refs r JOIN events e ON e.id = r.event
+              WHERE NOT EXISTS (SELECT 1 FROM blobs b WHERE b.sha256 = r.sha256) AND {} ORDER BY r.event, r.sha256",
+            live("e")
+        );
+        self.read_db(|conn| conn.prepare(&sql)?.query_map([], |r| Ok((r.get(0)?, text(r, 1)?)))?.collect())
+    }
+
+    /// The events that reference blob `hash`, oldest first, and whether each
+    /// still pins it.
+    ///
+    /// # Errors
+    /// On a database fault.
+    pub fn blob_referrers(&self, hash: &str) -> Result<Vec<BlobReferrer>, DbError> {
+        let sql = format!(
+            "SELECT e.id, n.path, {} FROM blob_refs r JOIN events e ON e.id = r.event JOIN nodes n ON n.id = e.node
+              WHERE r.sha256 = ? ORDER BY e.id",
+            live("e")
+        );
+        self.read_db(|conn| {
+            conn.prepare(&sql)?
+                .query_map([hash], |r| Ok(BlobReferrer { event: r.get(0)?, path: text(r, 1)?, pinning: r.get(2)? }))?
+                .collect()
         })
     }
 
@@ -814,6 +919,8 @@ mod tests {
                 Pinner { path: "reversing/emu/aspfuzz".to_owned(), bytes: 9_000_000_000, blobs: 3 },
             ],
             disk: false,
+            free: 0,
+            reserve: 0,
         };
         let message = full.to_string();
         assert!(message.starts_with("the blob store is full: 49.8 GB of 50 GB used; 31 GB is pinned"), "{message}");
@@ -824,6 +931,11 @@ mod tests {
             "{message}"
         );
         assert!(StoreFull::disk(5_000).to_string().contains("disk is full"));
+        assert_eq!(
+            StoreFull::reserve(3_000_000, 5_100_000_000, 5_000_000_000).to_string(),
+            "the disk has 5.1 GB free and the board keeps 5 GB of it in reserve: this 3 MB blob does not fit"
+        );
+        assert_eq!(StoreFull::reserve(1, 2, 3).to_json().get("reserve"), Some(&json!(3)));
     }
 
     #[test]

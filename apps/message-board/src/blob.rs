@@ -20,6 +20,8 @@ pub const REFS_MAX: usize = 32;
 pub const CAP_DEFAULT: u64 = 50_000_000_000;
 /// The default size limit of one blob: 8 GiB.
 pub const MAX_DEFAULT: u64 = 8 * 1024 * 1024 * 1024;
+/// The default free space the disk keeps beyond the blobs: 5 GB.
+pub const RESERVE_DEFAULT: u64 = 5_000_000_000;
 /// How long an unreferenced blob is safe from eviction, in seconds.
 pub const GRACE_DEFAULT: u64 = 3600;
 /// The most uploads in flight at once.
@@ -245,6 +247,36 @@ pub fn human(bytes: u64) -> String {
     format!("{bytes} bytes")
 }
 
+/// How long ago `ts` (a board timestamp) was at `now`, as a message says it:
+/// `42 s`, `5 min`, `3 h`, `2 d`; `?` for a timestamp that is none.
+#[must_use]
+pub fn age(ts: &str, now: u64) -> String {
+    let Some(then) = crate::timefmt::parse(ts) else {
+        return "?".to_owned();
+    };
+    let secs = now.saturating_sub(then);
+    match secs {
+        0..=59 => format!("{secs} s"),
+        60..=3599 => format!("{} min", secs / 60),
+        3600..=86_399 => format!("{} h", secs / 3600),
+        _ => format!("{} d", secs / 86_400),
+    }
+}
+
+/// What may become of a blob: `pinned` (nothing removes it), `in grace` (not
+/// pinned, but uploaded less than `grace` seconds before `now`), or
+/// `evictable` (an upload that does not fit may take it).
+#[must_use]
+pub fn standing(pinned: bool, ts: &str, now: u64, grace: u64) -> &'static str {
+    if pinned {
+        "pinned"
+    } else if crate::timefmt::parse(ts).is_some_and(|then| then.saturating_add(grace) > now) {
+        "in grace"
+    } else {
+        "evictable"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,5 +393,18 @@ mod tests {
         assert_eq!(human(49_800_000_000), "49.8 GB");
         assert_eq!(human(50_000_000_000), "50 GB");
         assert_eq!(human(3_100_000), "3.1 MB");
+    }
+
+    #[test]
+    fn an_age_and_a_standing_read_from_the_upload_time() {
+        let at = |secs| crate::timefmt::format(secs);
+        assert_eq!(age(&at(1000), 1042), "42 s");
+        assert_eq!(age(&at(1000), 1300), "5 min");
+        assert_eq!(age(&at(1000), 1000 + 3 * 3600 + 5), "3 h");
+        assert_eq!(age(&at(1000), 1000 + 2 * 86_400), "2 d");
+        assert_eq!(age("nonsense", 5), "?");
+        assert_eq!(standing(true, &at(0), 10_000, 3600), "pinned");
+        assert_eq!(standing(false, &at(9000), 10_000, 3600), "in grace");
+        assert_eq!(standing(false, &at(6400), 10_000, 3600), "evictable");
     }
 }

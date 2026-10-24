@@ -175,9 +175,8 @@ fn upload(api: &Api, signer: &Signer, put: &PutBlob<'_>, path: &Path) -> Result<
     }
 }
 
-/// Copy `from` to `to`, hashing what passes; the hash and the byte count.
-fn copy_hashed(from: &mut dyn Read, to: &mut dyn Write) -> Result<(String, u64), Failure> {
-    let mut hasher = Sha256::new();
+/// Copy `from` to `to`, feeding what passes to `hasher`; the byte count.
+fn copy_hashed(from: &mut dyn Read, to: &mut dyn Write, hasher: &mut Sha256) -> Result<u64, Failure> {
     let mut buf = vec![0_u8; CHUNK];
     let mut size = 0_u64;
     loop {
@@ -190,15 +189,35 @@ fn copy_hashed(from: &mut dyn Read, to: &mut dyn Write) -> Result<(String, u64),
         to.write_all(chunk).map_err(io_failure("cannot write the output"))?;
         size = size.saturating_add(u64::try_from(n).unwrap_or(0));
     }
-    Ok((hex(&hasher.finalize()), size))
+    Ok(size)
 }
 
-/// `board get REF [-o FILE|-]`: the bytes, checked against their hash as
-/// they are written; a mismatch deletes the output. Without `-o`, the bytes
-/// go to standard output unless that is a terminal. `-o -` is the one place
-/// standard output is data and not JSON Lines; the blob's line goes to
+/// What an earlier, broken-off download left in `part`: the hash state of
+/// its bytes and their count. Nothing if there is no such file.
+fn kept(part: &Path) -> Result<(Sha256, u64), Failure> {
+    let mut hasher = Sha256::new();
+    match File::open(part) {
+        Ok(mut file) => {
+            let size = copy_hashed(&mut file, &mut io::sink(), &mut hasher)?;
+            Ok((hasher, size))
+        }
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok((hasher, 0)),
+        Err(err) => Err(io_failure(format!("cannot read {}", part.display()))(err)),
+    }
+}
+
+/// `board get REF [-o FILE|-] [--resume]`: the bytes, checked against their
+/// hash as they are written; a mismatch deletes the output. Without `-o`, the
+/// bytes go to standard output unless that is a terminal. `-o -` is the one
+/// place standard output is data and not JSON Lines; the blob's line goes to
 /// standard error then.
-pub fn get(api: &Api, reference: &str, output: Option<&str>) -> Result<(), Failure> {
+///
+/// A download into `FILE` goes to `FILE.part` first and stays there if the
+/// transfer breaks off. With `resume`, what a `FILE.part` already holds is
+/// kept (and hashed again, so a damaged start is caught at the end) and only
+/// the rest is asked for with a `Range`; a part that is too long, or a board
+/// that answers with the whole blob, starts over.
+pub fn get(api: &Api, reference: &str, output: Option<&str>, resume: bool) -> Result<(), Failure> {
     let hash = hash_of(reference)?;
     let to_stdout = match output {
         Some("-") => true,
@@ -210,16 +229,24 @@ pub fn get(api: &Api, reference: &str, output: Option<&str>) -> Result<(), Failu
         }
         None => true,
     };
-    let mut download = api.open(&format!("/sha256/{hash}"), DOWNLOAD_TIMEOUT).map_err(|err| api.failure(err))?;
+    if resume && to_stdout {
+        return Err(Failure::Arguments(
+            "--resume needs -o FILE: there is nothing to resume on standard output".to_owned(),
+        ));
+    }
+    let path = format!("/sha256/{hash}");
     let mismatch = |got: &str| Failure::Refused {
         code: "hash-mismatch".to_owned(),
         message: format!("the bytes hash to {got}, not {hash}; nothing was kept"),
     };
     let size = match output.filter(|_| !to_stdout) {
         None => {
+            let mut download = api.open(&path, DOWNLOAD_TIMEOUT, 0).map_err(|err| api.failure(err))?;
             let mut stdout = io::stdout().lock();
-            let (got, size) = copy_hashed(&mut download.reader, &mut stdout)?;
+            let mut hasher = Sha256::new();
+            let size = copy_hashed(&mut download.reader, &mut stdout, &mut hasher)?;
             stdout.flush().map_err(io_failure("cannot write the output"))?;
+            let got = hex(&hasher.finalize());
             if got != hash {
                 return Err(mismatch(&got));
             }
@@ -229,24 +256,36 @@ pub fn get(api: &Api, reference: &str, output: Option<&str>) -> Result<(), Failu
             let mut part = std::ffi::OsString::from(file);
             part.push(".part");
             let part = PathBuf::from(part);
-            let mut out = File::create(&part).map_err(io_failure(format!("cannot write {}", part.display())))?;
-            let copied = copy_hashed(&mut download.reader, &mut out).and_then(|done| {
-                out.sync_all().map_err(io_failure(format!("cannot write {}", part.display())))?;
-                Ok(done)
-            });
-            let (got, size) = match copied {
-                Ok(done) => done,
-                Err(err) => {
-                    drop(fs::remove_file(&part));
-                    return Err(err);
+            let cannot = |part: &Path| io_failure(format!("cannot write {}", part.display()));
+            let (mut hasher, mut have) = if resume { kept(&part)? } else { (Sha256::new(), 0) };
+            let mut reader: Box<dyn Read> = Box::new(io::empty());
+            // Never ask for bytes past the end: a part longer than the blob is no start of it.
+            let total =
+                if have > 0 { api.find::<Blob>(&format!("/blobs/{hash}"))?.map(|blob| blob.size) } else { None };
+            if total.is_some_and(|total| have > total) {
+                (hasher, have) = (Sha256::new(), 0);
+            }
+            let complete = have > 0 && total == Some(have);
+            if !complete {
+                let download = api.open(&path, DOWNLOAD_TIMEOUT, have).map_err(|err| api.failure(err))?;
+                if have > 0 && !download.partial {
+                    // the whole blob is coming, not the rest of it
+                    (hasher, have) = (Sha256::new(), 0);
                 }
-            };
+                reader = download.reader;
+            }
+            let mut out = if have > 0 { OpenOptions::new().append(true).open(&part) } else { File::create(&part) }
+                .map_err(cannot(&part))?;
+            // a broken-off transfer leaves the part for --resume
+            let copied = copy_hashed(&mut reader, &mut out, &mut hasher)?;
+            out.sync_all().map_err(cannot(&part))?;
+            let got = hex(&hasher.finalize());
             if got != hash {
                 drop(fs::remove_file(&part));
                 return Err(mismatch(&got));
             }
             fs::rename(&part, file).map_err(io_failure(format!("cannot move {} to {file}", part.display())))?;
-            size
+            have.saturating_add(copied)
         }
     };
     let info = api.find::<Blob>(&format!("/blobs/{hash}"))?;

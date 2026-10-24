@@ -89,8 +89,8 @@ pub use actions::{
     SetNote, Signed,
 };
 pub use blobs::{
-    Begun, BlobHolder, BlobInfo, BlobPage, BlobQuery, BlobRef, BlobStats, Landing, Limits, Pinner, RefState, StoreFull,
-    Uploader, Victim,
+    Begun, BlobHolder, BlobInfo, BlobPage, BlobQuery, BlobRef, BlobReferrer, BlobStats, Landing, Limits, Pinner,
+    RefState, StoreFull, Uploader, Victim,
 };
 pub use events::{Event, EventType, Message};
 pub use items::{Item, ItemDetail, ItemPage, ItemQuery, ItemResolution, ItemState, StateFilter};

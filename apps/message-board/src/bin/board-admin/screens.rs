@@ -9,7 +9,9 @@
 
 use std::fmt::Display;
 
-use message_board::store::{Board, Child, Item, Message, NodeKind, Range, StateFilter, Status};
+use message_board::blob;
+use message_board::store::{BlobInfo, BlobQuery, Board, Child, Item, Message, NodeKind, Range, StateFilter, Status};
+use message_board::timefmt;
 
 use crate::Failure;
 use crate::pager::Pager;
@@ -33,6 +35,30 @@ pub enum Screen {
     ConfirmBranch { path: String, nodes: Vec<String>, typed: String },
     /// Deleting one message.
     ConfirmMessage { message: Message },
+    /// The blobs, newest upload first or biggest first.
+    Blobs { sort: Sort, picker: Picker<BlobInfo> },
+    /// One blob: what is known of it and what references it.
+    Blob { sort: Sort, info: BlobInfo, pager: Pager },
+    /// Deleting one blob.
+    ConfirmBlob { sort: Sort, info: BlobInfo },
+}
+
+/// How the blob list is ordered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sort {
+    /// Newest upload first.
+    Age,
+    /// Biggest first.
+    Size,
+}
+
+impl Sort {
+    pub const fn other(self) -> Self {
+        match self {
+            Self::Age => Self::Size,
+            Self::Size => Self::Age,
+        }
+    }
 }
 
 /// The container `path` is in: `""` (the top level) for a top-level one.
@@ -117,7 +143,10 @@ pub fn tree(board: &Board, path: &str, came_from: Option<&str>) -> Result<Screen
         format!("{:<width$}  {:<9}  {archived}{}{description}", child.path, child.kind.as_str(), status(&child.status))
     };
     let (title, footer) = if path.is_empty() {
-        ("board-admin -- the board".to_owned(), "enter: open    d: delete it and everything in it    q: quit")
+        (
+            "board-admin -- the board".to_owned(),
+            "enter: open    d: delete it and everything in it    b: blobs    q: quit",
+        )
     } else {
         (format!("board-admin -- {path}"), "enter: open    d: delete it and everything in it    q: back")
     };
@@ -239,6 +268,93 @@ pub fn item(board: &Board, path: &str, id: i64) -> Result<Screen, Failure> {
     }
     let pager = Pager::new(format!("board-admin -- {path} #{id}"), lines, "j/k: scroll    q: back");
     Ok(Screen::Item { path: path.to_owned(), id, pager })
+}
+
+/// The blob store: every blob, with what may become of it. `came_from` is
+/// the blob left (or, if it is gone, the row it was on).
+///
+/// # Errors
+/// If the blobs cannot be read.
+pub fn blobs(board: &Board, grace: u64, sort: Sort, came_from: Option<(&str, usize)>) -> Result<Screen, Failure> {
+    let query = |evictable| BlobQuery { unreferenced: false, evictable, mine: None, limit: 1000, after: None, grace };
+    let mut blobs = board.blobs(&query(false))?.blobs;
+    if sort == Sort::Size {
+        blobs.sort_by(|a, b| b.size.cmp(&a.size).then_with(|| a.hash.cmp(&b.hash)));
+    }
+    let selected = came_from.map_or(0, |(hash, row)| blobs.iter().position(|b| b.hash == hash).unwrap_or(row));
+    let now = timefmt::unix_now()?;
+    let total: u64 = blobs.iter().map(|b| b.size).fold(0, u64::saturating_add);
+    let title = format!(
+        "board-admin -- blobs ({}, {}, {})",
+        count(blobs.len(), "blob", "blobs"),
+        blob::human(total),
+        if sort == Sort::Age { "newest first" } else { "biggest first" }
+    );
+    let row = |b: &BlobInfo| {
+        format!(
+            "{}  {:>9}  {:>6}  {:<9}  {:>2} refs  {}",
+            b.hash.get(..12).unwrap_or_default(),
+            blob::human(b.size),
+            blob::age(&b.ts, now),
+            blob::standing(b.pinned, &b.ts, now, grace),
+            b.refs,
+            if b.filename.is_empty() { "(no name)" } else { &b.filename }
+        )
+    };
+    let footer = if sort == Sort::Age {
+        "enter: open    s: biggest first    q: back"
+    } else {
+        "enter: open    s: newest first    q: back"
+    };
+    Ok(Screen::Blobs { sort, picker: Picker::new(title, blobs, row, footer, selected) })
+}
+
+/// One blob: when and by whom it was uploaded, what may become of it, and
+/// every event that references it.
+///
+/// # Errors
+/// If it cannot be read, and if it is gone: it was in the list a moment
+/// ago, and with the service down nothing else should be writing.
+pub fn blob(board: &Board, grace: u64, sort: Sort, hash: &str) -> Result<Screen, Failure> {
+    let info = board
+        .blob(hash)?
+        .ok_or_else(|| Failure::Exit(format!("blob {hash} is gone: something else is writing to the database")))?;
+    let now = timefmt::unix_now()?;
+    let referrers = board.blob_referrers(hash)?;
+    let revoked = info.revoked_at.map(|at| format!(" (key revoked at #{at})")).unwrap_or_default();
+    let mut lines = vec![
+        info.hash.clone(),
+        format!(
+            "{} ({} bytes), {}",
+            blob::human(info.size),
+            info.size,
+            blob::standing(info.pinned, &info.ts, now, grace)
+        ),
+        format!(
+            "uploaded {} ({} ago) by {}, signed by {}{revoked}",
+            info.ts,
+            blob::age(&info.ts, now),
+            info.from,
+            info.signed_by
+        ),
+        format!("file name {:?}, type {}", info.filename, info.media_type),
+        String::new(),
+    ];
+    if referrers.is_empty() {
+        lines.push("nothing references it".to_owned());
+    } else {
+        lines.push(format!("referenced by {}:", count(referrers.len(), "event", "events")));
+        for r in &referrers {
+            let state = if r.pinning { "pins it" } else { "released" };
+            lines.push(format!("  #{}  {}  {state}", r.event, r.path));
+        }
+    }
+    let pager = Pager::new(
+        format!("board-admin -- blob {}", info.hash.get(..12).unwrap_or_default()),
+        lines,
+        "d: delete this blob    j/k: scroll    q: back",
+    );
+    Ok(Screen::Blob { sort, info, pager })
 }
 
 /// `child`, and everything under it after it, each parent before its

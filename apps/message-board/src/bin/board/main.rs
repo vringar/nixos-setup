@@ -21,7 +21,7 @@
 //! board approve TARGET / board revoke TARGET the owner key's
 //! board archive ID [--reason T] / unarchive ID  hide / show a message or item (owner key)
 //! board put FILE|- [--name N] [--type MEDIA]   upload a file; prints the reference to paste into a body
-//! board get REF [-o FILE|-]                  download a blob by its hash or board-blob:// reference
+//! board get REF [-o FILE|-] [--resume]        download a blob by its hash or board-blob:// reference
 //! board blobs [--mine] [--unreferenced] [--evictable] [--limit N] [--summary]
 //! board blob-rm HASH                         delete a blob nothing pins (its uploader or the owner key)
 //! ```
@@ -319,6 +319,11 @@ enum Command {
             help = "where to write it; '-' (or a redirected stdout) prints the bytes"
         )]
         output: Option<String>,
+        #[arg(
+            long,
+            help = "continue a broken-off download: keep what FILE.part holds and fetch the rest (needs -o FILE)"
+        )]
+        resume: bool,
     },
     #[command(about = "list the blobs, newest upload first (or the store's totals with --summary)")]
     Blobs {
@@ -584,7 +589,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
         Command::Unarchive { id } => write::archive(&api, id, false, ""),
         Command::Revoke { target, reason } => write::revoke(&api, &target, &reason),
         Command::Put { file, name, media_type } => blobs::put(&api, &file, name.as_deref(), media_type.as_deref()),
-        Command::Get { reference, output } => blobs::get(&api, &reference, output.as_deref()),
+        Command::Get { reference, output, resume } => blobs::get(&api, &reference, output.as_deref(), resume),
         Command::Blobs { mine, unreferenced, evictable, limit, summary } => {
             blobs::list(&api, &blobs::Listing { mine, unreferenced, evictable, limit, summary })
         }

@@ -18,15 +18,20 @@
 //! into): a refusal is shown and the session goes on, while a fault in the
 //! database ends it.
 
+use std::fs;
+use std::io;
+use std::path::PathBuf;
+
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use message_board::store::{self, Board, Deleted, Message};
+use message_board::fsck;
+use message_board::store::{self, BlobInfo, Board, Deleted, Message};
 
 use crate::Failure;
 use crate::audit::Audit;
 use crate::pager::Read;
 use crate::picker::Pick;
-use crate::screens::{self, Screen, parent};
+use crate::screens::{self, Screen, Sort, parent};
 
 /// What the event loop does after a key.
 #[derive(Debug, PartialEq, Eq)]
@@ -37,9 +42,17 @@ pub enum Flow {
     Interrupted,
 }
 
+/// Where the blob files are and how long an unreferenced blob is safe from
+/// eviction: what the blob screens need beside the database.
+pub struct BlobSettings {
+    pub root: PathBuf,
+    pub grace: u64,
+}
+
 pub struct App<'a> {
     board: &'a Board,
     audit: Audit,
+    blobs: BlobSettings,
     pub screen: Screen,
     /// What the last action did, or why it did not: shown under the screen
     /// until the next key.
@@ -51,9 +64,9 @@ impl<'a> App<'a> {
     ///
     /// # Errors
     /// If the board cannot be read.
-    pub fn new(board: &'a Board, audit: Audit) -> Result<Self, Failure> {
+    pub fn new(board: &'a Board, audit: Audit, blobs: BlobSettings) -> Result<Self, Failure> {
         let screen = screens::tree(board, "", None)?;
-        Ok(Self { board, audit, screen, notice: None })
+        Ok(Self { board, audit, blobs, screen, notice: None })
     }
 
     /// Turn one key press into the next state.
@@ -66,6 +79,7 @@ impl<'a> App<'a> {
         }
         self.notice = None;
         let board = self.board;
+        let grace = self.blobs.grace;
         let next = match &mut self.screen {
             Screen::Tree { path, picker } => match picker.key(key.code) {
                 Pick::Open(child) => screens::open(board, child)?,
@@ -75,6 +89,7 @@ impl<'a> App<'a> {
                     Some(child) => screens::confirm_branch(board, child)?,
                     None => return Ok(Flow::Continue),
                 },
+                Pick::Other(KeyCode::Char('b')) => screens::blobs(board, grace, Sort::Age, None)?,
                 Pick::Stay | Pick::Other(_) => return Ok(Flow::Continue),
             },
             Screen::Note { path, pager } => match pager.key(key.code) {
@@ -121,6 +136,30 @@ impl<'a> App<'a> {
                 }
                 _ => return Ok(Flow::Continue),
             },
+            Screen::Blobs { sort, picker } => match picker.key(key.code) {
+                Pick::Open(info) => screens::blob(board, grace, *sort, &info.hash)?,
+                Pick::Back => screens::tree(board, "", None)?,
+                Pick::Other(KeyCode::Char('s')) => {
+                    let came_from = picker.selected().map(|info| info.hash.clone());
+                    screens::blobs(board, grace, sort.other(), came_from.as_deref().map(|hash| (hash, 0)))?
+                }
+                Pick::Stay | Pick::Other(_) => return Ok(Flow::Continue),
+            },
+            Screen::Blob { sort, info, pager } => match pager.key(key.code) {
+                Read::Other(KeyCode::Char('d')) => Screen::ConfirmBlob { sort: *sort, info: info.clone() },
+                Read::Back => screens::blobs(board, grace, *sort, Some((&info.hash, 0)))?,
+                Read::Stay | Read::Other(_) => return Ok(Flow::Continue),
+            },
+            Screen::ConfirmBlob { sort, info } => {
+                if matches!(key.code, KeyCode::Char('y' | 'Y')) {
+                    let (screen, notice) = delete_blob(board, &self.audit, &self.blobs, *sort, info)?;
+                    self.notice = Some(notice);
+                    screen
+                } else {
+                    self.notice = Some("cancelled: nothing deleted".to_owned());
+                    screens::blob(board, grace, *sort, &info.hash)?
+                }
+            }
             Screen::ConfirmMessage { message } => {
                 if matches!(key.code, KeyCode::Char('y' | 'Y')) {
                     let (screen, notice) = delete_message(board, &self.audit, message)?;
@@ -172,6 +211,41 @@ fn delete_message(board: &Board, audit: &Audit, message: &Message) -> Result<(Sc
     Ok((screens::thread(board, &message.path, Some(message.id))?, notice))
 }
 
+/// Delete blob `info` (its row, unless something live pins it, and then its
+/// file), record that, and go back to the blob list, saying what happened.
+fn delete_blob(
+    board: &Board,
+    audit: &Audit,
+    blobs: &BlobSettings,
+    sort: Sort,
+    info: &BlobInfo,
+) -> Result<(Screen, String), Failure> {
+    let notice = match board.blob_delete_unsigned(&info.hash) {
+        Ok(()) => {
+            audit.record("delete_blob", &format!("{} {} bytes {:?}", info.hash, info.size, info.filename))?;
+            if let Some(path) = fsck::file_of(&blobs.root, &info.hash) {
+                match fs::remove_file(&path) {
+                    Err(err) if err.kind() != io::ErrorKind::NotFound => {
+                        return Err(Failure::Io {
+                            what: format!(
+                                "deleted blob {} from the index but not its file {}",
+                                info.hash,
+                                path.display()
+                            ),
+                            cause: err,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            format!("deleted blob {}", info.hash)
+        }
+        Err(err) => format!("not deleted: {}", refusal(err)?),
+    };
+    // the row it was on, if it is the last one there (the list shows what is left)
+    Ok((screens::blobs(board, blobs.grace, sort, Some((&info.hash, 0)))?, notice))
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -204,6 +278,7 @@ mod tests {
             Screen::Tree { picker, .. } => picker.labels.clone(),
             Screen::Thread { picker, .. } => picker.labels.clone(),
             Screen::Queue { picker, .. } => picker.labels.clone(),
+            Screen::Blobs { picker, .. } => picker.labels.clone(),
             _ => return Err("not a list".into()),
         };
         let row =
@@ -249,7 +324,7 @@ mod tests {
     #[test]
     fn keys_move_through_the_tree_and_the_screens_draw() -> TestResult {
         let f = Fixture::populated()?;
-        let mut app = App::new(&f.board, f.audit())?;
+        let mut app = App::new(&f.board, f.audit(), f.blobs())?;
         let mut terminal = Terminal::new(TestBackend::new(100, 12))?;
 
         render(&mut terminal, &mut app)?;
@@ -309,7 +384,7 @@ mod tests {
     #[test]
     fn a_message_is_deleted_after_a_y_and_recorded() -> TestResult {
         let f = Fixture::populated()?;
-        let mut app = App::new(&f.board, f.audit())?;
+        let mut app = App::new(&f.board, f.audit(), f.blobs())?;
         pick(&mut app, "rev ", KeyCode::Enter)?;
         pick(&mut app, "rev/log ", KeyCode::Enter)?;
 
@@ -337,7 +412,7 @@ mod tests {
     fn an_archived_message_is_listed_marked_and_can_be_deleted() -> TestResult {
         let f = Fixture::populated()?;
         f.archive(f.ids.first)?;
-        let mut app = App::new(&f.board, f.audit())?;
+        let mut app = App::new(&f.board, f.audit(), f.blobs())?;
         pick(&mut app, "rev ", KeyCode::Enter)?;
         pick(&mut app, "rev/log ", KeyCode::Enter)?;
         press(&mut app, KeyCode::Home)?;
@@ -359,7 +434,7 @@ mod tests {
     #[test]
     fn a_message_something_points_to_stays() -> TestResult {
         let f = Fixture::populated()?;
-        let mut app = App::new(&f.board, f.audit())?;
+        let mut app = App::new(&f.board, f.audit(), f.blobs())?;
         pick(&mut app, "rev ", KeyCode::Enter)?;
         pick(&mut app, "rev/log ", KeyCode::Enter)?;
         // the note summarizes up to the second, the answer refers to the third
@@ -380,7 +455,7 @@ mod tests {
     #[test]
     fn a_branch_goes_only_once_its_path_is_typed_out() -> TestResult {
         let f = Fixture::populated()?;
-        let mut app = App::new(&f.board, f.audit())?;
+        let mut app = App::new(&f.board, f.audit(), f.blobs())?;
         let mut terminal = Terminal::new(TestBackend::new(80, 14))?;
 
         // what will go is listed, every node and what it holds
@@ -445,7 +520,7 @@ mod tests {
     #[test]
     fn the_notice_shows_until_the_next_key() -> TestResult {
         let f = Fixture::populated()?;
-        let mut app = App::new(&f.board, f.audit())?;
+        let mut app = App::new(&f.board, f.audit(), f.blobs())?;
         let mut terminal = Terminal::new(TestBackend::new(80, 8))?;
         pick(&mut app, "rev ", KeyCode::Char('d'))?;
         press(&mut app, KeyCode::Esc)?;
@@ -454,6 +529,72 @@ mod tests {
         press(&mut app, KeyCode::Down)?;
         render(&mut terminal, &mut app)?;
         assert_eq!(row(&terminal, 6).trim_end(), "");
+        Ok(())
+    }
+
+    #[test]
+    fn the_blobs_are_listed_opened_and_deleted_unless_something_pins_them() -> TestResult {
+        let f = Fixture::populated()?;
+        let (kept, loose) = (
+            f.blob(b"pinned bytes", "trace.bin", "2026-01-02T00:00:00Z")?,
+            f.blob(b"x".repeat(5000).as_slice(), "", "2026-01-01T00:00:00Z")?,
+        );
+        let message = f.post("rev/log", &format!("see board-blob://{kept}"))?;
+        let mut app = App::new(&f.board, f.audit(), f.blobs())?;
+        let mut terminal = Terminal::new(TestBackend::new(100, 14))?;
+
+        // the top level's `b`: every blob, newest first, with what may become of it
+        press(&mut app, KeyCode::Char('b'))?;
+        render(&mut terminal, &mut app)?;
+        assert_eq!(row(&terminal, 0).trim_end(), "board-admin -- blobs (2 blobs, 5 kB, newest first)");
+        let list = screen_text(&terminal);
+        assert!(row(&terminal, 1).starts_with(&kept[..12]), "newest first: {list}");
+        assert!(list.contains("12 bytes  ") && list.contains("pinned      1 refs  trace.bin"), "{list}");
+        assert!(list.contains("evictable   0 refs  (no name)"), "{list}");
+        // biggest first
+        press(&mut app, KeyCode::Char('s'))?;
+        render(&mut terminal, &mut app)?;
+        assert!(row(&terminal, 0).trim_end().ends_with("biggest first)"));
+        assert!(row(&terminal, 1).starts_with(&loose[..12]), "{}", row(&terminal, 1));
+
+        // a pinned blob names its holder and is refused
+        pick(&mut app, &kept[..12], KeyCode::Enter)?;
+        render(&mut terminal, &mut app)?;
+        let detail = screen_text(&terminal);
+        assert!(
+            detail.contains("12 bytes (12 bytes), pinned") && detail.contains(&format!("#{message}  rev/log  pins it")),
+            "{detail}"
+        );
+        press(&mut app, KeyCode::Char('d'))?;
+        press(&mut app, KeyCode::Char('y'))?;
+        let notice = app.notice.clone().unwrap_or_default();
+        assert!(
+            notice.starts_with("not deleted: board-blob://") && notice.contains("referenced by 1 live holder"),
+            "{notice}"
+        );
+        assert!(f.blobs().root.join(&kept[..2]).join(&kept).exists());
+        assert_eq!(f.audit_log()?, "");
+
+        // anything but y cancels; an unpinned one goes with its file, and it is recorded
+        pick(&mut app, &loose[..12], KeyCode::Enter)?;
+        press(&mut app, KeyCode::Char('d'))?;
+        press(&mut app, KeyCode::Char('n'))?;
+        assert_eq!(app.notice.as_deref(), Some("cancelled: nothing deleted"));
+        press(&mut app, KeyCode::Char('d'))?;
+        press(&mut app, KeyCode::Char('y'))?;
+        assert_eq!(app.notice, Some(format!("deleted blob {loose}")));
+        assert!(!f.blobs().root.join(&loose[..2]).join(&loose).exists());
+        assert!(f.audit_log()?.ends_with(&format!(" delete_blob {loose} 5000 bytes \"\"\n")));
+
+        // freeing the holder frees the blob
+        f.archive(message)?;
+        pick(&mut app, &kept[..12], KeyCode::Enter)?;
+        press(&mut app, KeyCode::Char('d'))?;
+        press(&mut app, KeyCode::Char('y'))?;
+        assert_eq!(app.notice, Some(format!("deleted blob {kept}")));
+        assert_eq!(f.board.blob_index()?.len(), 0);
+        assert_eq!(press(&mut app, KeyCode::Char('q'))?, Flow::Continue);
+        assert!(matches!(app.screen, Screen::Tree { .. }));
         Ok(())
     }
 }

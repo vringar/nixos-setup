@@ -50,8 +50,8 @@ impl Api {
     }
 
     /// GET `path`, its body read as it arrives.
-    pub fn open(&self, path: &str, timeout: Duration) -> Result<Download, HttpError> {
-        self.client.open(path, timeout)
+    pub fn open(&self, path: &str, timeout: Duration, offset: u64) -> Result<Download, HttpError> {
+        self.client.open(path, timeout, offset)
     }
 
     /// The URL of `path` on this board, in full.

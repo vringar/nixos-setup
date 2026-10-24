@@ -23,6 +23,23 @@ use crate::blob;
 const TMP: &str = "tmp";
 const LOCK: &str = ".lock";
 
+/// Where blob `hash` lives under `root`, or `None` for text that is no hash
+/// (so that no path is built from anything else).
+#[must_use]
+pub fn path_in(root: &Path, hash: &str) -> Option<PathBuf> {
+    blob::is_hash(hash).then(|| root.join(hash.get(..2).unwrap_or_default()).join(hash))
+}
+
+/// The bytes a program that is not the server's owner may still write on the
+/// file system holding `dir`.
+///
+/// # Errors
+/// If the file system cannot be asked.
+pub fn free_bytes(dir: &Path) -> io::Result<u64> {
+    let stat = rustix::fs::statvfs(dir)?;
+    Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
+}
+
 /// The blob directory of a running server.
 #[derive(Debug)]
 pub struct BlobDir {
@@ -129,7 +146,15 @@ impl BlobDir {
     /// no path is built from anything else).
     #[must_use]
     pub fn path_of(&self, hash: &str) -> Option<PathBuf> {
-        blob::is_hash(hash).then(|| self.root.join(hash.get(..2).unwrap_or_default()).join(hash))
+        path_in(&self.root, hash)
+    }
+
+    /// The bytes still free on the file system the blobs are on.
+    ///
+    /// # Errors
+    /// If the file system cannot be asked.
+    pub fn free_bytes(&self) -> io::Result<u64> {
+        free_bytes(&self.root)
     }
 
     /// Move the finished temp file `tmp` into place as blob `hash`: 0400,
@@ -186,6 +211,14 @@ mod tests {
         for bad in ["", "../..", "AB12", &H.to_uppercase(), &H[..63], "ab/../../etc/passwd"] {
             assert_eq!(dir.path_of(bad), None, "{bad}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn the_free_space_of_a_directory_is_known() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+        assert!(free_bytes(tmp.path())? > 0);
+        assert!(free_bytes(&tmp.path().join("missing")).is_err());
         Ok(())
     }
 

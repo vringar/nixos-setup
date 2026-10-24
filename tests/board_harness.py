@@ -555,7 +555,9 @@ class Server:
 
     def _env(self, extra):
         env = {k: v for k, v in os.environ.items() if not k.startswith("BOARD_")}
-        env.update(BOARD_DB=str(self.db), BOARD_ADDR="127.0.0.1", BOARD_PORT=str(self.port))
+        # No free-space reserve by default: the disk a test runs on has other tenants.
+        env.update(BOARD_DB=str(self.db), BOARD_ADDR="127.0.0.1", BOARD_PORT=str(self.port),
+                   BOARD_BLOB_RESERVE="0")
         env.update(extra)
         return env
 
@@ -793,6 +795,11 @@ class Board:
     def blobs_dir(self):
         return Path(self.db).parent / "blobs"
 
+    def fsck(self, *args):
+        """`board-admin fsck [--deep]` on this board's database and blob directory, the server running."""
+        env = {**os.environ, "BOARD_DB": str(self.db), "BOARD_BLOBS": str(self.blobs_dir), "BOARD_ADMIN_SERVICE": ""}
+        return admin(env, args=("fsck", *args))
+
     def blob_headers(self, key, sha256, size, media_type="application/octet-stream", filename="",
                      client_key=None, nonce=None):
         """The headers of a signed PUT /blob (Content-Length too), the nonce the head as of now unless given."""
@@ -938,6 +945,8 @@ class Exchange:
     answer: bytes = b""
     headers: list = field(default_factory=list)
     lost: Exception = None  # the board went away before it answered
+    request_headers: dict = field(default_factory=dict)  # as sent, names lowercase
+    declared: int = None  # the Content-Length the answer promises, if more than the body that is sent
 
     @property
     def route(self):
@@ -993,6 +1002,7 @@ class Proxy:
             def _relay(self):
                 length = int(self.headers.get("Content-Length") or 0)
                 ex = Exchange(self.command, self.path, self.rfile.read(length))
+                ex.request_headers = {k.lower(): v for k, v in self.headers.items()}
                 proxy.seen.append(ex)
                 if proxy.before(ex) == DROP:
                     self.close_connection = True
@@ -1004,6 +1014,8 @@ class Proxy:
                         if self.headers.get("Content-Type") else {}
                     # a blob upload's envelope travels as Board-* headers
                     headers.update({k: v for k, v in self.headers.items() if k.lower().startswith("board-")})
+                    # a hook may change what is forwarded: it edits request_headers
+                    headers.update({k: v for k, v in ex.request_headers.items() if k in ("range", "if-none-match")})
                     conn.request(self.command, self.path, body=ex.body or None, headers=headers)
                     resp = conn.getresponse()
                     ex.answer, ex.status, ex.headers = resp.read(), resp.status, resp.getheaders()
@@ -1020,11 +1032,13 @@ class Proxy:
                     self.send_response(ex.status)
                     for name, value in ex.headers:
                         if name.lower() in ("content-type", "board-error", "location",
-                                            "content-security-policy"):
+                                            "content-security-policy", "content-range", "etag"):
                             self.send_header(name, value)
-                    self.send_header("Content-Length", str(len(ex.answer)))
+                    self.send_header("Content-Length", str(len(ex.answer) if ex.declared is None else ex.declared))
                     self.end_headers()
                     self.wfile.write(ex.answer)
+                    if ex.declared is not None:  # the answer breaks off: the connection ends short
+                        self.close_connection = True
                 except OSError:  # the client left before its answer
                     self.close_connection = True
 
@@ -1636,10 +1650,10 @@ class TuiRun:
         return self.term.seen(text)
 
 
-def admin(env, timeout=HANG_TIMEOUT):
+def admin(env, timeout=HANG_TIMEOUT, args=()):
     """Run board-admin without a terminal (for the refusals that come before
-    it draws anything)."""
-    done = subprocess.run([program("board-admin")], **TIED, env=env, capture_output=True, text=True,
+    it draws anything, and for `fsck`)."""
+    done = subprocess.run([program("board-admin"), *map(str, args)], **TIED, env=env, capture_output=True, text=True,
                           stdin=subprocess.DEVNULL, timeout=timeout, check=False)
     return Run(done.returncode, done.stdout, done.stderr)
 

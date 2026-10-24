@@ -15,8 +15,8 @@ use std::collections::BTreeMap;
 
 use message_board::blob;
 use message_board::store::{
-    Board, Child, DbError, Item, ItemPage, ItemState, Key, KeyState, Node, NodeKind, NoteVersion, READ_BYTES_MAX,
-    READ_ROWS_MAX, Range, Registration, Status, ThreadPage, Version,
+    BlobInfo, BlobReferrer, BlobStats, Board, Child, DbError, Item, ItemPage, ItemState, Key, KeyState, Node, NodeKind,
+    NoteVersion, READ_BYTES_MAX, READ_ROWS_MAX, Range, Registration, Status, ThreadPage, Version,
 };
 
 /// The blobs a page's bodies reference that exist, with their size and
@@ -224,7 +224,7 @@ const HEAD: &str = r##"</title>
   <button type="button" id="auth-cancel">cancel</button>
 </form></dialog>
 <h1>message board</h1>
-<nav><a href="/">tree</a> <a href="/ui/inbox">inbox</a> <a href="/ui/keys">keys</a></nav>
+<nav><a href="/">tree</a> <a href="/ui/inbox">inbox</a> <a href="/ui/keys">keys</a> <a href="/ui/blobs">blobs</a></nav>
 <details class="register" data-needs="unregistered" hidden><summary>this key is not registered: register it</summary>
 <form hx-post="/ui/register" hx-target="#register-result" hx-swap="innerHTML">
 <p class="error" hidden></p>
@@ -1043,6 +1043,73 @@ pub fn keys(keys: &[Key], registrations: &[Registration]) -> Html {
     h
 }
 
+/// A blob in the list, with the events that reference it.
+pub struct BlobRow<'a> {
+    pub info: &'a BlobInfo,
+    pub referrers: &'a [BlobReferrer],
+}
+
+/// What the blob list shows.
+pub struct BlobsView<'a> {
+    pub rows: &'a [BlobRow<'a>],
+    pub stats: BlobStats,
+    pub cap: u64,
+    pub grace: u64,
+    pub now: u64,
+    /// The list was cut after this blob: the next page is `?after=` it.
+    pub more_after: Option<&'a str>,
+}
+
+/// How many referencing events a row names; the rest are counted.
+const REFERRERS_SHOWN: usize = 5;
+
+/// The blob list: every blob newest upload first, with its size, age, what
+/// may become of it, and the messages that reference it. Reading only: a
+/// blob is removed by its uploader or the owner with `board blob-rm`, or in
+/// board-admin.
+pub fn blobs(v: &BlobsView<'_>) -> Html {
+    let mut h = Html::new();
+    h.markup("<h2>blobs</h2>\n<p class=\"meta\">");
+    let count = i64::try_from(v.stats.count).unwrap_or(i64::MAX);
+    h.number(count).markup(if count == 1 { " blob, " } else { " blobs, " });
+    h.text(&blob::human(v.stats.used)).markup(" of ").text(&blob::human(v.cap)).markup(" used, ");
+    h.text(&blob::human(v.stats.pinned_bytes)).markup(" pinned. An unpinned blob older than ");
+    h.number(i64::try_from(v.grace).unwrap_or(i64::MAX));
+    h.markup(" s may be removed when an upload does not fit; to keep a file, reference it from a note or a thread message.</p>\n");
+    if v.rows.is_empty() {
+        h.markup("<p class=\"empty\">no blobs</p>\n");
+        return h;
+    }
+    h.markup("<table class=\"keys blobs\"><thead><tr><th>file</th><th>size</th><th>uploaded</th><th>state</th><th>by</th><th>referenced by</th></tr></thead><tbody>\n");
+    for row in v.rows {
+        let info = row.info;
+        let name = if info.filename.is_empty() { info.hash.get(..12).unwrap_or_default() } else { &info.filename };
+        h.markup("<tr><td><a class=\"blob\" href=\"/sha256/").text(&info.hash).markup("\" download>").text(name);
+        h.markup("</a><br><code title=\"").text(&info.hash).markup("\">").text(info.hash.get(..12).unwrap_or_default());
+        h.markup("</code></td><td>").text(&blob::human(info.size)).markup("</td><td>").text(&info.ts);
+        h.markup(" (").text(&blob::age(&info.ts, v.now)).markup(" ago)</td><td>");
+        h.text(blob::standing(info.pinned, &info.ts, v.now, v.grace)).markup("</td><td>").text(&info.from);
+        h.markup("</td><td>");
+        if row.referrers.is_empty() {
+            h.markup("nothing");
+        }
+        for r in row.referrers.iter().take(REFERRERS_SHOWN) {
+            h.markup("<div>#").number(r.event).markup(" <a href=\"/view/").text(&r.path).markup("\">").text(&r.path);
+            h.markup("</a>").markup(if r.pinning { "" } else { " (released)" }).markup("</div>");
+        }
+        if row.referrers.len() > REFERRERS_SHOWN {
+            let more = row.referrers.len() - REFERRERS_SHOWN;
+            h.markup("<div>and ").number(i64::try_from(more).unwrap_or(i64::MAX)).markup(" more</div>");
+        }
+        h.markup("</td></tr>\n");
+    }
+    h.markup("</tbody></table>\n");
+    if let Some(after) = v.more_after {
+        h.markup("<p class=\"meta\"><a href=\"/ui/blobs?after=").text(after).markup("\">older blobs</a></p>\n");
+    }
+    h
+}
+
 #[cfg(test)]
 mod tests {
     use message_board::store::{EventType, ItemResolution, NodeKind};
@@ -1590,5 +1657,51 @@ mod tests {
         let mut h = Html::new();
         body(&mut h, &format!("board-blob://{there}"), &nameless);
         assert!(String::from_utf8(h.into_bytes()).unwrap_or_default().contains("download>aaaaaaaaaaaa (3 bytes)</a>"));
+    }
+
+    #[test]
+    fn the_blob_list_names_state_and_holders_and_escapes_what_it_was_told() {
+        use message_board::store::{BlobInfo, BlobReferrer, BlobStats, RefState};
+        let hash = "ab".repeat(32);
+        let info = BlobInfo {
+            hash: hash.clone(),
+            url: format!("/sha256/{hash}"),
+            reference: format!("board-blob://{hash}"),
+            size: 12_300_000,
+            media_type: "text/plain".to_owned(),
+            filename: "<b>t.bin".to_owned(),
+            from: "al<i>ce".to_owned(),
+            signed_by: "SHA256:x".to_owned(),
+            revoked_at: None,
+            ts: "2026-10-21T23:51:46Z".to_owned(),
+            refs: 7,
+            pinned: false,
+            state: RefState::Released,
+            signature: None,
+        };
+        let holders: Vec<BlobReferrer> =
+            (1..=7).map(|event| BlobReferrer { event, path: "a/<log>".to_owned(), pinning: event % 2 == 1 }).collect();
+        let rows = [BlobRow { info: &info, referrers: &holders }];
+        let view = BlobsView {
+            rows: &rows,
+            stats: BlobStats { used: 12_300_000, count: 1, pinned_bytes: 0 },
+            cap: 50_000_000_000,
+            grace: 3600,
+            now: 1_792_626_706 + 10_000,
+            more_after: Some(&hash),
+        };
+        let page = text(blobs(&view));
+        assert!(page.contains("1 blob, 12.3 MB of 50 GB used, 0 bytes pinned."), "{page}");
+        assert!(
+            page.contains(&format!("<a class=\"blob\" href=\"/sha256/{hash}\" download>&lt;b&gt;t.bin</a>")),
+            "{page}"
+        );
+        assert!(page.contains("2 h ago)</td><td>evictable</td><td>al&lt;i&gt;ce</td>"), "{page}");
+        assert!(page.contains("<div>#2 <a href=\"/view/a/&lt;log&gt;\">a/&lt;log&gt;</a> (released)</div>"), "{page}");
+        assert!(page.contains("<div>and 2 more</div>") && !page.contains("#6 "), "{page}");
+        assert!(page.contains(&format!("/ui/blobs?after={hash}")), "{page}");
+        assert!(!page.contains("<b>") && !page.contains("<log>"), "{page}");
+        let none = BlobsView { rows: &[], more_after: None, ..view };
+        assert!(text(blobs(&none)).contains("no blobs"));
     }
 }

@@ -61,6 +61,9 @@ fn answer(response: Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Re
 /// A download that is on its way: the body as it arrives.
 pub struct Download {
     pub reader: Box<dyn Read>,
+    /// The board answered 206: the body is the part that was asked for, not
+    /// the whole.
+    pub partial: bool,
 }
 
 impl Client {
@@ -83,14 +86,21 @@ impl Client {
         answer(request.send(SendBody::from_reader(&mut body)))
     }
 
-    /// GET `path`, the body left to the caller to read as it arrives.
-    pub fn open(&self, path: &str, timeout: Duration) -> Result<Download, HttpError> {
-        let response = agent(timeout).get(format!("{}{path}", self.base)).call().map_err(HttpError::Transport)?;
+    /// GET `path`, the body left to the caller to read as it arrives. With
+    /// an `offset`, ask for the bytes from there on (`Range`): the board may
+    /// answer with all of them anyway, which [`Download::partial`] says.
+    pub fn open(&self, path: &str, timeout: Duration, offset: u64) -> Result<Download, HttpError> {
+        let mut request = agent(timeout).get(format!("{}{path}", self.base));
+        if offset > 0 {
+            request = request.header("Range", format!("bytes={offset}-"));
+        }
+        let response = request.call().map_err(HttpError::Transport)?;
         if !response.status().is_success() {
             return Err(refusal(response));
         }
+        let partial = response.status().as_u16() == 206;
         let reader = response.into_body().into_with_config().limit(u64::MAX).reader();
-        Ok(Download { reader: Box::new(reader) })
+        Ok(Download { reader: Box::new(reader), partial })
     }
 
     pub fn get(&self, path: &str, timeout: Duration) -> Result<String, HttpError> {

@@ -51,6 +51,8 @@ const MIB: u64 = 1024 * 1024;
 pub struct Blobs {
     dir: BlobDir,
     limits: Limits,
+    /// Bytes the disk must keep free beyond what uploads take.
+    reserve: u64,
     /// Held while a blob lands: one at a time.
     commit: Mutex<()>,
     /// The bytes promised to the uploads in flight, so that two uploads that
@@ -95,8 +97,8 @@ enum Plan<'a> {
 }
 
 impl Blobs {
-    pub fn new(dir: BlobDir, limits: Limits) -> Self {
-        Self { dir, limits, commit: Mutex::new(()), reserved: Mutex::new(0), uploads: AtomicUsize::new(0) }
+    pub fn new(dir: BlobDir, limits: Limits, reserve: u64) -> Self {
+        Self { dir, limits, reserve, commit: Mutex::new(()), reserved: Mutex::new(0), uploads: AtomicUsize::new(0) }
     }
 
     pub fn limits(&self) -> &Limits {
@@ -112,6 +114,7 @@ impl Blobs {
             Begun::Existed(info) => Ok(Plan::Existed(info)),
             Begun::Proceed(uploader) => {
                 let size = signed.action.size;
+                self.check_reserve(size, *reserved)?;
                 let taken = self.uploads.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
                     (n < blob::UPLOADS_MAX).then(|| n.saturating_add(1))
                 });
@@ -120,6 +123,27 @@ impl Blobs {
                 }
                 *reserved = reserved.saturating_add(size);
                 Ok(Plan::Upload(Place { blobs: self, size }, uploader))
+            }
+        }
+    }
+
+    /// Refuse an upload of `size` bytes if the disk would be left with less
+    /// than the reserve once it and the uploads in flight (`promised`) are
+    /// written. Nothing is evicted for the reserve: the cap's eviction frees
+    /// room only for the cap. A disk that cannot be asked is trusted (its
+    /// writes fail with ENOSPC if it is full).
+    fn check_reserve(&self, size: u64, promised: u64) -> Result<(), StoreError> {
+        if self.reserve == 0 {
+            return Ok(());
+        }
+        match self.dir.free_bytes() {
+            Ok(free) if free < self.reserve.saturating_add(promised).saturating_add(size) => {
+                Err(StoreError::BlobStoreFull(Box::new(StoreFull::reserve(size, free, self.reserve))))
+            }
+            Ok(_) => Ok(()),
+            Err(err) => {
+                log::line(&format!("board: cannot tell how much disk is free: {err}"));
+                Ok(())
             }
         }
     }
@@ -523,7 +547,7 @@ mod tests {
     #[test]
     fn uploads_take_slots_and_promise_bytes_until_they_end() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
-        let blobs = Blobs::new(BlobDir::open(&dir.path().join("blobs"))?, Limits::default());
+        let blobs = Blobs::new(BlobDir::open(&dir.path().join("blobs"))?, Limits::default(), 0);
         blobs.uploads.store(1, Ordering::SeqCst);
         *blobs.reserved.lock().unwrap_or_else(PoisonError::into_inner) = 30;
         {
@@ -531,6 +555,22 @@ mod tests {
             assert_eq!(blobs.others(10), 20);
         }
         assert_eq!((blobs.uploads.load(Ordering::SeqCst), blobs.others(0)), (0, 20));
+        Ok(())
+    }
+
+    #[test]
+    fn the_disk_reserve_refuses_what_would_eat_into_it() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let blobs = |reserve| -> Result<Blobs, Box<dyn std::error::Error>> {
+            Ok(Blobs::new(BlobDir::open(&dir.path().join(format!("blobs{reserve}")))?, Limits::default(), reserve))
+        };
+        assert!(blobs(0)?.check_reserve(u64::MAX, u64::MAX).is_ok(), "no reserve, no check");
+        assert!(blobs(1)?.check_reserve(1, 0).is_ok());
+        let refused = blobs(u64::MAX / 2)?.check_reserve(1, 0).err().ok_or("fits")?;
+        assert_eq!(refused.code(), "blob-store-full");
+        assert!(refused.to_string().contains("keeps"), "{refused}");
+        // what uploads in flight promised counts
+        assert!(blobs(1)?.check_reserve(1, u64::MAX / 2).is_err());
         Ok(())
     }
 }

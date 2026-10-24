@@ -309,3 +309,55 @@ fn blobs_list_newest_first_by_filter_and_page() -> TestResult {
     assert_eq!(info.url, format!("/sha256/{}", h(1)));
     Ok(())
 }
+
+#[test]
+fn the_operator_deletes_a_blob_nothing_pins_with_no_key_and_never_one_that_is_pinned() -> TestResult {
+    let f = fixture()?;
+    let (alice, _bob) = f.desk()?;
+    let all = limits(1 << 30, 3600);
+    f.put_blob(&alice, &h(1), 100, &all)?;
+    f.put_blob(&alice, &h(2), 100, &all)?;
+    let message = f.post(&alice, "rev/log", &reference(1))?.id;
+    let in_use = refused(f.board.blob_delete_unsigned(&h(1)))?;
+    assert!(matches!(in_use, Error::BlobInUse { total: 1, .. }), "{in_use}");
+    f.board.blob_delete_unsigned(&h(2))?;
+    assert!(matches!(refused(f.board.blob_delete_unsigned(&h(2)))?, Error::NotFound(_)));
+    assert!(matches!(refused(f.board.blob_delete_unsigned("nonsense"))?, Error::BadRequest(_)));
+    // once its holder is archived the blob can go
+    f.archive(&f.owner, message, true, "")?;
+    f.board.blob_delete_unsigned(&h(1))?;
+    assert_eq!(f.held()?, Vec::<String>::new());
+    Ok(())
+}
+
+#[test]
+fn a_blob_names_the_events_that_reference_it_and_whether_each_still_pins_it() -> TestResult {
+    let f = fixture()?;
+    let (alice, bob) = f.desk()?;
+    f.put_blob(&alice, &h(1), 100, &limits(1 << 30, 3600))?;
+    let item = f.file(&alice, "rev/bob", &reference(1))?.item;
+    let message = f.post(&alice, "rev/log", &reference(1))?.id;
+    f.resolve(&bob, item, ItemState::Declined, "no")?;
+    let referrers = f.board.blob_referrers(&h(1))?;
+    let seen: Vec<(i64, &str, bool)> = referrers.iter().map(|r| (r.event, r.path.as_str(), r.pinning)).collect();
+    assert_eq!(seen, [(item, "rev/bob", false), (message, "rev/log", true)]);
+    assert_eq!(f.board.blob_referrers(&h(2))?, []);
+    Ok(())
+}
+
+#[test]
+fn the_index_lists_every_blob_and_a_pinned_reference_without_one_is_found() -> TestResult {
+    let f = fixture()?;
+    let (alice, _bob) = f.desk()?;
+    let all = limits(1 << 30, 3600);
+    f.put_blob(&alice, &h(2), 20, &all)?;
+    f.put_blob(&alice, &h(1), 10, &all)?;
+    assert_eq!(f.board.blob_index()?, [(h(1), 10), (h(2), 20)]);
+    let message = f.post(&alice, "rev/log", &reference(1))?.id;
+    assert_eq!(f.board.pinned_without_blob()?, []);
+    // a row that vanishes from under a holder, as only a fault could make it
+    let conn = rusqlite::Connection::open(&f.path)?;
+    conn.execute("DELETE FROM blobs WHERE sha256 = ?", [h(1)])?;
+    assert_eq!(f.board.pinned_without_blob()?, [(message, h(1))]);
+    Ok(())
+}

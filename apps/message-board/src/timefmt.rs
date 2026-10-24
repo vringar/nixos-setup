@@ -25,6 +25,39 @@ fn civil_from_days(days: u64) -> Civil {
     Civil { year, month, day }
 }
 
+/// Days from 1970-01-01 to a date of year 1970 or later (the inverse of
+/// `civil_from_days`).
+fn days_from_civil(year: u64, month: u64, day: u64) -> u64 {
+    let year = year - u64::from(month <= 2);
+    let era = year / 400;
+    let yoe = year - era * 400;
+    let mp = if month > 2 { month - 3 } else { month + 9 };
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// The seconds since the epoch of a board timestamp (`YYYY-MM-DDTHH:MM:SSZ`),
+/// or `None` for text that is not one.
+#[must_use]
+pub fn parse(text: &str) -> Option<u64> {
+    let digits = |from: usize, to: usize| -> Option<u64> {
+        let part = text.get(from..to)?;
+        part.bytes().all(|b| b.is_ascii_digit()).then(|| part.parse().ok()).flatten()
+    };
+    let separators = [(4, b'-'), (7, b'-'), (10, b'T'), (13, b':'), (16, b':'), (19, b'Z')];
+    if text.len() != 20 || separators.iter().any(|(at, c)| text.as_bytes().get(*at) != Some(c)) {
+        return None;
+    }
+    let (year, month, day) = (digits(0, 4)?, digits(5, 7)?, digits(8, 10)?);
+    let (hour, minute, second) = (digits(11, 13)?, digits(14, 16)?, digits(17, 19)?);
+    if year < 1970 || !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 || second > 60
+    {
+        return None;
+    }
+    Some(days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second)
+}
+
 /// Seconds since the epoch as `YYYY-MM-DDTHH:MM:SSZ`.
 #[must_use]
 pub fn format(secs: u64) -> String {
@@ -91,6 +124,19 @@ mod tests {
         assert_eq!(format(951_782_400), "2000-02-29T00:00:00Z");
         assert_eq!(format(1_792_626_706), "2026-10-21T23:51:46Z");
         assert_eq!(format(4_107_542_399), "2100-02-28T23:59:59Z");
+        for secs in [0, 951_782_400, 1_792_626_706, 4_107_542_399] {
+            assert_eq!(parse(&format(secs)), Some(secs));
+        }
+        for bad in [
+            "",
+            "2026-10-21",
+            "2026-10-21 23:51:46Z",
+            "2026-13-21T23:51:46Z",
+            "1969-12-31T23:59:59Z",
+            "x026-10-21T23:51:46Z",
+        ] {
+            assert_eq!(parse(bad), None, "{bad}");
+        }
         assert_eq!(http_date(784_111_777), "Sun, 06 Nov 1994 08:49:37 GMT");
         assert_eq!(http_date(1_792_626_706), "Wed, 21 Oct 2026 23:51:46 GMT");
     }

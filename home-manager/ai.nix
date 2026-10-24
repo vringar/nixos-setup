@@ -339,7 +339,10 @@ in {
           # The most the blob store holds, in bytes (the default, written here
           # so it is where the unit is read). One file is at most 8 GiB
           # (BOARD_BLOB_MAX) and an unreferenced one is safe from eviction for
-          # an hour after upload (BOARD_BLOB_GRACE, in seconds).
+          # an hour after upload (BOARD_BLOB_GRACE, in seconds). An upload is
+          # also refused if the disk would be left with less than
+          # BOARD_BLOB_RESERVE bytes free (default 5 GB: the dataset has
+          # other tenants).
           "BOARD_BLOB_CAP=50000000000"
           # The owner's name is bound to this key at every start, overriding
           # any claim on it. The key may not exist yet: the board then runs

@@ -682,6 +682,7 @@ dependencies = [
  "ratatui",
  "rusqlite",
  "rusqlite_migration",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

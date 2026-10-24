@@ -20,7 +20,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{List, Paragraph, Wrap};
 
-use message_board::store::Message;
+use message_board::blob;
+use message_board::store::{BlobInfo, Message};
 
 use crate::pager::Pager;
 use crate::picker::Picker;
@@ -83,11 +84,14 @@ pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, notice: Option<&str>) ->
         Screen::Tree { picker, .. } => draw_picker(frame, picker, notice),
         Screen::Thread { picker, .. } => draw_picker(frame, picker, notice),
         Screen::Queue { picker, .. } => draw_picker(frame, picker, notice),
-        Screen::Note { pager, .. } | Screen::Message { pager, .. } | Screen::Item { pager, .. } => {
-            draw_pager(frame, pager, notice)
-        }
+        Screen::Blobs { picker, .. } => draw_picker(frame, picker, notice),
+        Screen::Note { pager, .. }
+        | Screen::Message { pager, .. }
+        | Screen::Item { pager, .. }
+        | Screen::Blob { pager, .. } => draw_pager(frame, pager, notice),
         Screen::ConfirmBranch { path, nodes, typed } => confirm_branch(frame, path, nodes, typed),
         Screen::ConfirmMessage { message } => confirm_message(frame, message),
+        Screen::ConfirmBlob { info, .. } => confirm_blob(frame, info),
     }
 }
 
@@ -190,6 +194,30 @@ fn confirm_message(frame: &mut Frame<'_>, message: &Message) -> Result<(), TryFr
     let lines: Vec<Line> = message.body.lines().map(|line| Line::from(visible(line))).collect();
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body);
     frame.render_widget(Paragraph::new("Delete permanently? [y/N] ").style(bold()), question);
+    Ok(())
+}
+
+/// Deleting one blob: what it is, and a y/N question under it.
+fn confirm_blob(frame: &mut Frame<'_>, info: &BlobInfo) -> Result<(), TryFromSliceError> {
+    let [warning, _, body, _, question] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Fill(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .try_areas(frame.area())?;
+    let header = format!("blob {}  {}  {}", info.hash, blob::human(info.size), info.filename);
+    frame.render_widget(Paragraph::new(visible(&header)).style(bold()), warning);
+    let text = format!(
+        "uploaded {} by {}; {} {}.",
+        info.ts,
+        info.from,
+        info.refs,
+        if info.refs == 1 { "event references it" } else { "events reference it" }
+    );
+    frame.render_widget(Paragraph::new(visible(&text)).wrap(Wrap { trim: false }), body);
+    frame.render_widget(Paragraph::new("Delete the file permanently? [y/N] ").style(bold()), question);
     Ok(())
 }
 

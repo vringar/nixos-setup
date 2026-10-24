@@ -20,7 +20,7 @@ import pytest
 
 from board_harness import (  # noqa: F401 (fixtures)
     HANG_TIMEOUT, Pick, Server, Wait, board, cli, cli_bytes, drive_tui, isolated, keyring, owner_env, raw_request,
-    refusal, running, sql, team, wait_until, Refused, proxy,
+    refusal, request, running, sql, team, wait_until, Refused, proxy, admin,
 )
 
 pytestmark = pytest.mark.usefixtures("isolated")
@@ -868,16 +868,9 @@ def check_references(board, step):
                 assert r["size"] is None
             else:
                 assert status == 200 and len(body) == r["size"], (step, r)
-    # every blob a live holder pins is there, by an oracle that does not use the server's query
-    pinned = board.sql("""
-        SELECT DISTINCT r.sha256 FROM blob_refs r JOIN events e ON e.id = r.event
-         WHERE e.archived IS NULL AND (e.type = 'message'
-            OR (e.type = 'item_filed' AND (SELECT state FROM items WHERE id = e.id) = 'open')
-            OR (e.type = 'note_version' AND e.id = (SELECT max(id) FROM events
-                                                    WHERE node = e.node AND type = 'note_version')))""")
-    stored = {h for h, _ in board.blob_rows()}
-    assert {h for (h,) in pinned} <= stored, (step, pinned, stored)
-    assert set(board.blob_files()) == stored, step
+    # the index and the directory agree, no pinned reference lacks its blob, no stray file: fsck is the oracle
+    run = board.fsck()
+    assert run.code == 0 and run.out.splitlines()[-1].endswith(": clean"), (step, run.out)
 
 
 # --- the web view ---------------------------------------------------------------------------------
@@ -990,6 +983,12 @@ def test_a_corrupted_file_is_caught_by_get(board, team, tmp_path):
     # to standard output the bytes are out already, but the exit says so
     code, _, err = cli_bytes("get", h, "-o", "-", key=team.alice.key)
     assert code == 1 and "hash-mismatch" in err
+    # the shallow check looks at sizes and passes; the deep one hashes and names the file
+    shallow = board.fsck()
+    assert shallow.code == 0 and shallow.out.splitlines()[-1].endswith(": clean"), shallow.out
+    deep = board.fsck("--deep")
+    assert deep.code == 1 and deep.out.splitlines()[0].startswith(f"corrupt {h} "), deep.out
+    assert deep.out.splitlines()[-1].endswith(": 1 findings") and "1 files hashed" in deep.out
 
 
 def test_the_server_logs_hash_and_size_and_never_the_signature(board, team):
@@ -1007,3 +1006,258 @@ def test_a_revoked_key_s_blobs_stay_and_say_so(board, team):
     revoked = team.owner.revoke(team.bob.fingerprint)["id"]
     assert board.get_json(f"/blobs/{h}")["revoked_at"] == revoked
     assert board.get_blob(h)[0] == 200
+
+
+# --- phase 2: operating the store -----------------------------------------------------------------
+
+def test_fsck_passes_a_healthy_store_and_names_each_kind_of_damage_with_the_server_running(board, team):
+    a = team.alice
+    good = a.put(data(5000, b"good"))["hash"]
+    for args, hashed in (((), "sizes only"), (("--deep",), "1 files hashed")):
+        run = board.fsck(*args)
+        assert run.code == 0 and run.err == "", run
+        assert run.out.splitlines()[-1] == \
+            f"fsck: 1 blobs in the index (5000 bytes), 1 files (5000 bytes), {hashed}{'; --deep hashes' * (not args)}: clean"
+
+    missing = a.put(data(3000, b"missing"))["hash"]
+    (board.blobs_dir / missing[:2] / missing).unlink()
+    short = a.put(data(3000, b"short"))["hash"]
+    path = board.blobs_dir / short[:2] / short
+    path.chmod(0o600)
+    path.write_bytes(path.read_bytes()[:10])
+    orphan = sha(data(100, b"orphan"))
+    (board.blobs_dir / orphan[:2]).mkdir(exist_ok=True)
+    (board.blobs_dir / orphan[:2] / orphan).write_bytes(data(100, b"orphan"))
+    (board.blobs_dir / "zz").mkdir()
+    stale = board.blobs_dir / "tmp" / "old.part"
+    stale.write_bytes(b"half")
+    long_ago = time.time() - 3600
+    os.utime(stale, (long_ago, long_ago))
+    (board.blobs_dir / "tmp" / "fresh.part").write_bytes(b"an upload in flight")
+
+    run = board.fsck()
+    assert run.code == 1, run.out
+    found = {line.split()[0]: line for line in run.out.splitlines()[:-1]}
+    assert list(found) == ["misplaced", "missing", "orphan", "size", "tmp"], run.out
+    assert found["missing"] == f"missing {missing} has a row (3000 bytes) but no file"
+    assert found["size"] == f"size {short} has a row of 3000 bytes but a file of 10"
+    assert found["orphan"] == f"orphan {orphan} is a file (100 bytes) with no row"
+    assert "zz" in found["misplaced"] and "old.part" in found["tmp"] and "fresh.part" not in run.out
+    assert run.out.splitlines()[-1].endswith(": 5 findings")
+    # the deep check hashes only what is whole, and finds nothing more
+    deep = board.fsck("--deep")
+    assert deep.code == 1 and deep.out.count("\n") == run.out.count("\n") and "1 files hashed" in deep.out
+    # it read, it did not repair: nothing changed, and the server serves the good blob
+    assert board.get_blob(good)[0] == 200 and board.blob_rows() and (board.blobs_dir / orphan[:2] / orphan).exists()
+
+
+def test_fsck_finds_a_pinned_reference_to_a_blob_the_board_does_not_have(board, team):
+    a = team.alice
+    h = a.put(data(100, b"held"))["hash"]
+    message = a.post("rev/log", f"keep {ref(h)}")
+    assert board.fsck().code == 0
+    board.sql("DELETE FROM blobs WHERE sha256=?", h)
+    run = board.fsck()
+    assert run.code == 1
+    assert f"reference #{message} pins board-blob://{h}, which the board does not have" in run.out
+    assert f"orphan {h} " in run.out  # and its file is left over
+
+
+def test_fsck_says_when_the_blobs_total_more_than_the_cap(board, team):
+    team.alice.put(data(2000, b"big"))
+    run = admin_run(board, "fsck", env={"BOARD_BLOB_CAP": "1000"})
+    assert run.code == 1 and "over-cap the blobs total 2000 bytes, over the cap of 1000" in run.out
+
+
+def admin_run(board, *args, env=None):
+    env = {**os.environ, "BOARD_DB": str(board.db), "BOARD_BLOBS": str(board.blobs_dir),
+           "BOARD_ADMIN_SERVICE": "", **(env or {})}
+    return admin(env, args=args)
+
+
+def test_fsck_refuses_what_it_does_not_know_and_a_database_that_is_not_there(board, tmp_path):
+    run = admin_run(board, "fsck", "--quarantine")
+    assert run.code == 2 and "usage: board-admin" in run.err
+    assert admin_run(board, "frobnicate").code == 2
+    run = admin_run(board, "fsck", env={"BOARD_DB": str(tmp_path / "nowhere.db")})
+    assert run.code == 1 and "no database at" in run.err and not (tmp_path / "nowhere.db").exists()
+
+
+def test_the_admin_blobs_screen_lists_opens_and_deletes_by_the_stores_rule(tmp_path, keyring):
+    db = tmp_path / "board-v2.db"
+    with running(db, tmp_path / "logs", keyring["owner"]) as b:
+        alice = b.trusted(keyring["alice"], "alice")
+        b.owner.create("proj", "container")
+        alice.create("proj/chatter", "thread")
+        kept = alice.put(data(2000, b"kept"), filename="trace.bin")["hash"]
+        loose = alice.put(data(7000, b"loose"))["hash"]
+        message = alice.post("proj/chatter", f"keep {ref(kept)}")
+    env = {**os.environ, "BOARD_DB": str(db), "BOARD_ADMIN_SERVICE": "", "BOARD_ADMIN_LOG": str(tmp_path / "audit.log")}
+    run = drive_tui(env, [
+        Wait("_board"), b"b", Wait("board-admin -- blobs (2 blobs, 9 kB"),
+        Wait(f"{kept[:12]}"), Wait("pinned"), Wait("in grace"), Wait("trace.bin"), Wait("(no name)"),
+        # a pinned blob names its holder, and the store refuses its deletion
+        Pick(kept[:12]), Wait("pins it"), Wait(f"#{message}  proj/chatter"),
+        b"d", Wait("Delete the file permanently? [y/N]"), b"y", Wait("not deleted: board-blob://"),
+        Wait("is referenced by 1 live"),
+        # an unpinned one goes, file and row, and the audit log says so
+        Pick(loose[:12]), b"d", Wait("[y/N]"), b"y", Wait(f"deleted blob {loose}"),
+        *[b"q"] * 4])
+    assert run.code == 0
+    assert (tmp_path / "blobs" / kept[:2] / kept).exists() and not (tmp_path / "blobs" / loose[:2] / loose).exists()
+    assert sql(db, "SELECT sha256 FROM blobs") == [(kept,)]
+    log = (tmp_path / "audit.log").read_text()
+    assert log.count("\n") == 1 and f" delete_blob {loose} 7000 bytes " in log
+    # once its message is deleted too, the blob goes the same way
+    run = drive_tui(env, [Wait("_board"), Pick("proj"), Pick("chatter"), Pick(f"#{message}"), b"d",
+                          Wait("[y/N]"), b"y", *[b"q"] * 5])
+    assert run.code == 0
+    run = drive_tui(env, [Wait("_board"), b"b", Pick(kept[:12]), b"d", Wait("[y/N]"), b"y",
+                          Wait(f"deleted blob {kept}"), *[b"q"] * 3])
+    assert run.code == 0 and sql(db, "SELECT count(*) FROM blobs") == [(0,)]
+    assert not (tmp_path / "blobs" / kept[:2] / kept).exists()
+    check = admin(env, args=("fsck", "--deep"))
+    assert check.code == 0 and check.out.splitlines()[-1].endswith(": clean"), check.out
+
+
+def test_the_blob_page_lists_blobs_with_state_and_holders_and_every_page_links_it(board, team):
+    a = team.alice
+    page = board.get("/ui/blobs")
+    assert page.status == 200 and "no blobs" in page.text
+    kept = a.put(data(1234, b"kept"), filename="<k>.bin")["hash"]
+    loose = a.put(data(10, b"loose"))["hash"]
+    message = a.post("rev/log", f"keep {ref(kept)}")
+    page = board.get("/ui/blobs")
+    assert page.status == 200 and page.headers["content-type"].startswith("text/html")
+    text = page.text
+    for other in ("/", "/ui/inbox", "/ui/keys", "/view/rev/log", "/ui/blobs"):
+        assert '<a href="/ui/blobs">blobs</a>' in board.get(other).text, other
+    assert "2 blobs, 1.2 kB of 50 GB used, 1.2 kB pinned." in text
+    assert f'href="/sha256/{kept}" download>&lt;k&gt;.bin</a>' in text and "<k>" not in text
+    rows = {h: row for row in text.split("<tr>") for h in (kept, loose) if f"/sha256/{h}" in row}
+    assert "<td>pinned</td>" in rows[kept] and "1.2 kB" in rows[kept]
+    assert f'#{message} <a href="/view/rev/log">rev/log</a>' in rows[kept]
+    assert "<td>in grace</td>" in rows[loose] and "nothing" in rows[loose]
+    # read only, and open to anyone who can connect: the page needs no key
+    assert request(board.url + "/ui/blobs", {}, form=True).status == 404
+
+
+def test_the_blob_page_pages_through_the_blobs_newest_first(board, team):
+    a = team.alice
+    hashes = [a.put(data(20, str(n).encode()))["hash"] for n in range(55)]
+    first = board.get("/ui/blobs").text
+    assert first.count('class="blob"') == 50 and "/ui/blobs?after=" in first
+    after = first.split("/ui/blobs?after=")[1].split('"')[0]
+    second = board.get(f"/ui/blobs?after={after}").text
+    assert second.count('class="blob"') == 5 and "older blobs" not in second
+    listed = [h for h in hashes if f"/sha256/{h}" in first] + [h for h in hashes if f"/sha256/{h}" in second]
+    assert sorted(listed) == sorted(hashes)
+    assert board.get("/ui/blobs?after=nonsense").status == 400
+
+
+def test_the_disk_reserve_refuses_an_upload_that_would_eat_into_it(board, team, keyring, tmp_path):
+    a = team.alice
+    a.put(data(1000, b"had"))
+    restart(board, keyring, BOARD_BLOB_RESERVE=str(2 ** 60))
+    refused = refused_early_with(board, a.key, data(1000, b"new"), 507, "blob-store-full")
+    body = refused.json()
+    assert body["disk"] is True and body["reserve"] == 2 ** 60 and body["free"] > 0 and body["needed"] == 1000
+    assert "keeps" in body["message"] and "in reserve" in body["message"]
+    # bytes the board has cost the disk nothing
+    assert a.put(data(1000, b"had"))["existed"] is True
+    src = tmp_path / "f"
+    src.write_bytes(data(500, b"cli"))
+    run = cli("put", src, key=a.key)
+    assert run.code == 1 and run.last_err.startswith("board: blob-store-full:") and "reserve" in run.last_err
+    assert f"reserve={2 ** 60}" in board.server.log()
+    # a reserve the disk can spare, and none
+    for reserve in ("1000", "0"):
+        restart(board, keyring, BOARD_BLOB_RESERVE=reserve)
+        assert a.put(data(500, b"cli"))["size"] == 500
+        board.sql("DELETE FROM blobs WHERE sha256=?", sha(data(500, b"cli")))
+
+
+# --- get --resume -----------------------------------------------------------------------------------
+
+def broken_after(proxy, nbytes):
+    """Make the first download's answer break off after `nbytes`."""
+    cut = []
+
+    def after(exchange):
+        if exchange.route.startswith("/sha256/") and not cut:
+            cut.append(exchange)
+            exchange.declared = len(exchange.answer)
+            exchange.answer = exchange.answer[:nbytes]
+
+    proxy.after = after
+
+
+def downloads(proxy):
+    return [ex for ex in proxy.seen if ex.route.startswith("/sha256/")]
+
+
+def test_a_broken_download_leaves_its_part_and_resume_fetches_only_the_rest(board, team, proxy, tmp_path):
+    blob = data(3 * MIB, b"big")
+    h = team.alice.put(blob)["hash"]
+    out = tmp_path / "big.bin"
+    broken_after(proxy, MIB)
+    run = cli("get", h, "-o", out)
+    assert run.code == 1 and not out.exists()
+    assert (tmp_path / "big.bin.part").read_bytes() == blob[:MIB]
+    got = cli("get", h, "-o", out, "--resume").ok().result
+    assert (got["type"], got["hash"], got["size"]) == ("blob", h, 3 * MIB)
+    assert out.read_bytes() == blob and not (tmp_path / "big.bin.part").exists()
+    last = downloads(proxy)[-1]
+    assert (last.request_headers.get("range"), last.status) == (f"bytes={MIB}-", 206)
+    assert len(last.answer) == 2 * MIB
+
+
+def test_resume_without_a_part_is_a_plain_download_and_without_resume_a_part_is_overwritten(board, team, proxy, tmp_path):
+    blob = data(100_000, b"plain")
+    h = team.alice.put(blob)["hash"]
+    out = tmp_path / "f.bin"
+    cli("get", h, "-o", out, "--resume").ok()
+    assert out.read_bytes() == blob and "range" not in downloads(proxy)[-1].request_headers
+    out.unlink()
+    (tmp_path / "f.bin.part").write_bytes(b"left over from something else")
+    cli("get", h, "-o", out).ok()
+    assert out.read_bytes() == blob and "range" not in downloads(proxy)[-1].request_headers
+
+
+def test_resume_hashes_the_kept_start_so_a_damaged_one_is_caught(board, team, tmp_path):
+    blob = data(100_000, b"damaged")
+    h = team.alice.put(blob)["hash"]
+    (tmp_path / "f.bin.part").write_bytes(b"\0" * 1000)
+    run = cli("get", h, "-o", tmp_path / "f.bin", "--resume")
+    assert run.code == 1 and run.last_err.startswith("board: hash-mismatch:")
+    assert not (tmp_path / "f.bin").exists() and not (tmp_path / "f.bin.part").exists()
+    cli("get", h, "-o", tmp_path / "f.bin", "--resume").ok()
+    assert (tmp_path / "f.bin").read_bytes() == blob
+
+
+def test_a_complete_part_is_checked_and_moved_without_a_download(board, team, proxy, tmp_path):
+    blob = data(50_000, b"whole")
+    h = team.alice.put(blob)["hash"]
+    (tmp_path / "f.bin.part").write_bytes(blob)
+    cli("get", h, "-o", tmp_path / "f.bin", "--resume").ok()
+    assert (tmp_path / "f.bin").read_bytes() == blob and downloads(proxy) == []
+
+
+def test_a_part_longer_than_the_blob_and_a_board_that_ignores_the_range_start_over(board, team, proxy, tmp_path):
+    blob = data(50_000, b"restart")
+    h = team.alice.put(blob)["hash"]
+    (tmp_path / "f.bin.part").write_bytes(blob + b"junk")
+    cli("get", h, "-o", tmp_path / "f.bin", "--resume").ok()
+    assert (tmp_path / "f.bin").read_bytes() == blob and "range" not in downloads(proxy)[-1].request_headers
+    (tmp_path / "f.bin").unlink()
+    (tmp_path / "f.bin.part").write_bytes(blob[:100])
+    proxy.before = lambda ex: ex.request_headers.pop("range", None)  # the board never sees the Range
+    cli("get", h, "-o", tmp_path / "f.bin", "--resume").ok()
+    last = downloads(proxy)[-1]
+    assert last.status == 200 and (tmp_path / "f.bin").read_bytes() == blob
+
+
+def test_resume_needs_a_file_to_resume(board, team):
+    h = team.alice.put(data(100, b"x"))["hash"]
+    assert cli("get", h, "--resume", "-o", "-").code == 2
+    assert cli_bytes("get", h, "--resume")[0] == 2

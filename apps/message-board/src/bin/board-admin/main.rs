@@ -36,7 +36,23 @@
 //! not stop is never touched), and starts it again however the session
 //! ends: a quit, an error, Ctrl-C, a kill or the terminal closing.
 //!
-//! Usage: `board-admin`. Config via env, as board-server: `BOARD_DB`,
+//! The blobs have a screen of their own (`b` on the top level): every blob
+//! with its size, age and what may become of it (pinned, in its grace,
+//! evictable), one blob with every event that references it, and its
+//! deletion, by the store's rule: nothing a live message, open item or
+//! current note pins is deleted, by anyone. Deleting a blob's last holder
+//! (a message here) is what frees it.
+//!
+//! Usage: `board-admin` for the session above, or `board-admin fsck [--deep]`
+//! to check the blob directory against the index: read-only, so a flagged
+//! command is no hazard, and it leaves the service running (see
+//! `message_board::fsck` for what it finds). It prints one line per
+//! finding and a summary, and exits 0 when the store is clean, 1 when it
+//! found something. `--deep` also hashes every file (minutes for tens of
+//! gigabytes; it runs niced).
+//!
+//! Config via env, as board-server: `BOARD_DB`, `BOARD_BLOBS` and
+//! `BOARD_BLOB_CAP` and `BOARD_BLOB_GRACE` (as the server reads them),
 //! `BOARD_URL` (checked, not written to); `BOARD_ADMIN_SERVICE` (the unit,
 //! default message-board; empty for none) and `BOARD_ADMIN_LOG` (the audit
 //! log).
@@ -68,15 +84,17 @@ mod ui;
 
 use std::ffi::OsString;
 use std::fs;
-use std::io;
-use std::path::PathBuf;
+use std::io::{self, Write as _};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::thread;
 use std::time::{Duration, SystemTimeError};
 
+use message_board::blob;
+use message_board::fsck;
 use message_board::store::{self, Board, DbError};
 
-use crate::app::App;
+use crate::app::{App, BlobSettings};
 use crate::audit::Audit;
 use crate::service::{Service, note};
 use crate::tui::{Ending, Signals};
@@ -102,7 +120,20 @@ pub enum Failure {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    let outcome = match args.iter().map(|a| a.to_str()).collect::<Option<Vec<_>>>().as_deref() {
+        Some([]) => run(),
+        Some(["fsck"]) => check(false),
+        Some(["fsck", "--deep"]) => check(true),
+        _ => {
+            let usage = "usage: board-admin            browse the board and delete from it\n       board-admin fsck [--deep]  check the blob directory against the index (read-only)";
+            return match note(usage) {
+                Ok(()) => ExitCode::from(2),
+                Err(_unwritable) => ExitCode::from(74),
+            };
+        }
+    };
+    match outcome {
         Ok(code) => code,
         Err(err) => {
             // If stderr is gone too, the exit status is the only report left.
@@ -146,6 +177,74 @@ fn audit_path(home: Option<PathBuf>) -> Option<PathBuf> {
         .or_else(|| home.map(|h| h.join(".local/state/message-board/admin-deletions.log")))
 }
 
+/// Refuse a database that is missing or empty: opening it would make a board
+/// of it, and an admin tool must not.
+fn check_database(db: &Path) -> Result<(), Failure> {
+    let size = match fs::metadata(db) {
+        Ok(metadata) => metadata.len(),
+        Err(cause) if cause.kind() == io::ErrorKind::NotFound => {
+            // Opening it would create it; an admin tool must not.
+            return Err(Failure::Exit(format!("no database at {} (set BOARD_DB to point elsewhere).", db.display())));
+        }
+        Err(cause) => return Err(Failure::Io { what: format!("cannot look at {}", db.display()), cause }),
+    };
+    if size == 0 {
+        // Board::open would make a fresh board of it, as of a missing file.
+        return Err(Failure::Exit(format!(
+            "{} is empty, not a board (set BOARD_DB to point elsewhere).",
+            db.display()
+        )));
+    }
+    Ok(())
+}
+
+/// The number in environment variable `name`, or `default`.
+fn number_var(name: &str, default: u64) -> Result<u64, Failure> {
+    match text_var(name)?.filter(|value| !value.is_empty()) {
+        None => Ok(default),
+        Some(value) => value
+            .parse()
+            .map_err(|err| Failure::Exit(format!("board-admin: {name} is not a number: {value:?} ({err})"))),
+    }
+}
+
+/// `board-admin fsck`: see the module docs.
+fn check(deep: bool) -> Result<ExitCode, Failure> {
+    let home = std::env::home_dir();
+    let no_home = || Failure::Exit("board-admin: cannot tell where the home directory is".to_owned());
+    let db = db_path(nonempty_var("BOARD_DB"), nonempty_var("XDG_STATE_HOME"), home).ok_or_else(no_home)?;
+    check_database(&db)?;
+    let root = fsck::blob_root(nonempty_var("BOARD_BLOBS"), &db);
+    let board = Board::open(&db)?.board;
+    if deep {
+        // Hashing tens of gigabytes must not slow the board down.
+        if let Err(err) = rustix::process::nice(10) {
+            note(&format!("board-admin: cannot lower its priority: {err}"))?;
+        }
+    }
+    let options =
+        fsck::Options { deep, cap: number_var("BOARD_BLOB_CAP", blob::CAP_DEFAULT)?, tmp_idle: fsck::TMP_IDLE };
+    let checked = fsck::check(&board, &root, &options);
+    let closed = board.close().map_err(Failure::from);
+    let report = checked.map_err(|err| Failure::Exit(format!("board-admin: fsck: {err}")))?;
+    closed?;
+    let mut out = io::stdout().lock();
+    let wrote = |cause| Failure::Io { what: "cannot write the report".to_owned(), cause };
+    for finding in &report.findings {
+        writeln!(out, "{finding}").map_err(wrote)?;
+    }
+    let looked = if deep { format!("{} files hashed", report.hashed) } else { "sizes only; --deep hashes".to_owned() };
+    let verdict =
+        if report.findings.is_empty() { "clean".to_owned() } else { format!("{} findings", report.findings.len()) };
+    writeln!(
+        out,
+        "fsck: {} blobs in the index ({} bytes), {} files ({} bytes), {looked}: {verdict}",
+        report.blobs, report.indexed_bytes, report.files, report.file_bytes
+    )
+    .map_err(wrote)?;
+    Ok(if report.findings.is_empty() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+}
+
 fn run() -> Result<ExitCode, Failure> {
     // First, so that from here on a kill ends the session like a quit.
     let signals = Signals::install()?;
@@ -161,21 +260,7 @@ fn run() -> Result<ExitCode, Failure> {
     let db = db_path(nonempty_var("BOARD_DB"), nonempty_var("XDG_STATE_HOME"), home.clone()).ok_or_else(no_home)?;
     let audit = Audit { path: audit_path(home).ok_or_else(no_home)? };
 
-    let size = match fs::metadata(&db) {
-        Ok(metadata) => metadata.len(),
-        Err(cause) if cause.kind() == io::ErrorKind::NotFound => {
-            // Opening it would create it; an admin tool must not.
-            return Err(Failure::Exit(format!("no database at {} (set BOARD_DB to point elsewhere).", db.display())));
-        }
-        Err(cause) => return Err(Failure::Io { what: format!("cannot look at {}", db.display()), cause }),
-    };
-    if size == 0 {
-        // Board::open would make a fresh board of it, as of a missing file.
-        return Err(Failure::Exit(format!(
-            "{} is empty, not a board (set BOARD_DB to point elsewhere).",
-            db.display()
-        )));
-    }
+    check_database(&db)?;
     // Board::open looks at the file read-only first and refuses one that
     // is not a v2 board with nothing written to it. That is done before
     // the service is touched: a wrong BOARD_DB bounces nothing. Opening a
@@ -183,8 +268,12 @@ fn run() -> Result<ExitCode, Failure> {
     // a file. It is only written to once the server is gone.
     let board = Board::open(&db)?.board;
 
+    let blobs = BlobSettings {
+        root: fsck::blob_root(nonempty_var("BOARD_BLOBS"), &db),
+        grace: number_var("BOARD_BLOB_GRACE", blob::GRACE_DEFAULT)?,
+    };
     let mut stopped = false;
-    let session = administer(&service, &url, &board, audit, &signals, &mut stopped);
+    let session = administer(&service, &url, &board, audit, blobs, &signals, &mut stopped);
     // Closed before the service comes back, so that the server is the only
     // program with the file open again; closing also checkpoints the WAL.
     let closed = board.close().map_err(Failure::from);
@@ -223,6 +312,7 @@ fn administer(
     url: &str,
     board: &Board,
     audit: Audit,
+    blobs: BlobSettings,
     signals: &Signals,
     stopped: &mut bool,
 ) -> Result<Ending, Failure> {
@@ -264,7 +354,7 @@ fn administer(
     if let Some(signal) = signals.received() {
         return Ok(Ending::Signalled(signal));
     }
-    let mut app = App::new(board, audit)?;
+    let mut app = App::new(board, audit, blobs)?;
     tui::session(&mut app, signals)
 }
 

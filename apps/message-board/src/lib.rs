@@ -4,6 +4,7 @@
 
 pub mod blob;
 pub mod blobdir;
+pub mod fsck;
 pub mod sign;
 pub mod store;
 pub mod text;

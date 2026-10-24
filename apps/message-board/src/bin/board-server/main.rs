@@ -27,10 +27,13 @@
 //! beside `BOARD_DB`), held by a lock for as long as the server runs, with
 //! these limits: `BOARD_BLOB_CAP` (total bytes, default 50000000000),
 //! `BOARD_BLOB_MAX` (one blob, default 8 GiB) and `BOARD_BLOB_GRACE`
-//! (seconds an unreferenced blob is safe from eviction, default 3600); at
-//! most 4 uploads run at once. Routes: `PUT /blob` (signed, streamed),
+//! (seconds an unreferenced blob is safe from eviction, default 3600) and
+//! `BOARD_BLOB_RESERVE` (bytes the disk must keep free beyond what an upload
+//! takes, default 5000000000: other tenants share it; 0 for none); at most
+//! 4 uploads run at once. Routes: `PUT /blob` (signed, streamed),
 //! `GET /sha256/<hash>` (the bytes, with ranges), `GET /blobs` and
-//! `GET /blobs/<hash>`, `GET /blob-refs?event=ID`, `POST /blob-delete`.
+//! `GET /blobs/<hash>`, `GET /blob-refs?event=ID`, `POST /blob-delete`, and
+//! `GET /ui/blobs` (the web view's list of blobs).
 //!
 //! One thread per connection: a long poll blocks its thread on the store's
 //! condition variable for up to five minutes, which needs no async
@@ -117,6 +120,16 @@ fn number_setting(name: &str, default: u64) -> Result<u64, StartError> {
     }
 }
 
+/// As [`number_setting`], but 0 is a value too (a reserve of none).
+fn reserve_setting(name: &str, default: u64) -> Result<u64, StartError> {
+    match setting(name)?.filter(|text| !text.is_empty()) {
+        None => Ok(default),
+        Some(text) => {
+            text.parse::<u64>().map_err(|_bad| StartError::Config(format!("{name} {text:?} is not a whole number")))
+        }
+    }
+}
+
 fn run() -> Result<(), StartError> {
     // First of all: as PID 1, a SIGTERM that comes before there is a handler
     // is dropped, and opening the database can take a while.
@@ -153,6 +166,7 @@ fn run() -> Result<(), StartError> {
         max: number_setting("BOARD_BLOB_MAX", blob::MAX_DEFAULT)?,
         grace: number_setting("BOARD_BLOB_GRACE", blob::GRACE_DEFAULT)?,
     };
+    let reserve = reserve_setting("BOARD_BLOB_RESERVE", blob::RESERVE_DEFAULT)?;
     let blob_dir = BlobDir::open(&blob_root)?;
     bind_owner(&opened.board)?;
     let listener = listen(&addr, port)?;
@@ -160,11 +174,11 @@ fn run() -> Result<(), StartError> {
     let port =
         listener.local_addr().map_err(|source| StartError::Listen { addr: format!("{addr}:{port}"), source })?.port();
     let head = opened.board.head()?;
-    let app = Arc::new(App { board: opened.board, static_dir, blobs: blobs::Blobs::new(blob_dir, limits) });
+    let app = Arc::new(App { board: opened.board, static_dir, blobs: blobs::Blobs::new(blob_dir, limits, reserve) });
     shutdown.serving(&app);
     log::info(&format!("board on http://{addr}:{port}  db={}  head={head}", db.display()));
     log::info(&format!(
-        "board: blobs in {}  cap={} max={} grace={}s",
+        "board: blobs in {}  cap={} max={} grace={}s reserve={reserve}",
         blob_root.display(),
         limits.cap,
         limits.max,

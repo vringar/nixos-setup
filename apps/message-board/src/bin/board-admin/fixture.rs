@@ -7,11 +7,14 @@ use std::error::Error;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 
+use sha2::{Digest as _, Sha256};
+
 use message_board::sign::{self, PrivateKey, Verified};
 use message_board::store::{
     self, Action, Archive, Board, Create, File, ItemState, NodeKind, Post, Resolve, SetNote, Signed,
 };
 
+use crate::app::BlobSettings;
 use crate::audit::Audit;
 
 type Fallible<T> = Result<T, Box<dyn Error>>;
@@ -94,9 +97,38 @@ impl Fixture {
         Ok(write(&self.board, &Signed { action, key: &key, nonce: &nonce, signature: &signature })?)
     }
 
+    /// A blob of `bytes` uploaded as `name` at `ts`: its row and its file, as the server leaves them.
+    pub fn blob(&self, bytes: &[u8], name: &str, ts: &str) -> Fallible<String> {
+        let hash: String = Sha256::digest(bytes)
+            .iter()
+            .flat_map(|b| [b >> 4, b & 0x0f])
+            .filter_map(|n| char::from_digit(u32::from(n), 16))
+            .collect();
+        let conn = rusqlite::Connection::open(self.dir.path().join("board-v2.db"))?;
+        conn.execute(
+            "INSERT INTO blobs(sha256, size, filename, uploader, uploader_fp, ts, head, nonce, signature)
+             VALUES(?, ?, ?, 'alice', 'fp', ?, 0, 'n', 's')",
+            rusqlite::params![hash, i64::try_from(bytes.len())?, name, ts],
+        )?;
+        let shard = self.blobs().root.join(hash.get(..2).unwrap_or_default());
+        fs::create_dir_all(&shard)?;
+        fs::write(shard.join(&hash), bytes)?;
+        Ok(hash)
+    }
+
+    /// The owner posts `body` to thread `path`: the message's id.
+    pub fn post(&self, path: &str, body: &str) -> Fallible<i64> {
+        Ok(self.write(Post { path, body }, Board::post)?.id)
+    }
+
     /// The owner archives message or item `event`.
     pub fn archive(&self, event: i64) -> Fallible<()> {
         self.write(Archive { event, archived: true, reason: "" }, Board::archive).map(drop)
+    }
+
+    /// Where this board's blob files would be, and the default grace.
+    pub fn blobs(&self) -> BlobSettings {
+        BlobSettings { root: self.dir.path().join("blobs"), grace: 3600 }
     }
 
     pub fn audit(&self) -> Audit {

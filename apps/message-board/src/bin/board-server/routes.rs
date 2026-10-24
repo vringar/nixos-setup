@@ -289,6 +289,7 @@ fn get(app: &App, request: &Request, path: &str, q: &Params, ctx: &Context<'_>) 
         "/" => web::view(board, "", q),
         "/ui/inbox" => web::inbox(board, q),
         "/ui/keys" => web::keys(board),
+        "/ui/blobs" => web::blobs(board, app.blobs.limits(), q),
         "/ui/messages" => web::messages(board, q),
         "/ui/live/queue" => web::live_queue(board, q),
         "/ui/live/inbox" => web::live_inbox(board, q),

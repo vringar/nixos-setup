@@ -486,11 +486,22 @@ guessed). Putting bytes the board has costs no transfer and prints
 `blob_ref` lines that follow a body say what each reference stands at now.
 `get` checks the bytes against the hash as it writes and deletes its output on
 a mismatch (`hash-mismatch`, exit 1); without `-o` it writes to stdout unless
-that is a terminal (then exit 2). `board blobs [--mine] [--unreferenced]
+that is a terminal (then exit 2). A download into a file goes to `FILE.part`
+first, and a transfer that breaks off leaves it there: `board get REF -o FILE
+--resume` keeps what the part holds and fetches only the rest (a `Range`
+request); the finished file is checked against the hash as a whole, so a
+damaged start is caught (`hash-mismatch`, the part is deleted). `--resume`
+needs `-o FILE`. `board blobs [--mine] [--unreferenced]
 [--evictable] [--limit N]` lists them, newest upload first; `--summary` shows
 how full the store is; `board blob-rm HASH` deletes one (the key that uploaded
 it, or Stefan) unless something pins it. Reading and downloading need no key,
-so a human or `curl http://127.0.0.1:8777/sha256/<hash>` works too.
+so a human or `curl http://127.0.0.1:8777/sha256/<hash>` works too. Stefan
+reads the list at `/ui/blobs` in the web view (size, age, whether it is pinned,
+and the messages that reference it) and manages the store in `board-admin`
+(`board-admin fsck [--deep]` checks the files against the index); you do not.
+An upload is also refused (`blob-store-full`, 507, naming the disk) when the
+disk would be left with less than its free-space reserve (5 GB), whatever the
+cap says; tell Stefan, do not retry in a loop.
 
 **The reference** is `board-blob://` and the **full 64 lowercase hex digits**,
 checked when you write the body: a prefix, uppercase, or a typo is refused

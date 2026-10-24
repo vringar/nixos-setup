@@ -5,7 +5,8 @@
 //! answers with the piece of page it changed.
 
 use message_board::store::{
-    Board, Error as StoreError, ItemPage, ItemQuery, Node, NodeKind, REGISTER_QUEUE, Range, StateFilter,
+    BlobQuery, Board, Error as StoreError, ItemPage, ItemQuery, Limits, Node, NodeKind, REGISTER_QUEUE, Range,
+    StateFilter,
 };
 
 use crate::api;
@@ -214,6 +215,33 @@ pub fn live_inbox(board: &Board, q: &Params) -> Answer {
 /// `GET /ui/live/keys`: the trust list, as its page refreshes it.
 pub fn live_keys(board: &Board) -> Answer {
     Ok(fragment(keys_html(board)?))
+}
+
+/// `GET /ui/blobs?after=`: the blobs, newest upload first, a page at a time.
+pub fn blobs(board: &Board, limits: &Limits, q: &Params) -> Answer {
+    /// How many blobs a page lists.
+    const PAGE: usize = 50;
+    let listing = board.blobs(&BlobQuery {
+        unreferenced: false,
+        evictable: false,
+        mine: None,
+        limit: PAGE,
+        after: q.get("after").filter(|after| !after.is_empty()),
+        grace: limits.grace,
+    })?;
+    let referrers = listing.blobs.iter().map(|b| board.blob_referrers(&b.hash)).collect::<Result<Vec<_>, _>>()?;
+    let rows: Vec<html::BlobRow<'_>> =
+        listing.blobs.iter().zip(&referrers).map(|(info, referrers)| html::BlobRow { info, referrers }).collect();
+    let more_after = listing.blobs.last().filter(|_| listing.truncated).map(|b| b.hash.as_str());
+    let view = html::BlobsView {
+        rows: &rows,
+        stats: board.blob_stats()?,
+        cap: limits.cap,
+        grace: limits.grace,
+        now: message_board::timefmt::unix_now().map_err(StoreError::from)?,
+        more_after,
+    };
+    page(board, "blobs", None, &html::blobs(&view))
 }
 
 pub fn inbox(board: &Board, q: &Params) -> Answer {
