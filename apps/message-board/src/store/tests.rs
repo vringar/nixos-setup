@@ -3,6 +3,7 @@
 //! would: against the board's head, with a fresh client key.
 
 mod archive;
+mod blobs;
 mod files;
 mod identity;
 mod items;
