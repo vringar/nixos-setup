@@ -314,8 +314,13 @@ in {
     # Local message board for coordinating multi-repo agent work. Long-lived
     # user service; binds 127.0.0.1 unless BOARD_ADDR says otherwise (hive.nix
     # widens it on sz1). Reads are open to whoever can connect; every write is
-    # signed by a key the owner approved. The DB lives in the user state dir
-    # so it survives restarts.
+    # signed by a key the owner approved. The DB and the blob store (files
+    # agents hand each other, one per unique content, in blobs/ beside the
+    # DB) live in the user state dir so they survive restarts. The blob store
+    # is capped at BOARD_BLOB_CAP bytes: the state dir can grow to that size
+    # on $HOME (ZFS on sz1: snapshots and backups of home take it along). The
+    # blobs are written in the same directory, not in the unit's PrivateTmp,
+    # so the sandbox below needs no extra path.
     systemd.user.services.message-board = {
       Unit = {
         Description = "Local long-poll message board for agent coordination";
@@ -331,6 +336,11 @@ in {
         StateDirectory = "message-board";
         Environment = [
           "BOARD_DB=%S/message-board/board-v2.db"
+          # The most the blob store holds, in bytes (the default, written here
+          # so it is where the unit is read). One file is at most 8 GiB
+          # (BOARD_BLOB_MAX) and an unreferenced one is safe from eviction for
+          # an hour after upload (BOARD_BLOB_GRACE, in seconds).
+          "BOARD_BLOB_CAP=50000000000"
           # The owner's name is bound to this key at every start, overriding
           # any claim on it. The key may not exist yet: the board then runs
           # without an owner and logs one line saying so.

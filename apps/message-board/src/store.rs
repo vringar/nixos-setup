@@ -48,6 +48,18 @@
 //! `ItemQuery::archived`) and a watch does not announce them; by id they are
 //! still found, marked. Archiving a whole node is a later phase.
 //!
+//! # Blobs
+//!
+//! Files agents hand each other are blobs: one file per unique content,
+//! addressed by its sha256 (see `blobs.rs` for the index and `blobdir.rs` for
+//! the files). A body references one as `board-blob://<64 hex>`; the board
+//! checks the reference when it writes the body, in the same transaction, and
+//! keeps it in `blob_refs`. A blob is pinned (neither deleted nor evicted) by
+//! an open item, a thread message that is not archived and the latest version
+//! of a note, and by nothing else; an upload that does not fit evicts
+//! unpinned blobs, oldest upload first, past a grace. An upload is not an
+//! event and does not move the head.
+//!
 //! Names are bound to keys by the owner's approval ([`Board::approve`]);
 //! the server derives who wrote from the key, never from the request.
 
