@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use message_board::store::{self, EventType, NodeKind};
 
 use crate::api::{Api, node_url, query};
+use crate::blobs::{Refs, may_reference};
 use crate::identity::{self, bound_name};
 use crate::wire::{self, Brief, Item, ItemDetail, ItemList, Line, Message, NodeRead, Role};
 use crate::{Failure, emit, warn};
@@ -93,6 +94,23 @@ impl ReadOptions {
     }
 }
 
+/// The events of `item` that may hold references: its filing, and its resolution.
+fn item_ids(item: &Item, ids: &mut Vec<i64>) {
+    if may_reference(&item.body) {
+        ids.push(item.id);
+    }
+    if let Some(resolution) = item.resolution.as_ref().filter(|r| may_reference(&r.body)) {
+        ids.push(resolution.id);
+    }
+}
+
+/// Print `item`, then the references of its filing and its resolution.
+fn emit_item(item: &Item, refs: &Refs) -> Result<(), Failure> {
+    emit(&Line::Item(item))?;
+    refs.emit(item.id)?;
+    item.resolution.as_ref().map_or(Ok(()), |resolution| refs.emit(resolution.id))
+}
+
 fn missing(what: &str, field: &str) -> Failure {
     Failure::BadAnswer { what: what.to_owned(), cause: format!("no {field}") }
 }
@@ -109,6 +127,20 @@ pub fn read(api: &Api, path: &str, options: &ReadOptions) -> Result<(), Failure>
     if let Some(flag) = options.misplaced(kind) {
         return Err(Failure::Arguments(format!("{flag} does not apply here: {shown} is a {kind}")));
     }
+    // What the bodies about to be printed reference, asked once.
+    let mut ids = Vec::new();
+    match kind {
+        NodeKind::Note if !options.history => {
+            ids.extend(read.note.iter().filter(|note| may_reference(&note.body)).map(|note| note.id));
+        }
+        NodeKind::Thread => {
+            let messages = read.messages.iter().flatten();
+            ids.extend(messages.filter(|message| may_reference(&message.body)).map(|message| message.id));
+        }
+        NodeKind::Queue => read.items.iter().flatten().for_each(|item| item_ids(item, &mut ids)),
+        _ => {}
+    }
+    let refs = Refs::of(api, &ids)?;
     // The cursor passes everything printed, whatever came after the head.
     let mut since = head;
     let mut earlier = None;
@@ -128,6 +160,7 @@ pub fn read(api: &Api, path: &str, options: &ReadOptions) -> Result<(), Failure>
             Some(note) => {
                 since = since.max(note.id);
                 emit(&Line::Note(note))?;
+                refs.emit(note.id)?;
             }
             None => warn(&format!("board: {path} has no content yet (version 0); the first note set takes --base 0"))?,
         },
@@ -136,6 +169,7 @@ pub fn read(api: &Api, path: &str, options: &ReadOptions) -> Result<(), Failure>
             for message in messages {
                 since = since.max(message.id);
                 emit(&Line::Message(message))?;
+                refs.emit(message.id)?;
             }
             // Cut short going forward: the cursor stops at the last one
             // printed, so that reading on from it misses nothing.
@@ -148,7 +182,7 @@ pub fn read(api: &Api, path: &str, options: &ReadOptions) -> Result<(), Failure>
             let items = read.items.as_ref().ok_or_else(|| missing(&url, "items"))?;
             for item in items {
                 since = since.max(item.id);
-                emit(&Line::Item(item))?;
+                emit_item(item, &refs)?;
             }
             if read.truncated == Some(true) {
                 since = items.last().map_or(since, |last| last.id);
@@ -216,18 +250,28 @@ pub fn brief(api: &Api, paths: &[String], as_name: Option<&str>) -> Result<(), F
     let mut pairs: Vec<(&str, String)> = paths.iter().map(|path| ("path", path.clone())).collect();
     pairs.extend(name.iter().map(|name| ("as", name.clone())));
     let mut brief: Brief = api.get(&format!("/brief{}", query(&pairs)))?;
+    let mut ids: Vec<i64> = brief
+        .containers
+        .iter()
+        .flat_map(|container| container.notes.iter())
+        .filter(|note| may_reference(&note.body))
+        .map(|note| note.id)
+        .collect();
+    brief.owned.iter().chain(&brief.asked).for_each(|item| item_ids(item, &mut ids));
+    let refs = Refs::of(api, &ids)?;
     for container in &brief.containers {
         for child in &container.children {
             emit(&Line::Child(child))?;
         }
         for note in &container.notes {
             emit(&Line::Note(note))?;
+            refs.emit(note.id)?;
         }
     }
     for (items, role) in [(&mut brief.owned, Role::Owner), (&mut brief.asked, Role::Asker)] {
         for item in items.iter_mut() {
             item.role = Some(role);
-            emit(&Line::Item(item))?;
+            emit_item(item, &refs)?;
         }
     }
     let watch = watch_command(&brief.watch, as_name, brief.head);
@@ -239,30 +283,44 @@ pub fn brief(api: &Api, paths: &[String], as_name: Option<&str>) -> Result<(), F
 /// resolution), the event that resolved an item, or a node.
 pub fn show(api: &Api, id: i64) -> Result<(), Failure> {
     let event: store::Event = api.get::<wire::WireEvent>(&format!("/event/{id}"))?.into();
+    let one = |event: &store::Event| -> Result<Refs, Failure> {
+        let ids: Vec<i64> = if may_reference(&event.body) { vec![event.id] } else { Vec::new() };
+        Refs::of(api, &ids)
+    };
     match event.event {
-        EventType::Message => emit(&Line::Message(&Message {
-            id: event.id,
-            ts: event.ts,
-            path: event.path,
-            from: event.from.unwrap_or_default(),
-            signed_by: event.signed_by,
-            revoked_at: event.revoked_at,
-            body: event.body,
-            archived: event.archived,
-        })),
+        EventType::Message => {
+            let refs = one(&event)?;
+            emit(&Line::Message(&Message {
+                id: event.id,
+                ts: event.ts,
+                path: event.path,
+                from: event.from.unwrap_or_default(),
+                signed_by: event.signed_by,
+                revoked_at: event.revoked_at,
+                body: event.body,
+                archived: event.archived,
+            }))?;
+            refs.emit(id)
+        }
         EventType::NoteVersion => {
             let version = event.version.ok_or_else(|| missing(&format!("/event/{id}"), "version"))?;
             let url = format!("{}{}", node_url(&event.path), query(&[("version", version.to_string())]));
             let read: NodeRead = api.get(&url)?;
-            emit(&Line::Note(read.note.as_ref().ok_or_else(|| missing(&url, "note"))?))
+            let note = read.note.as_ref().ok_or_else(|| missing(&url, "note"))?;
+            let refs = one(&event)?;
+            emit(&Line::Note(note))?;
+            refs.emit(note.id)
         }
         EventType::ItemFiled => {
             let item = event.item.ok_or_else(|| missing(&format!("/event/{id}"), "item"))?;
             let detail: ItemDetail = api.get(&format!("/item/{item}"))?;
-            emit(&Line::Item(&detail.item))
+            let mut ids = Vec::new();
+            item_ids(&detail.item, &mut ids);
+            emit_item(&detail.item, &Refs::of(api, &ids)?)
         }
         // What resolved an item is the event that did it; the item is `show <item id>`.
         EventType::ItemAnswered | EventType::ItemDeclined | EventType::ItemCancelled | EventType::ItemReassigned => {
+            let refs = one(&event)?;
             emit(&Line::Resolution {
                 id: event.id,
                 ts: &event.ts,
@@ -275,7 +333,8 @@ pub fn show(api: &Api, id: i64) -> Result<(), Failure> {
                 reference: event.reference,
                 body: &event.body,
                 archived: event.archived,
-            })
+            })?;
+            refs.emit(id)
         }
         // An archive event of a message or item names it in `ref`.
         EventType::NodeArchived | EventType::NodeUnarchived if event.reference.is_some() => emit(&Line::Archive {
@@ -346,8 +405,13 @@ pub fn items(api: &Api, whose: &Whose<'_>, state: StateArg, after: Option<i64>, 
             list(*owner, *asker)?
         }
     };
+    let mut ids = Vec::new();
     for item in &items {
-        emit(&Line::Item(item))?;
+        item_ids(item, &mut ids);
+    }
+    let refs = Refs::of(api, &ids)?;
+    for item in &items {
+        emit_item(item, &refs)?;
     }
     Ok(())
 }

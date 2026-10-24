@@ -20,12 +20,18 @@
 //! board registrations                        the pending registrations
 //! board approve TARGET / board revoke TARGET the owner key's
 //! board archive ID [--reason T] / unarchive ID  hide / show a message or item (owner key)
+//! board put FILE|- [--name N] [--type MEDIA]   upload a file; prints the reference to paste into a body
+//! board get REF [-o FILE|-]                  download a blob by its hash or board-blob:// reference
+//! board blobs [--mine] [--unreferenced] [--evictable] [--limit N] [--summary]
+//! board blob-rm HASH                         delete a blob nothing pins (its uploader or the owner key)
 //! ```
 //!
 //! Everything it prints on stdout is JSON Lines: one compact JSON object
 //! per line, its kind in `"type"` (see [`wire::Line`]), so that no name or
-//! body can pass for structure. stderr is one plain line per problem, its
-//! control characters escaped.
+//! body can pass for structure; the one exception is `get -o -` (and `get`
+//! with standard output redirected), whose standard output is the blob's
+//! bytes. stderr is one plain line per problem, its control characters
+//! escaped.
 //!
 //! Exit codes: 0 done; 1 failed; 2 bad arguments (and v1's forms, which
 //! point at what replaced them); 3 an identity refusal (this key may not
@@ -41,6 +47,7 @@
 //! <http://127.0.0.1:BOARD_PORT>), `BOARD_PORT` (8777), `BOARD_KEY`.
 
 mod api;
+mod blobs;
 mod client;
 mod identity;
 mod read;
@@ -290,6 +297,47 @@ enum Command {
         #[arg(long, default_value = "")]
         reason: String,
     },
+    #[command(
+        about = "upload a file to the board's blob store; prints the board-blob:// reference to paste into a body"
+    )]
+    Put {
+        #[arg(value_name = "FILE", help = "a file, or '-' for standard input")]
+        file: String,
+        #[arg(long, value_name = "FILENAME", help = "the original file name the download carries (default: FILE's)")]
+        name: Option<String>,
+        #[arg(long = "type", value_name = "MEDIA", help = "its media type (default application/octet-stream)")]
+        media_type: Option<String>,
+    },
+    #[command(about = "download a blob; the bytes are checked against their hash")]
+    Get {
+        #[arg(value_name = "REF", help = "a 64-digit sha256, or board-blob://<hash>")]
+        reference: String,
+        #[arg(
+            short,
+            long,
+            value_name = "FILE",
+            help = "where to write it; '-' (or a redirected stdout) prints the bytes"
+        )]
+        output: Option<String>,
+    },
+    #[command(about = "list the blobs, newest upload first (or the store's totals with --summary)")]
+    Blobs {
+        #[arg(long, help = "only blobs this key uploaded first")]
+        mine: bool,
+        #[arg(long, help = "only blobs nothing pins")]
+        unreferenced: bool,
+        #[arg(long, help = "only blobs the board may evict: unpinned and past the grace")]
+        evictable: bool,
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=1000), help = "at most N (default 100)")]
+        limit: Option<u32>,
+        #[arg(long, help = "the store's totals instead of the blobs")]
+        summary: bool,
+    },
+    #[command(name = "blob-rm", about = "delete a blob nothing pins (the key that uploaded it, or the owner key)")]
+    BlobRm {
+        #[arg(value_name = "HASH", help = "a 64-digit sha256, or board-blob://<hash>")]
+        reference: String,
+    },
     // v1's commands, kept only to point at what replaced them.
     #[command(hide = true)]
     Pin {
@@ -535,6 +583,12 @@ fn run(cli: Cli) -> Result<(), Failure> {
         Command::Archive { id, reason } => write::archive(&api, id, true, &reason),
         Command::Unarchive { id } => write::archive(&api, id, false, ""),
         Command::Revoke { target, reason } => write::revoke(&api, &target, &reason),
+        Command::Put { file, name, media_type } => blobs::put(&api, &file, name.as_deref(), media_type.as_deref()),
+        Command::Get { reference, output } => blobs::get(&api, &reference, output.as_deref()),
+        Command::Blobs { mine, unreferenced, evictable, limit, summary } => {
+            blobs::list(&api, &blobs::Listing { mine, unreferenced, evictable, limit, summary })
+        }
+        Command::BlobRm { reference } => blobs::remove(&api, &reference),
         Command::Pin { .. } => Err(Failure::V1Form("pins (notes replaced them)")),
         Command::Areas { .. } => Err(Failure::V1Form("areas")),
     }

@@ -364,6 +364,80 @@ pub struct Revoked {
     pub id: i64,
 }
 
+/// A blob, as `put`, `get` and `blobs` print it. `existed` is `put`'s; the
+/// rest is what a listing or `get` adds.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Blob {
+    pub hash: String,
+    /// The board's own path to it; printed absolute.
+    pub url: String,
+    /// What to paste into a body.
+    pub reference: String,
+    pub size: u64,
+    pub media_type: String,
+    pub filename: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existed: Option<bool>,
+    #[serde(flatten)]
+    pub listed: Option<Listed>,
+}
+
+/// What a blob's listing says beyond what an upload says.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Listed {
+    pub from: String,
+    pub signed_by: String,
+    pub revoked_at: Option<i64>,
+    pub ts: String,
+    pub refs: u64,
+    pub pinned: bool,
+}
+
+/// `GET /blobs`: the blobs, and the store's totals.
+#[derive(Debug, Deserialize)]
+pub struct BlobList {
+    pub blobs: Vec<Blob>,
+    pub truncated: Option<bool>,
+    #[serde(flatten)]
+    pub summary: BlobSummary,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BlobSummary {
+    pub used: u64,
+    pub cap: u64,
+    pub count: u64,
+    pub pinned_bytes: u64,
+    pub grace_secs: u64,
+    pub max: u64,
+}
+
+/// What a reference in an event's body stands at: pinned (cannot go),
+/// released (may go when the store is full) or gone.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BlobRef {
+    pub event: i64,
+    pub hash: String,
+    pub reference: String,
+    pub state: String,
+    pub size: Option<u64>,
+    pub filename: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
+}
+
+/// `GET /blob-refs`.
+#[derive(Debug, Deserialize)]
+pub struct BlobRefs {
+    pub refs: Vec<BlobRef>,
+}
+
+/// What deleting a blob answers.
+#[derive(Debug, Deserialize)]
+pub struct BlobRemoved {
+    pub hash: String,
+}
+
 /// One line of output: a JSON object whose `"type"` comes first.
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -475,6 +549,13 @@ pub enum Line<'a> {
     Archived(&'a Archived),
     Approved(&'a Approved),
     Registration(&'a Registration),
+    Blob(&'a Blob),
+    BlobRef(&'a BlobRef),
+    #[serde(rename = "blobsummary")]
+    BlobSummary(&'a BlobSummary),
+    BlobRemoved {
+        hash: &'a str,
+    },
 }
 
 /// `line` as one line of JSON. `serde_json` escapes every control character
@@ -604,6 +685,52 @@ mod tests {
             "archived": true
         }))?;
         assert!(json_line(&Line::Item(&item))?.contains(r#""body":"b","archived":true"#));
+        Ok(())
+    }
+
+    #[test]
+    fn blob_lines_carry_what_the_board_sent_in_the_documented_order() -> TestResult {
+        let hash = "a".repeat(64);
+        let stored: Blob = serde_json::from_value(json!({
+            "hash": hash, "url": format!("http://h/sha256/{hash}"), "reference": format!("board-blob://{hash}"),
+            "size": 5, "media_type": "text/plain", "filename": "t.txt", "existed": false
+        }))?;
+        assert_eq!(
+            json_line(&Line::Blob(&stored))?,
+            format!(
+                "{{\"type\":\"blob\",\"hash\":\"{hash}\",\"url\":\"http://h/sha256/{hash}\",\
+                 \"reference\":\"board-blob://{hash}\",\"size\":5,\"media_type\":\"text/plain\",\
+                 \"filename\":\"t.txt\",\"existed\":false}}"
+            )
+        );
+        let listed: Blob = serde_json::from_value(json!({
+            "hash": hash, "url": "/sha256/x", "reference": "r", "size": 5, "media_type": "m", "filename": "f",
+            "from": "alice", "signed_by": "SHA256:x", "revoked_at": null, "ts": "t", "refs": 2, "pinned": true
+        }))?;
+        let text = json_line(&Line::Blob(&listed))?;
+        assert!(
+            text.ends_with(
+                r#""from":"alice","signed_by":"SHA256:x","revoked_at":null,"ts":"t","refs":2,"pinned":true}"#
+            ),
+            "{text}"
+        );
+        assert!(!text.contains("existed"), "{text}");
+        let reference: BlobRef = serde_json::from_value(json!({
+            "event": 10_360, "hash": "h", "reference": "board-blob://h", "state": "gone", "size": null,
+            "filename": null, "archived": true
+        }))?;
+        assert_eq!(
+            json_line(&Line::BlobRef(&reference))?,
+            r#"{"type":"blob_ref","event":10360,"hash":"h","reference":"board-blob://h","state":"gone","size":null,"filename":null,"archived":true}"#
+        );
+        let summary: BlobSummary = serde_json::from_value(
+            json!({"used": 1, "cap": 2, "count": 3, "pinned_bytes": 4, "grace_secs": 3600, "max": 8}),
+        )?;
+        assert_eq!(
+            json_line(&Line::BlobSummary(&summary))?,
+            r#"{"type":"blobsummary","used":1,"cap":2,"count":3,"pinned_bytes":4,"grace_secs":3600,"max":8}"#
+        );
+        assert_eq!(json_line(&Line::BlobRemoved { hash: "h" })?, r#"{"type":"blob_removed","hash":"h"}"#);
         Ok(())
     }
 

@@ -33,7 +33,7 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Resends after no answer, waiting 1, 2, then 4 s before each.
 const WRITE_RETRIES: u32 = 3;
 /// Signatures in a row that may go stale before giving up.
-const NONCE_TRIES: u32 = 8;
+pub const NONCE_TRIES: u32 = 8;
 /// A stale signature waits a random time between these (in ms), times the
 /// number of signatures gone stale so far, before reading the head again:
 /// writers that collided once do not read it again in step.
@@ -75,7 +75,7 @@ pub fn submit<A: Action, T: DeserializeOwned>(
 
 /// How long to wait after `stale` signatures went stale in a row: a random
 /// time in [`BACKOFF_MS`], times `stale`.
-fn backoff(stale: u32) -> Result<Duration, Failure> {
+pub fn backoff(stale: u32) -> Result<Duration, Failure> {
     let mut bytes = [0_u8; 2];
     getrandom::fill(&mut bytes).map_err(|err| Failure::Exit(format!("no random bytes for a backoff: {err}")))?;
     let (low, high) = BACKOFF_MS;
@@ -102,7 +102,7 @@ fn send_once<A: Action>(api: &Api, signer: &Signer, route: &str, action: &A, key
 }
 
 /// A fresh client key for a write: a version-4 UUID, as 32 hex digits.
-fn client_key() -> Result<String, Failure> {
+pub fn client_key() -> Result<String, Failure> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).map_err(|err| Failure::Exit(format!("no random bytes for a client key: {err}")))?;
     let [b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15] = bytes;

@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::client::{Client, HttpError};
+use crate::client::{Client, Download, HttpError};
 use crate::wire::{ErrorBody, Health};
 use crate::{Failure, pending_hint};
 
@@ -36,6 +36,27 @@ impl Api {
     /// POST `data` to `path`, as the board answered it.
     pub fn send(&self, path: &str, data: &Value, timeout: Duration) -> Result<String, HttpError> {
         self.client.post(path, data, timeout)
+    }
+
+    /// PUT `body` to `path`, as the board answered it.
+    pub fn put(
+        &self,
+        path: &str,
+        headers: &[(&str, String)],
+        body: impl std::io::Read,
+        timeout: Duration,
+    ) -> Result<String, HttpError> {
+        self.client.put(path, headers, body, timeout)
+    }
+
+    /// GET `path`, its body read as it arrives.
+    pub fn open(&self, path: &str, timeout: Duration) -> Result<Download, HttpError> {
+        self.client.open(path, timeout)
+    }
+
+    /// The URL of `path` on this board, in full.
+    pub fn absolute(&self, path: &str) -> String {
+        format!("{}{path}", self.client.base)
     }
 
     /// GET `path`, read as a `T`.

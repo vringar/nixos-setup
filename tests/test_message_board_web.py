@@ -15,7 +15,7 @@ from html.parser import HTMLParser
 import pytest
 
 from board_harness import (  # noqa: F401 (fixtures)
-    KINDS, Key, board, canonical, error_answer, isolated, keyring, new_client_key,
+    ALL_KINDS, Key, board, canonical, error_answer, isolated, keyring, new_client_key,
     parse_answer, request, ssh_verify, team,
 )
 
@@ -294,7 +294,9 @@ const fieldsOf = (kind) => (Array.isArray(kind) ? kind[1] : kind.fields);
 SAMPLE = {"path": "rev/log", "kind": "thread", "description": "a d", "owner": "", "body":
           "line one\nfrom=evil ü🙂", "base_version": "3", "thread": "rev/log", "through": "10020", "item": "10022",
           "state": "answered", "ref": "", "event": "10360", "archived": "1", "name": "newbie", "note": "repo, purpose",
-          "repo": "/home/x/repo", "reason": "replaced", "key": "0f3c", "nonce": "10041"}
+          "repo": "/home/x/repo", "reason": "replaced", "key": "0f3c", "nonce": "10041",
+          "sha256": "3f786850e387550fdab836ed7e6dc881de23001b9e14a9f8b5a8d1c2e4f60a1b", "size": "5242880",
+          "media_type": "text/plain", "filename": "trace v1.bin"}
 
 
 def test_browser_signing_matches_ssh_keygen_for_every_kind(board, tmp_path, keyring):
@@ -330,12 +332,12 @@ const refused = (path) => { try { B.parsePrivateKey(fs.readFileSync(path, "utf8"
                                locked: refused(locked), ecdsa: refused(ecdsa) }));
 })();
 """)
-    namespaces = [ns for ns, _ in KINDS.values()]
+    namespaces = [ns for ns, _ in ALL_KINDS.values()]
     run = subprocess.run(["node", script, _served_js(board, tmp_path), key.path, locked.path,
                           ecdsa.path, json.dumps(values), json.dumps(namespaces)],
                          capture_output=True, text=True, check=True)
     got = json.loads(run.stdout)
-    for namespace, fields in KINDS.values():
+    for namespace, fields in ALL_KINDS.values():
         kind = got["kinds"][namespace]
         assert kind is not None, f"board-sign.js has no {namespace}"
         data = canonical(fields, {f: values[f] for f in fields})

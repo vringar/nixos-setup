@@ -253,9 +253,14 @@ KINDS = {
     "approve": ("board2-approve", ("item", "name", "fingerprint", "key", "nonce")),
     "revoke": ("board2-revoke", ("fingerprint", "reason", "key", "nonce")),
     "archive": ("board2-archive", ("event", "archived", "reason", "key", "nonce")),
+}
+# The blob store's two: `blob` travels as headers of a streamed PUT /blob and `blobdel` as the JSON of
+# POST /blob-delete, so the tests that post every KINDS write to /<action> leave them out.
+BLOB_KINDS = {
     "blob": ("board2-blob", ("sha256", "size", "media_type", "filename", "key", "nonce")),
     "blobdel": ("board2-blobdel", ("sha256", "key", "nonce")),
 }
+ALL_KINDS = {**KINDS, **BLOB_KINDS}
 # The v1 kinds: a signature made for one of these must never verify in v2.
 V1_KINDS = {
     "message": ("board-message", ("area", "topic", "from", "body", "key", "nonce")),
@@ -664,7 +669,7 @@ class Board:
     def signed(self, action, key, values, nonce=None):
         """The body of a signed `action` with these field values (any not
         given are ""), its nonce the head as of now unless given."""
-        namespace, fields = KINDS["archive" if action == "unarchive" else action]
+        namespace, fields = ALL_KINDS["archive" if action == "unarchive" else action]
         unknown = set(values) - set(fields)
         assert not unknown, f"{action} has no fields {unknown}"
         signed = {name: text(values.get(name)) for name in fields}
