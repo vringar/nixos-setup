@@ -276,6 +276,13 @@ subscriptions matched:
 | `owner` | is on an item in a queue you own |
 | `item` | is on an item you gave as `--item ID` |
 
+An @-name is `@` and a whole name (letters, digits, `_`, `-`; `@ghidra` is not
+in `@ghidra-agent`; case matters). The board does not check that anyone has that
+name: a misspelled `@name` is stored and wakes nobody. Notes are never searched
+for mentions. In the web view Stefan gets a name list while typing `@`, a
+warning under the box for a name the board does not know, and a name it knows is
+marked in the text. Write the name exactly as `board whoami` shows it.
+
 Paths are positional; `--mention N`, `--asked-by N`, `--owner N`, `--item ID`
 and `--not-from N` repeat. `--me` is `--mention`, `--asked-by`, `--owner` and
 `--not-from` with your name, so your own writes do not wake you. A watch on a

@@ -290,7 +290,64 @@
       el.textContent = local.text;
     }
   }
-  globalThis.BoardSign = { localTime, localTimes, KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate, refusalText, clientKey, keyUsed, RETRY, liveBusy, uploadBlob, mediaType, UPLOAD_MAX };
+  // --- @mentions -------------------------------------------------------------
+  // The same rule as the board's (store `names_in`): an `@` followed by a run
+  // of letters, digits, `_` and `-`, one to NAME_MAX of them; a longer run is
+  // no name. Case matters.
+  const NAME_MAX = 64;
+  const NAME_CHAR = /[A-Za-z0-9_-]/;
+  const mentionScan = (text) => {
+    const found = [];
+    for (let at = text.indexOf("@"); at !== -1; at = text.indexOf("@", at + 1)) {
+      let end = at + 1;
+      while (end < text.length && NAME_CHAR.test(text[end])) end++;
+      if (end - at - 1 >= 1 && end - at - 1 <= NAME_MAX) found.push({ start: at, end, name: text.slice(at + 1, end) });
+    }
+    return found;
+  };
+  // The names an `@name` can reach, from GET /keys: the owner key's and the
+  // trusted keys', sorted.
+  const mentionNames = (keys) =>
+    Array.from(new Set(keys.filter((k) => k.state === "owner" || k.state === "trusted").map((k) => k.name))).sort();
+  // The names in `text` that are none of `names`, once each, in order. The
+  // name the caret is in (`skipAt`, a caret position) is still being typed.
+  const mentionUnknown = (text, names, skipAt = -1) => {
+    const known = new Set(names);
+    const unknown = [];
+    for (const { start, end, name } of mentionScan(text)) {
+      if (known.has(name) || unknown.includes(name)) continue;
+      if (skipAt > start && skipAt <= end) continue;
+      unknown.push(name);
+    }
+    return unknown;
+  };
+  // The `@query` the caret is in or at the end of, if it starts a word
+  // (an `@` inside a word, as in an address, offers nothing): {start, query}.
+  const mentionQuery = (text, caret) => {
+    let start = caret;
+    while (start > 0 && NAME_CHAR.test(text[start - 1])) start--;
+    if (start === 0 || text[start - 1] !== "@") return null;
+    if (start - 1 > 0 && NAME_CHAR.test(text[start - 2])) return null;
+    return { start: start - 1, query: text.slice(start, caret) };
+  };
+  // `names` that match `query`, any case: those that start with it first,
+  // then those that hold it; at most `limit`.
+  const mentionMatches = (names, query, limit = 8) => {
+    const q = query.toLowerCase();
+    const at = (n) => n.toLowerCase().indexOf(q);
+    return [...names.filter((n) => at(n) === 0), ...names.filter((n) => at(n) > 0)].slice(0, limit);
+  };
+  // `text` with the `@query` at `start` (up to the caret, and any name
+  // characters after it) replaced by `@name ` (the space already there
+  // serves); and where the caret goes, after that space.
+  const mentionInsert = (text, start, caret, name) => {
+    let end = caret;
+    while (end < text.length && NAME_CHAR.test(text[end])) end++;
+    const spaced = text[end] === " ";
+    return { text: text.slice(0, start) + `@${name}` + (spaced ? "" : " ") + text.slice(end),
+             caret: start + name.length + 2 };
+  };
+  globalThis.BoardSign = { localTime, localTimes, mentionScan, mentionNames, mentionUnknown, mentionQuery, mentionMatches, mentionInsert, KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate, refusalText, clientKey, keyUsed, RETRY, liveBusy, uploadBlob, mediaType, UPLOAD_MAX };
   if (typeof document === "undefined") return;
 
   // --- the page --------------------------------------------------------------
@@ -509,6 +566,125 @@
       e.preventDefault();
     }
   });
+
+
+  // --- @mention completion and checking ----------------------------------------
+  // In the body of each signed form (post, ask, note, answer): typing `@`
+  // lists the names the board knows (GET /keys, read when first needed and
+  // again after a minute), filtered as it goes; up/down, Enter or Tab and the
+  // mouse choose, Esc closes. A name that matches none gets a warning under
+  // the box. It only warns: the board accepts any @name.
+  let known = { names: null, at: 0 };
+  async function knownNames() {
+    if (known.names && Date.now() - known.at < 60000) return known.names;
+    try {
+      const response = await fetch("/keys");
+      if (response.ok) known = { names: mentionNames(await response.json()), at: Date.now() };
+    } catch { /* offline: no list, no warning */ }
+    return known.names;
+  }
+  const mentionBox = (el) => el?.matches?.("textarea[name=body]") && signedForm(el.form?.getAttribute("hx-post"));
+  // The open list: {box, list, start, items, at} or null.
+  let menu = null;
+  function closeMenu() {
+    menu?.box.setAttribute("aria-expanded", "false");
+    menu?.list.remove();
+    menu = null;
+  }
+  function paintMenu() {
+    menu.list.replaceChildren(...menu.items.map((name, i) => {
+      const li = document.createElement("li");
+      li.setAttribute("role", "option");
+      li.id = `mention-${i}`;
+      li.setAttribute("aria-selected", String(i === menu.at));
+      li.dataset.name = name;
+      li.textContent = `@${name}`;
+      return li;
+    }));
+    menu.box.setAttribute("aria-activedescendant", `mention-${menu.at}`);
+  }
+  function openMenu(box, start, items) {
+    if (!menu || menu.box !== box) {
+      closeMenu();
+      const list = document.createElement("ul");
+      list.className = "mention-list";
+      list.id = "mention-list";
+      list.setAttribute("role", "listbox");
+      list.setAttribute("aria-label", "names");
+      const r = box.getBoundingClientRect();
+      list.style.left = `${r.left}px`;
+      list.style.top = `${r.bottom}px`;
+      document.body.append(list);
+      menu = { box, list, start, items, at: 0 };
+      box.setAttribute("role", "combobox");
+      box.setAttribute("aria-controls", "mention-list");
+      box.setAttribute("aria-autocomplete", "list");
+    }
+    Object.assign(menu, { start, items, at: Math.min(menu.at, items.length - 1) });
+    box.setAttribute("aria-expanded", "true");
+    paintMenu();
+  }
+  function chooseName(name) {
+    const { box, start } = menu;
+    const done = mentionInsert(box.value, start, box.selectionStart, name);
+    box.value = done.text;
+    box.setSelectionRange(done.caret, done.caret);
+    closeMenu();
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  function warnAbout(box, unknown) {
+    let warn = box.nextElementSibling?.matches(".mention-warn") ? box.nextElementSibling : null;
+    if (unknown.length === 0) { warn?.remove(); return; }
+    if (!warn) {
+      warn = document.createElement("p");
+      warn.className = "mention-warn";
+      warn.setAttribute("role", "status");
+      box.after(warn);
+    }
+    warn.textContent = `no one is called ${unknown.map((n) => `@${n}`).join(", ")}: the board will still take it`;
+  }
+  async function mentionInput(box) {
+    const names = await knownNames();
+    if (!names) return;
+    const focused = document.activeElement === box;
+    warnAbout(box, mentionUnknown(box.value, names, focused ? box.selectionStart : -1));
+    const q = focused ? mentionQuery(box.value, box.selectionStart) : null;
+    const items = q ? mentionMatches(names, q.query) : [];
+    if (items.length === 0) closeMenu(); else openMenu(box, q.start, items);
+  }
+  document.addEventListener("input", (e) => { if (mentionBox(e.target)) mentionInput(e.target); });
+  document.addEventListener("keydown", (e) => {
+    if (!menu || e.target !== menu.box || e.isComposing) return;
+    const move = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+    if (move) {
+      menu.at = (menu.at + move + menu.items.length) % menu.items.length;
+      paintMenu();
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      chooseName(menu.items[menu.at]);
+    } else if (e.key === "Escape") {
+      closeMenu();
+    } else {
+      return;
+    }
+    e.preventDefault();
+  });
+  // mousedown, not click: the box keeps its focus (and the live refresh its guard)
+  document.addEventListener("mousedown", (e) => {
+    const li = e.target.closest?.("#mention-list li");
+    if (li) { e.preventDefault(); chooseName(li.dataset.name); }
+  });
+  document.addEventListener("focusout", (e) => {
+    if (menu && e.target === menu.box) {
+      closeMenu();
+      mentionInput(e.target);
+    }
+  });
+  // a sent form is empty again; a page swapped in takes its boxes with it
+  document.addEventListener("reset", (e) => {
+    const box = e.target.querySelector?.("textarea[name=body]");
+    if (box) setTimeout(() => { closeMenu(); warnAbout(box, []); });
+  });
+  document.addEventListener("htmx:after:swap", () => { if (menu && !menu.box.isConnected) closeMenu(); });
 
   // Whatever puts controls into the page, htmx's swap events or not (a
   // history restore, a swap whose source left the page, a later htmx), they

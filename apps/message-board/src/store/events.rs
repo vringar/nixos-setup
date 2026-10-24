@@ -292,16 +292,32 @@ pub(super) fn insert(conn: &Connection, stamp: &Stamp<'_>, event: &NewEvent<'_>)
     Ok(conn.last_insert_rowid())
 }
 
-/// The names `body` mentions: each `@` followed by a whole name, so that
-/// `@ghidra` is in "ask @ghidra." but not in "ask @ghidra-agent". Case
-/// matters, as it does for names.
-pub(super) fn mentioned(body: &str) -> BTreeSet<&str> {
+/// A `@name` in a body: where it is (the `@` included) and the name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NameRef<'a> {
+    pub at: std::ops::Range<usize>,
+    pub name: &'a str,
+}
+
+/// Every `@name` in `body`, in order: each `@` followed by a whole name, so
+/// that `@ghidra` is in "ask @ghidra." but not in "ask @ghidra-agent". Case
+/// matters, as it does for names. The one rule behind what a watch by
+/// mention matches and what the web view marks as a mention.
+#[must_use]
+pub fn names_in(body: &str) -> Vec<NameRef<'_>> {
     let in_name = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     body.match_indices('@')
-        .filter_map(|(at, tag)| body.get(at.saturating_add(tag.len())..))
-        .map(|rest| rest.split(|c| !in_name(c)).next().unwrap_or_default())
-        .filter(|name| (1..=NAME_MAX).contains(&name.len()))
+        .filter_map(|(at, tag)| {
+            let from = at.saturating_add(tag.len());
+            let name = body.get(from..)?.split(|c| !in_name(c)).next().unwrap_or_default();
+            (1..=NAME_MAX).contains(&name.len()).then(|| NameRef { at: at..from.saturating_add(name.len()), name })
+        })
         .collect()
+}
+
+/// The names `body` mentions.
+pub(super) fn mentioned(body: &str) -> BTreeSet<&str> {
+    names_in(body).into_iter().map(|found| found.name).collect()
 }
 
 /// Record the names event `id`'s body mentions, for watches by mention.
@@ -475,6 +491,14 @@ mod tests {
         // a run longer than any name is no name
         assert!(mentioned(&format!("@{}", "x".repeat(NAME_MAX + 1))).is_empty());
         assert_eq!(mentioned(&format!("@{}", "x".repeat(NAME_MAX))).len(), 1);
+    }
+
+    #[test]
+    fn names_in_says_where_each_mention_is() {
+        let body = "hi @al, @bob_2! mail a@b @ @@c é@d";
+        let found: Vec<_> = names_in(body).into_iter().map(|f| (f.name, &body[f.at])).collect();
+        assert_eq!(found, [("al", "@al"), ("bob_2", "@bob_2"), ("b", "@b"), ("c", "@c"), ("d", "@d")]);
+        assert!(names_in("").is_empty() && names_in("no names here").is_empty());
     }
 
     #[test]

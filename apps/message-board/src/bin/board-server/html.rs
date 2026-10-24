@@ -11,13 +11,13 @@
 //! key authorized in the page is one the board trusts (or is the owner's).
 //! The board checks every write anyway; hiding is for the reader.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use message_board::blob;
 use message_board::store::{
     BlobInfo, BlobReferrer, BlobStats, Board, Child, DbError, EventRef, EventType, Item, ItemPage, ItemState, Key,
     KeyState, KeyUsage, Node, NodeKind, NoteVersion, Present, READ_BYTES_MAX, READ_ROWS_MAX, Range, Registration,
-    Status, ThreadPage, Version,
+    Status, ThreadPage, Version, names_in,
 };
 use message_board::timefmt;
 
@@ -27,12 +27,14 @@ use crate::deeplink;
 /// with their size and original file name: a reference is a link while its
 /// blob is there and plain text once it is not. And the events whose ids
 /// they mention: a number is a link to the event's permalink if the board
-/// has such an event, and plain text if not. Decided every time the page
-/// is made.
+/// has such an event, and plain text if not. And the names an `@name` can
+/// reach: one that is a name is marked as a mention. Decided every time the
+/// page is made.
 #[derive(Debug, Default)]
 pub struct Links {
     blobs: BTreeMap<String, Present>,
     events: BTreeMap<i64, EventRef>,
+    names: BTreeSet<String>,
 }
 
 impl Links {
@@ -58,7 +60,17 @@ impl Links {
         hashes.dedup();
         ids.sort_unstable();
         ids.dedup();
-        Ok(Self { blobs: board.blobs_present(&hashes)?, events: board.event_refs(&ids)? })
+        Ok(Self {
+            blobs: board.blobs_present(&hashes)?,
+            events: board.event_refs(&ids)?,
+            names: board.known_names()?.into_iter().collect(),
+        })
+    }
+
+    /// These names, as if they were the board's.
+    #[cfg(test)]
+    pub fn with_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Self {
+        Self { names: names.into_iter().map(str::to_owned).collect(), ..Self::default() }
     }
 
     /// Events by id, as if the board had them.
@@ -85,6 +97,19 @@ fn mention_title(event: &EventRef) -> String {
     if first.is_empty() { format!("{what} in {}", event.path) } else { format!("{what} in {}: {first}", event.path) }
 }
 
+/// Plain text where an `@name` that is a name the board knows is marked
+/// (`<span class="at">`). Any other `@name` stays text, as does the `@`
+/// alone. Not a link: a name has no page of its own.
+fn plain(h: &mut Html, text: &str, links: &Links) {
+    let mut rest = 0;
+    for found in names_in(text).into_iter().filter(|found| links.names.contains(found.name)) {
+        h.text(text.get(rest..found.at.start).unwrap_or_default());
+        h.markup("<span class=\"at\">").text(text.get(found.at.clone()).unwrap_or_default()).markup("</span>");
+        rest = found.at.end;
+    }
+    h.text(text.get(rest..).unwrap_or_default());
+}
+
 /// A body's text with its event ids linked: the numbers in `text[from..to]`
 /// that the board has an event for.
 fn text_with_mentions(h: &mut Html, text: &str, from: usize, to: usize, links: &Links) {
@@ -94,12 +119,12 @@ fn text_with_mentions(h: &mut Html, text: &str, from: usize, to: usize, links: &
         else {
             continue;
         };
-        h.text(text.get(rest..mention.at.start).unwrap_or_default());
+        plain(h, text.get(rest..mention.at.start).unwrap_or_default(), links);
         h.markup("<a class=\"mref\" hx-boost=\"false\" href=\"/m/").number(mention.id).markup("\" title=\"");
         h.text(&mention_title(event)).markup("\">").number(mention.id).markup("</a>");
         rest = mention.at.end;
     }
-    h.text(text.get(rest..to).unwrap_or_default());
+    plain(h, text.get(rest..to).unwrap_or_default(), links);
 }
 
 /// An event's id as the page shows it: a small link to its permalink, which
@@ -234,6 +259,13 @@ const HEAD: &str = r##"</title>
   .flag { color: var(--flag); margin: .2rem 0; }
   .revoked { color: var(--error); }
   .gone { color: var(--faint); font-size: 12px; }
+  .mention-list { position: fixed; z-index: 10; margin: 0; padding: .2rem 0; list-style: none; min-width: 10rem;
+                  max-height: 12rem; overflow-y: auto; background: var(--field-bg); color: var(--field-fg);
+                  border: 1px solid var(--field-border); border-radius: 3px; }
+  .mention-list li { padding: .15rem .6rem; cursor: pointer; }
+  .mention-list li[aria-selected="true"], .mention-list li:hover { background: var(--accent-bg); color: var(--accent); }
+  .mention-warn { color: var(--flag); font-size: 12px; margin: 0 0 .2rem; }
+  .at { color: var(--accent); background: var(--accent-bg); border-radius: 3px; padding: 0 .2rem; }
   .attach { margin: .3rem 0; }
   img.preview { display: block; max-width: min(100%, 36rem); max-height: 24rem; margin: .25rem 0; border-radius: 4px; }
   #messages { border: 1px solid var(--border); border-radius: 6px; padding: .5rem;
@@ -1876,6 +1908,33 @@ mod tests {
         let mut h = Html::new();
         body(&mut h, &format!("board-blob://{there}"), &nameless);
         assert!(String::from_utf8(h.into_bytes()).unwrap_or_default().contains("download>aaaaaaaaaaaa (3 bytes)</a>"));
+    }
+
+    #[test]
+    fn a_known_name_is_marked_and_nothing_else_is_and_all_of_it_is_escaped() {
+        let links = Links::with_names(["alice", "bob"]);
+        let text_of = |text: &str| {
+            let mut h = Html::new();
+            body(&mut h, text, &links);
+            String::from_utf8(h.into_bytes()).unwrap_or_default()
+        };
+        assert_eq!(
+            text_of("hi @alice, not @alic or @alice-b or @Alice; @bob"),
+            "hi <span class=\"at\">@alice</span>, not @alic or @alice-b or @Alice; <span class=\"at\">@bob</span>"
+        );
+        assert_eq!(
+            text_of("@ @@bob <@alice>"),
+            "@ @<span class=\"at\">@bob</span> &lt;<span class=\"at\">@alice</span>&gt;"
+        );
+        // no names, no marks; markup in a body stays text
+        let mut h = Html::new();
+        body(&mut h, "@alice <script>@bob</script>", &Links::none());
+        assert_eq!(String::from_utf8(h.into_bytes()).unwrap_or_default(), "@alice &lt;script&gt;@bob&lt;/script&gt;");
+        // beside a blob reference and an event id
+        let hash = "a".repeat(64);
+        let page = text_of(&format!("@alice board-blob://{hash} @bob 12345"));
+        assert!(page.starts_with("<span class=\"at\">@alice</span> board-blob://"), "{page}");
+        assert!(page.contains("(file removed)</span> <span class=\"at\">@bob</span> 12345"), "{page}");
     }
 
     #[test]

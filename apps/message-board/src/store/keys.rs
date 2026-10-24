@@ -258,6 +258,21 @@ impl Board {
         self.read_db(|conn| select(conn, "ORDER BY name, fingerprint", []))
     }
 
+    /// The names an `@name` can reach: those of the owner key and of the
+    /// trusted keys, sorted. A name pending, declined or revoked is not one.
+    ///
+    /// # Errors
+    /// On a database fault.
+    pub fn known_names(&self) -> Result<Vec<String>, DbError> {
+        let names: std::collections::BTreeSet<String> = self
+            .keys()?
+            .into_iter()
+            .filter(|key| matches!(key.state, KeyState::Owner | KeyState::Trusted))
+            .map(|key| key.name)
+            .collect();
+        Ok(names.into_iter().collect())
+    }
+
     /// One key.
     ///
     /// # Errors

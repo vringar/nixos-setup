@@ -38,6 +38,11 @@
 //! `PUT /blob`), `/ui/keys` shows what each key uploaded, and a raster image
 //! blob (by its stored type, up to 10 MB) is shown inline below its link.
 //!
+//! Mentions: any `@name` is stored (the store does not check it against the
+//! keys). The web view marks one that is the name of the owner key or a
+//! trusted key, and its forms offer those names while typing `@` (from
+//! `GET /keys`) and warn about any other; the board still takes it.
+//!
 //! Permalinks: `GET /m/<id>` redirects to the web page that shows event `id`
 //! (a message in its thread, in a window around it if it is not among the
 //! newest; a note version; an item or its resolution in its queue; any other

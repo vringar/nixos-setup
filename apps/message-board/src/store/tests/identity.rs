@@ -147,6 +147,21 @@ fn approving_replaces_the_names_key_and_declines_its_rivals() -> TestResult {
 }
 
 #[test]
+fn only_the_owner_and_trusted_keys_name_a_mention() -> TestResult {
+    let f = fixture()?;
+    f.rev()?;
+    f.agent(2, "session")?;
+    f.register(&key(3)?, "waiting")?;
+    let owner = f.board.owner()?.ok_or("no owner")?.name;
+    // the owner key and a trusted one, not a pending one; each name once
+    assert_eq!(f.board.known_names()?, [owner.clone(), "session".to_owned()]);
+    // a rotated owner key keeps the name, and the revoked key's name goes
+    f.board.set_owner(&owner, &verified(&key(9)?))?;
+    assert_eq!(f.board.known_names()?, [owner, "session".to_owned()]);
+    Ok(())
+}
+
+#[test]
 fn the_inbox_flags_look_alike_names() -> TestResult {
     let f = fixture()?;
     let (one, two) = (key(2)?, key(3)?);

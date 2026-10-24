@@ -93,7 +93,7 @@ pub use blobs::{
     Begun, BlobHolder, BlobInfo, BlobPage, BlobQuery, BlobRef, BlobReferrer, BlobStats, KeyUsage, Landing, Limits,
     Pinner, Present, RefState, StoreFull, Uploader, Victim,
 };
-pub use events::{Event, EventRef, EventType, Message};
+pub use events::{Event, EventRef, EventType, Message, NameRef, names_in};
 pub use items::{Item, ItemDetail, ItemPage, ItemQuery, ItemResolution, ItemState, StateFilter};
 pub use keys::{Key, KeyState, Owner, OwnerChange, REGISTER_TEXT_MAX, Registration};
 pub use nodes::{
