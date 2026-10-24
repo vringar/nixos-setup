@@ -159,10 +159,15 @@ const HEAD: &str = r##"</title>
   private key, ideally a dedicated one (<code>board keygen</code>). The board knows
   the key's name; the key stays in this tab's memory only: never stored, never
   sent, and a reload forgets it.</p>
+  <p class="error" id="auth-insecure" hidden>Signing needs a secure context (HTTPS or
+  localhost), and this page is at <code id="auth-origin"></code>, which is neither: the browser
+  withholds the signing API here. Open the board as <code>http://localhost:8777</code>
+  (on the host itself, or from another machine through <code>ssh -L 8777:127.0.0.1:8777 sz1</code>),
+  or serve it over HTTPS with <code>tailscale serve --bg 8777</code>.</p>
   <p class="error" id="auth-error" hidden></p>
   <textarea name="privkey" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" required
             autocomplete="off" spellcheck="false"></textarea>
-  <button type="submit">authorize</button>
+  <button type="submit" id="auth-submit">authorize</button>
   <button type="button" id="auth-cancel">cancel</button>
 </form></dialog>
 <h1>message board</h1>
@@ -1360,6 +1365,14 @@ mod tests {
         }
         let done = text(registered("<b>", "SHA256:x", 10_050));
         assert!(done.contains("&lt;b&gt;") && done.contains("#10050") && !done.contains("<b><"), "{done}");
+    }
+
+    #[test]
+    fn the_authorize_dialog_has_its_place_to_explain_an_insecure_page() {
+        let page = text(page_without_outline());
+        assert!(page.contains("<p class=\"error\" id=\"auth-insecure\" hidden>"), "{page}");
+        assert!(page.contains("tailscale serve --bg 8777") && page.contains("ssh -L 8777:127.0.0.1:8777"), "{page}");
+        assert!(page.contains("id=\"auth-origin\"") && page.contains("id=\"auth-submit\""), "{page}");
     }
 
     #[test]

@@ -240,8 +240,12 @@
     const open = $("#auth-open");
     if (!open) return;
     if (!usable) {
-      open.disabled = true;
+      // The button stays: its dialog says why signing is out and what to do.
       $("#auth-note").textContent = "signing needs HTTPS or localhost";
+      $("#auth-origin").textContent = location.origin;
+      $("#auth-insecure").hidden = false;
+      $("#auth-form").elements.privkey.disabled = true;
+      $("#auth-submit").disabled = true;
     }
     open.hidden = !!me;
     $("#auth-status").hidden = $("#auth-forget").hidden = !me;

@@ -1224,3 +1224,55 @@ console.log(JSON.stringify([
     run = subprocess.run(["node", script, _served_js(board, tmp_path)], capture_output=True, text=True,
                          check=True, timeout=60)
     assert json.loads(run.stdout) == [False, False, True, False, True, False, True, True]
+
+
+# --- signing needs a secure context ------------------------------------------------------------
+
+def test_an_insecure_page_says_why_it_cannot_sign_and_what_to_do(board, tmp_path):
+    """Over http://sz1:8777 the browser withholds WebCrypto's signing. The
+    Authorize dialog says so, with the page's own address and the ways out,
+    and takes no key; a secure page has none of that."""
+    _node()
+    script = tmp_path / "insecure.js"
+    script.write_text("""
+const [js, secure] = process.argv.slice(2);
+class El {
+  constructor() { this.hidden = true; this.disabled = false; this.dataset = {}; this.nodeType = 1;
+                  this.textContent = ""; this.value = ""; }
+  matches() { return false; }
+  querySelector() { return null; }
+  addEventListener() {}
+}
+const page = Object.fromEntries(["#auth-open", "#auth-status", "#auth-forget", "#auth-note", "#auth-error",
+  "#auth-dialog", "#auth-form", "#auth-insecure", "#auth-origin", "#auth-submit"].map((s) => [s, new El()]));
+page["#auth-form"].elements = { privkey: new El() };
+globalThis.location = { origin: "http://sz1:8777" };
+globalThis.MutationObserver = class { observe() {} };
+globalThis.window = { isSecureContext: secure === "1", crypto: globalThis.crypto };
+globalThis.document = {
+  documentElement: {}, hidden: false,
+  querySelector: (sel) => page[sel] ?? null,
+  querySelectorAll: () => [],
+  addEventListener() {},
+};
+require(js);
+console.log(JSON.stringify({
+  opens: !page["#auth-open"].disabled, explained: !page["#auth-insecure"].hidden,
+  origin: page["#auth-origin"].textContent, note: page["#auth-note"].textContent,
+  keyTaken: !page["#auth-form"].elements.privkey.disabled, submit: !page["#auth-submit"].disabled,
+}));
+""")
+    served = _served_js(board, tmp_path)
+
+    def run(secure):
+        out = subprocess.run(["node", script, served, secure], capture_output=True, text=True,
+                             check=True, timeout=60)
+        return json.loads(out.stdout)
+
+    assert run("0") == {"opens": True, "explained": True, "origin": "http://sz1:8777",
+                        "note": "signing needs HTTPS or localhost", "keyTaken": False, "submit": False}
+    secure = run("1")
+    assert (secure["explained"], secure["keyTaken"], secure["submit"], secure["note"]) == \
+        (False, True, True, "")
+    page = board.get("/").text
+    assert "tailscale serve --bg 8777" in page and "ssh -L 8777:127.0.0.1:8777" in page
