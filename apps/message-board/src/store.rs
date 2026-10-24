@@ -261,6 +261,9 @@ pub enum Error {
     /// A row without its file: an invariant broken, not a state.
     #[error("the board has blob {hash} but not its file; the operator has to look at the blob directory")]
     BlobMissing { hash: String },
+    /// The board's own machinery failed (a file, not the database).
+    #[error("{0}")]
+    Internal(String),
     #[error("item #{item} is {state}, not open{}", .resolved.map(|id| format!(" (#{id})")).unwrap_or_default())]
     ItemNotOpen { item: i64, state: ItemState, resolved: Option<i64> },
     /// A client key already used for a different request, or a node that
@@ -321,7 +324,7 @@ impl Error {
             Self::AlreadyRegistered { .. } => "already-registered",
             Self::RegisterFull => "register-full",
             Self::Db(db) if db.is_busy() => "busy",
-            Self::Db(_) => "internal",
+            Self::Db(_) | Self::Internal(_) => "internal",
         }
     }
 
@@ -355,7 +358,7 @@ impl Error {
             | Self::AlreadyRegistered { .. } => 409,
             Self::RegisterFull => 429,
             Self::Db(db) if db.is_busy() => 503,
-            Self::Db(_) | Self::BlobMissing { .. } => 500,
+            Self::Db(_) | Self::Internal(_) | Self::BlobMissing { .. } => 500,
         }
     }
 

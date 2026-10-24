@@ -9,7 +9,7 @@ use message_board::store::{
 };
 
 use crate::api;
-use crate::html::{self, Html, Inbox, NoteForm, NoteView};
+use crate::html::{self, Html, Inbox, Links, NoteForm, NoteView};
 use crate::http::Response;
 use crate::routes::{Answer, Failure, Params};
 use crate::writes::{self, Fields, Write};
@@ -78,6 +78,26 @@ fn page(board: &Board, title: &str, path: Option<&str>, content: &Html) -> Resul
     Ok(Response::html(200, html::page(title, path, content, &board.outline(html::OUTLINE_MAX)?)))
 }
 
+/// A thread's messages as its page shows them, its blob references linked
+/// where the blob is there.
+fn messages_html(board: &Board, path: &str, range: Range, archived: bool) -> Result<Html, Failure> {
+    let page = board.thread_with(path, range, archived)?;
+    let links = Links::of(board, page.messages.iter().map(|m| m.body.as_str()))?;
+    Ok(html::messages(path, &page, range, RECENT, archived, &links))
+}
+
+/// The bodies of items and their resolutions: where a page's blob references are.
+fn item_bodies(page: &ItemPage) -> impl Iterator<Item = &str> {
+    page.items.iter().flat_map(|i| std::iter::once(i.body.as_str()).chain(i.resolution.iter().map(|r| r.body.as_str())))
+}
+
+/// A queue's items as its page shows them.
+fn queue_items_html(board: &Board, path: &str, after: i64, archived: bool) -> Result<Html, Failure> {
+    let page = board.queue_with(path, StateFilter::All, after, archived)?;
+    let links = Links::of(board, item_bodies(&page))?;
+    Ok(html::queue_items(path, &page, archived, &links))
+}
+
 fn fragment(content: Html) -> Response {
     Response::html(200, content)
 }
@@ -105,12 +125,16 @@ pub fn view(board: &Board, path: &str, q: &Params) -> Answer {
         NodeKind::Thread => {
             let range = window(q)?;
             let archived = q.flag("archived");
-            html::thread(&node, &board.thread_with(path, range, archived)?, range, RECENT, archived)
+            let page = board.thread_with(path, range, archived)?;
+            let links = Links::of(board, page.messages.iter().map(|m| m.body.as_str()))?;
+            html::thread(&node, &page, range, RECENT, archived, &links)
         }
         NodeKind::Queue => {
             let archived = q.flag("archived");
             let after = q.number("after")?.unwrap_or(0);
-            html::queue(&node, &board.queue_with(path, StateFilter::All, after, archived)?, after, archived)
+            let page = board.queue_with(path, StateFilter::All, after, archived)?;
+            let links = Links::of(board, item_bodies(&page))?;
+            html::queue(&node, &page, after, archived, &links)
         }
     };
     page(board, path, Some(path), &content)
@@ -125,7 +149,8 @@ fn note_html(board: &Board, node: &Node, version: Option<i64>) -> Result<Html, F
         (Some(shown), Some(last)) => shown.version == last.version,
         _ => true,
     };
-    Ok(html::note(&NoteView { node, note: shown.as_ref(), history: &history, current }))
+    let links = Links::of(board, shown.iter().map(|n| n.body.as_str()))?;
+    Ok(html::note(&NoteView { node, note: shown.as_ref(), history: &history, current, links: &links }))
 }
 
 /// Whether the page a form sat on shows what is archived (`shown=archived`),
@@ -143,7 +168,7 @@ pub fn messages(board: &Board, q: &Params) -> Answer {
     let path = path(q)?;
     let range = window(q)?;
     let archived = q.flag("archived");
-    Ok(fragment(html::messages(path, &board.thread_with(path, range, archived)?, range, RECENT, archived)))
+    Ok(fragment(messages_html(board, path, range, archived)?))
 }
 
 /// `GET /ui/note?path=`: the note, as it is now (an edit's way back).
@@ -168,7 +193,8 @@ fn inbox_html(board: &Board, after: i64) -> Result<Html, Failure> {
     // The register queue is the owner's too; its items are the registrations.
     let items: Vec<_> = page.items.into_iter().filter(|item| item.path != REGISTER_QUEUE).collect();
     let owner = owner.as_ref().map(|owner| owner.name.as_str());
-    Ok(html::inbox(&Inbox { owner, registrations: &registrations, items: &items, more_after }))
+    let links = Links::of(board, items.iter().map(|i| i.body.as_str()))?;
+    Ok(html::inbox(&Inbox { owner, registrations: &registrations, items: &items, more_after, links: &links }))
 }
 
 /// `GET /ui/live/queue?path=&after=&archived=`: a queue's items, as its page
@@ -177,7 +203,7 @@ pub fn live_queue(board: &Board, q: &Params) -> Answer {
     let path = path(q)?;
     let archived = q.flag("archived");
     let after = q.number("after")?.unwrap_or(0);
-    Ok(fragment(html::queue_items(path, &board.queue_with(path, StateFilter::All, after, archived)?, archived)))
+    Ok(fragment(queue_items_html(board, path, after, archived)?))
 }
 
 /// `GET /ui/live/inbox?after=`: the inbox, as its page refreshes it.
@@ -239,13 +265,13 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
             let path = path(fields)?;
             let range = window(fields)?;
             let archived = shown_archived(fields);
-            html::messages(path, &board.thread_with(path, range, archived)?, range, RECENT, archived)
+            messages_html(board, path, range, archived)?
         }
         Form::Note => note_html(board, &board.node(path(fields)?)?, None)?,
         Form::Ask => {
             let archived = shown_archived(fields);
             let path = path(fields)?;
-            html::queue_items(path, &board.queue_with(path, StateFilter::All, 0, archived)?, archived)
+            queue_items_html(board, path, 0, archived)?
         }
         // The message's or the item's list, as the page shows it.
         Form::Archive | Form::Unarchive => {
@@ -255,18 +281,8 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
             let target = target
                 .ok_or_else(|| StoreError::BadRequest("archived, but the answer was unreadable".to_owned()))??;
             match target.kind {
-                NodeKind::Queue => html::queue_items(
-                    &target.path,
-                    &board.queue_with(&target.path, StateFilter::All, 0, archived)?,
-                    archived,
-                ),
-                _ => html::messages(
-                    &target.path,
-                    &board.thread_with(&target.path, Range::Last(RECENT), archived)?,
-                    Range::Last(RECENT),
-                    RECENT,
-                    archived,
-                ),
+                NodeKind::Queue => queue_items_html(board, &target.path, 0, archived)?,
+                _ => messages_html(board, &target.path, Range::Last(RECENT), archived)?,
             }
         }
         // The page the form sat on gets its own piece back.
@@ -276,7 +292,7 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
                 Some(detail) => {
                     let archived = shown_archived(fields);
                     let path = &detail.item.path;
-                    html::queue_items(path, &board.queue_with(path, StateFilter::All, 0, archived)?, archived)
+                    queue_items_html(board, path, 0, archived)?
                 }
                 None => html::error_fragment("resolved, but the item cannot be found"),
             }

@@ -10,7 +10,8 @@ use std::str::FromStr;
 use serde_json::{Map, Value};
 
 use message_board::store::{
-    Approve, Archive, Board, Create, Error as StoreError, File, Post, Register, Resolve, Revoke, SetNote, Signed,
+    Approve, Archive, Board, Create, DeleteBlob, Error as StoreError, File, Post, Register, Resolve, Revoke, SetNote,
+    Signed,
 };
 
 use crate::routes::{Failure, Params};
@@ -180,6 +181,18 @@ fn parsed<T: FromStr<Err = String>>(fields: &impl Fields, name: &str) -> Result<
 
 fn required(fields: &impl Fields, name: &str) -> Result<i64, StoreError> {
     fields.number(name)?.ok_or_else(|| StoreError::BadRequest(format!("field {name:?} is needed")))
+}
+
+/// Delete a blob as `fields` say (`sha256` and the envelope): the hash of
+/// the blob whose row is gone, for the caller to delete the file of.
+///
+/// # Errors
+/// [`Failure::Unsigned`] without a signature, and the store's refusal.
+pub fn blob_delete(board: &Board, fields: &impl Fields) -> Result<String, Failure> {
+    let envelope = Envelope::read(fields)?;
+    let sha256 = fields.text("sha256")?;
+    board.blob_delete(&envelope.with(DeleteBlob { sha256 }))?;
+    Ok(sha256.to_owned())
 }
 
 /// Do `write` as `fields` say; what the client is told, as JSON.

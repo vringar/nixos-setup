@@ -22,6 +22,16 @@
 //! (the owner's name and the public key file of the owner key, bound at
 //! every start; a key that differs from the stored owner's revokes it).
 //!
+//! The blob store (files other agents need: traces, images, patches, dumps)
+//! keeps one file per unique content in `BOARD_BLOBS` (default `blobs/`
+//! beside `BOARD_DB`), held by a lock for as long as the server runs, with
+//! these limits: `BOARD_BLOB_CAP` (total bytes, default 50000000000),
+//! `BOARD_BLOB_MAX` (one blob, default 8 GiB) and `BOARD_BLOB_GRACE`
+//! (seconds an unreferenced blob is safe from eviction, default 3600); at
+//! most 4 uploads run at once. Routes: `PUT /blob` (signed, streamed),
+//! `GET /sha256/<hash>` (the bytes, with ranges), `GET /blobs` and
+//! `GET /blobs/<hash>`, `GET /blob-refs?event=ID`, `POST /blob-delete`.
+//!
 //! One thread per connection: a long poll blocks its thread on the store's
 //! condition variable for up to five minutes, which needs no async
 //! runtime, and a local board has few connections. They are capped, and
@@ -29,6 +39,7 @@
 //! up the threads and file descriptors.
 
 mod api;
+mod blobs;
 mod html;
 mod http;
 mod log;
@@ -39,7 +50,7 @@ mod writes;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, BufRead as _, BufReader, ErrorKind, Read as _};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs as _};
+use std::net::{IpAddr, Shutdown as SocketShutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -47,8 +58,10 @@ use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::Duration;
 
+use message_board::blob;
+use message_board::blobdir::{BlobDir, OpenError as BlobOpenError};
 use message_board::sign;
-use message_board::store::{self, Board, DbError, KeyState, MIN_DISTANCE, looks_alike};
+use message_board::store::{self, Board, DbError, KeyState, Limits, MIN_DISTANCE, looks_alike};
 use message_board::timefmt;
 use signal_hook::consts::{SIGINT, SIGTERM};
 
@@ -69,6 +82,8 @@ enum StartError {
     Listen { addr: String, source: io::Error },
     #[error("cannot set up the shutdown on SIGTERM: {0}")]
     Signals(io::Error),
+    #[error("{0}")]
+    Blobs(#[from] BlobOpenError),
 }
 
 fn main() -> ExitCode {
@@ -87,6 +102,18 @@ fn setting(name: &str) -> Result<Option<String>, StartError> {
         None => Ok(None),
         Some(Ok(value)) => Ok(Some(value)),
         Some(Err(raw)) => Err(StartError::Config(format!("{name} is not valid UTF-8: {}", raw.display()))),
+    }
+}
+
+/// A whole-number setting from the environment, `default` if unset.
+fn number_setting(name: &str, default: u64) -> Result<u64, StartError> {
+    match setting(name)?.filter(|text| !text.is_empty()) {
+        None => Ok(default),
+        Some(text) => text
+            .parse::<u64>()
+            .ok()
+            .filter(|n| *n > 0)
+            .ok_or_else(|| StartError::Config(format!("{name} {text:?} is not a whole number above 0"))),
     }
 }
 
@@ -117,15 +144,32 @@ fn run() -> Result<(), StartError> {
             opened.journal_mode
         ));
     }
+    let blob_root = match setting("BOARD_BLOBS")?.filter(|dir| !dir.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => db.parent().unwrap_or(Path::new("")).join("blobs"),
+    };
+    let limits = Limits {
+        cap: number_setting("BOARD_BLOB_CAP", blob::CAP_DEFAULT)?,
+        max: number_setting("BOARD_BLOB_MAX", blob::MAX_DEFAULT)?,
+        grace: number_setting("BOARD_BLOB_GRACE", blob::GRACE_DEFAULT)?,
+    };
+    let blob_dir = BlobDir::open(&blob_root)?;
     bind_owner(&opened.board)?;
     let listener = listen(&addr, port)?;
     // The port bound, which BOARD_PORT=0 leaves to the system.
     let port =
         listener.local_addr().map_err(|source| StartError::Listen { addr: format!("{addr}:{port}"), source })?.port();
     let head = opened.board.head()?;
-    let app = Arc::new(App { board: opened.board, static_dir });
+    let app = Arc::new(App { board: opened.board, static_dir, blobs: blobs::Blobs::new(blob_dir, limits) });
     shutdown.serving(&app);
     log::info(&format!("board on http://{addr}:{port}  db={}  head={head}", db.display()));
+    log::info(&format!(
+        "board: blobs in {}  cap={} max={} grace={}s",
+        blob_root.display(),
+        limits.cap,
+        limits.max,
+        limits.grace
+    ));
     serve(&listener, &app);
     Ok(())
 }
@@ -304,7 +348,7 @@ impl Connections {
         if self.refused.fetch_add(1, Ordering::SeqCst) == 0 {
             log::line(&format!("board: {MAX_CONNECTIONS} connections open; answering new ones 503 until one closes"));
         }
-        let answer = Response::json(503, FULL.to_owned()).with_header("Board-Error", "busy");
+        let mut answer = Response::json(503, FULL.to_owned()).with_header("Board-Error", "busy");
         // A new socket's send buffer is empty, so this does not block; the
         // timeout is only a backstop.
         let sent = stream
@@ -391,6 +435,26 @@ fn client_waiting(stream: &TcpStream, peer: SocketAddr) -> bool {
     }
 }
 
+/// After an answer that leaves a body unread: say no more, and read what the
+/// client still sends for a moment (and no more than a mebibyte). Closing a
+/// socket that has unread data resets it, which can destroy the answer before
+/// the client has read it.
+fn linger(stream: &TcpStream, reader: &mut BufReader<http::Timed<'_>>) {
+    if let Err(err) = stream.shutdown(SocketShutdown::Write) {
+        log::line(&format!("board: cannot finish the answer: {err}"));
+        return;
+    }
+    reader.get_mut().allow(Duration::from_secs(2));
+    let mut sink = [0_u8; 8192];
+    let mut left = 1024 * 1024_usize;
+    while left > 0 {
+        match reader.read(&mut sink) {
+            Ok(0) | Err(_) => return,
+            Ok(n) => left = left.saturating_sub(n),
+        }
+    }
+}
+
 /// Serve one connection's requests, in order, until either side ends it,
 /// or the client stalls for [`http::CLIENT_TIMEOUT`].
 fn connection(app: &App, stream: &TcpStream, peer: SocketAddr) {
@@ -418,7 +482,7 @@ fn connection(app: &App, stream: &TcpStream, peer: SocketAddr) {
         }
         // ...and from its first byte, a request has as long to arrive whole.
         reader.get_mut().allow(http::CLIENT_TIMEOUT);
-        let request = match http::read_request(&mut reader, &mut writer) {
+        let request = match http::read_request(&mut reader, &mut writer, &routes::streamed) {
             Ok(Some(request)) => request,
             Ok(None) => return,
             Err(err) => {
@@ -431,7 +495,7 @@ fn connection(app: &App, stream: &TcpStream, peer: SocketAddr) {
                 let answer = serde_json::to_string(&refusal)
                     .map(|body| Response::json(status, body).with_header("Board-Error", err.code()));
                 match answer {
-                    Ok(answer) => {
+                    Ok(mut answer) => {
                         if let Err(gone) = answer.write_to(&mut writer, date().as_deref()) {
                             log::line(&format!("board: client {peer} went away before the answer: {gone}"));
                         }
@@ -441,11 +505,26 @@ fn connection(app: &App, stream: &TcpStream, peer: SocketAddr) {
                 return;
             }
         };
-        let Some(response) = routes::handle(app, &request, peer, &waiting) else {
-            return; // left during its long poll
+        // A streamed body is the handler's to read; what it left is never
+        // drained (it may be gigabytes), so the connection ends after the answer.
+        let (response, unread) = {
+            let length = if request.streamed { request.length.unwrap_or(0) } else { 0 };
+            let mut body = http::Body::new(&mut reader, stream, length);
+            let response = routes::handle(app, &request, peer, &waiting, &mut body);
+            (response, body.remaining() > 0)
         };
+        let Some(mut response) = response else {
+            return; // left during its long poll, or its upload
+        };
+        if unread {
+            response = response.closing();
+        }
         if let Err(err) = response.write_to(&mut writer, date().as_deref()) {
             log::line(&format!("board: client {peer} went away mid-response: {err}"));
+            return;
+        }
+        if unread {
+            linger(stream, &mut reader);
             return;
         }
         if request.close {

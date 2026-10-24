@@ -3,7 +3,8 @@
 //! as HTTP/1.1 and 1.0 define it, and every protocol error named, so that
 //! it can be logged and answered.
 
-use std::io::{self, BufRead, Read, Write};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Read, Seek as _, SeekFrom, Write};
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
@@ -35,6 +36,23 @@ pub struct Request {
     /// The Host and Origin headers, if sent (the first of each).
     pub host: Option<String>,
     pub origin: Option<String>,
+    /// The Content-Length, if sent.
+    pub length: Option<u64>,
+    /// Whether the body of a streamed request is still unread, and the
+    /// client waits for a `100 Continue` to send it.
+    pub expect_continue: bool,
+    /// Whether the body was left unread for the handler to stream
+    /// ([`Body`]): `body` is empty then.
+    pub streamed: bool,
+    /// Every header, its name in lowercase.
+    headers: Vec<(String, String)>,
+}
+
+impl Request {
+    /// The first header called `name` (lowercase), as sent.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -153,12 +171,19 @@ fn read_head(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>, ProtocolError
 }
 
 /// The next request on a connection, or `None` once the client is done;
-/// `interim` takes a 100 Continue.
+/// `interim` takes a 100 Continue. A request that `streamed` says is
+/// streamed (by method and target) is returned with its head only: no size
+/// limit applies, no `100 Continue` is sent and no body is read, for its
+/// handler to do after it has checked what it can.
 ///
 /// # Errors
 /// If the connection fails, or the client sends what is not a request
 /// this server takes.
-pub fn read_request(reader: &mut impl BufRead, interim: &mut impl Write) -> Result<Option<Request>, ProtocolError> {
+pub fn read_request(
+    reader: &mut impl BufRead,
+    interim: &mut impl Write,
+    streamed: &dyn Fn(&str, &str) -> bool,
+) -> Result<Option<Request>, ProtocolError> {
     let Some(head) = read_head(reader)? else {
         return Ok(None);
     };
@@ -175,9 +200,11 @@ pub fn read_request(reader: &mut impl BufRead, interim: &mut impl Write) -> Resu
     let mut close = !http11;
     let mut expect_continue = false;
     let (mut host, mut origin) = (None, None);
+    let mut headers = Vec::new();
     for header in parsed.headers.iter() {
         let value = String::from_utf8_lossy(header.value);
         let value = value.trim();
+        headers.push((header.name.to_ascii_lowercase(), value.to_owned()));
         if header.name.eq_ignore_ascii_case("host") {
             host.get_or_insert_with(|| value.to_owned());
         } else if header.name.eq_ignore_ascii_case("origin") {
@@ -205,37 +232,115 @@ pub fn read_request(reader: &mut impl BufRead, interim: &mut impl Write) -> Resu
             expect_continue = http11 && value.eq_ignore_ascii_case("100-continue");
         }
     }
-    let length = length.unwrap_or(0);
-    if length > MAX_BODY {
-        return Err(ProtocolError::BodyTooLarge(length));
+    if streamed(&method, &target) {
+        let request = Request {
+            method,
+            target,
+            body: Vec::new(),
+            close,
+            host,
+            origin,
+            length,
+            expect_continue,
+            streamed: true,
+            headers,
+        };
+        return Ok(Some(request));
+    }
+    let length_read = length.unwrap_or(0);
+    if length_read > MAX_BODY {
+        return Err(ProtocolError::BodyTooLarge(length_read));
     }
     if expect_continue {
         interim.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
         interim.flush()?;
     }
     let mut body = Vec::new();
-    reader.by_ref().take(length).read_to_end(&mut body)?;
-    if u64::try_from(body.len()).ok() != Some(length) {
+    reader.by_ref().take(length_read).read_to_end(&mut body)?;
+    if u64::try_from(body.len()).ok() != Some(length_read) {
         return Err(ProtocolError::Truncated);
     }
-    Ok(Some(Request { method, target, body, close, host, origin }))
+    Ok(Some(Request {
+        method,
+        target,
+        body,
+        close,
+        host,
+        origin,
+        length,
+        expect_continue: false,
+        streamed: false,
+        headers,
+    }))
+}
+
+/// The body of a streamed request, read a piece at a time by its handler.
+pub struct Body<'r, 'a> {
+    reader: &'r mut BufReader<Timed<'a>>,
+    interim: &'r TcpStream,
+    remaining: u64,
+}
+
+impl<'r, 'a> Body<'r, 'a> {
+    /// The body of a request whose `length` bytes are still to be read.
+    pub fn new(reader: &'r mut BufReader<Timed<'a>>, interim: &'r TcpStream, length: u64) -> Self {
+        Self { reader, interim, remaining: length }
+    }
+
+    /// How much of the body is still unread; a handler that leaves any makes
+    /// the connection close, since it is never drained.
+    pub fn remaining(&self) -> u64 {
+        self.remaining
+    }
+
+    /// Tell the client to send the body.
+    ///
+    /// # Errors
+    /// If the client has gone.
+    pub fn send_continue(&self) -> io::Result<()> {
+        let mut out = self.interim;
+        out.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
+        out.flush()
+    }
+
+    /// Read some of the body, never past its end: the next piece must come
+    /// within `idle`, and the whole by `deadline`. `Ok(0)` is the end of the
+    /// body, or the client leaving before it ([`Body::remaining`] says which).
+    ///
+    /// # Errors
+    /// [`io::ErrorKind::TimedOut`] past either time, or the connection's.
+    pub fn read(&mut self, buf: &mut [u8], idle: Duration, deadline: Instant) -> io::Result<usize> {
+        let room = usize::try_from(self.remaining).unwrap_or(usize::MAX).min(buf.len());
+        let Some(buf) = buf.get_mut(..room).filter(|b| !b.is_empty()) else {
+            return Ok(0);
+        };
+        self.reader.get_mut().allow(idle.min(deadline.saturating_duration_since(Instant::now())));
+        let n = self.reader.read(buf)?;
+        self.remaining = self.remaining.saturating_sub(u64::try_from(n).unwrap_or(0));
+        Ok(n)
+    }
 }
 
 fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
+        206 => "Partial Content",
+        304 => "Not Modified",
         400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
         408 => "Request Timeout",
         409 => "Conflict",
+        411 => "Length Required",
         413 => "Content Too Large",
+        416 => "Range Not Satisfiable",
         429 => "Too Many Requests",
         431 => "Request Header Fields Too Large",
         500 => "Internal Server Error",
         501 => "Not Implemented",
         503 => "Service Unavailable",
+        507 => "Insufficient Storage",
         _ => "",
     }
 }
@@ -245,12 +350,50 @@ pub struct Response {
     /// Headers before Content-Length, and after it.
     head: Vec<(&'static str, String)>,
     tail: Vec<(&'static str, String)>,
-    body: Vec<u8>,
+    body: Content,
+}
+
+/// What a response carries.
+enum Content {
+    Bytes(Vec<u8>),
+    /// `len` bytes of a file from `offset`, copied as they are sent: a blob
+    /// can be gigabytes.
+    File {
+        file: File,
+        offset: u64,
+        len: u64,
+    },
+}
+
+impl Content {
+    fn len(&self) -> u64 {
+        match self {
+            Self::Bytes(bytes) => u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+            Self::File { len, .. } => *len,
+        }
+    }
 }
 
 impl Response {
     pub fn bytes(status: u16, content_type: &'static str, body: Vec<u8>) -> Self {
-        Self { status, head: vec![("Content-Type", content_type.to_owned())], tail: Vec::new(), body }
+        Self {
+            status,
+            head: vec![("Content-Type", content_type.to_owned())],
+            tail: Vec::new(),
+            body: Content::Bytes(body),
+        }
+    }
+
+    /// `len` bytes of `file` from `offset`, as an opaque download.
+    pub fn file(status: u16, file: File, offset: u64, len: u64) -> Self {
+        let head = vec![("Content-Type", "application/octet-stream".to_owned())];
+        Self { status, head, tail: Vec::new(), body: Content::File { file, offset, len } }
+    }
+
+    /// The same answer, which ends the connection.
+    #[must_use]
+    pub fn closing(self) -> Self {
+        self.with_header("Connection", "close")
     }
 
     pub fn json(status: u16, body: String) -> Self {
@@ -277,7 +420,7 @@ impl Response {
     ///
     /// # Errors
     /// If the client has gone.
-    pub fn write_to(&self, out: &mut impl Write, date: Option<&str>) -> io::Result<()> {
+    pub fn write_to(&mut self, out: &mut impl Write, date: Option<&str>) -> io::Result<()> {
         let mut wire = format!("HTTP/1.1 {} {}\r\n", self.status, reason(self.status));
         if let Some(date) = date {
             wire.push_str("Date: ");
@@ -296,7 +439,16 @@ impl Response {
         // Head and body as they are, not copied into one buffer: a poll's
         // body can be megabytes.
         out.write_all(wire.as_bytes())?;
-        out.write_all(&self.body)?;
+        match &mut self.body {
+            Content::Bytes(bytes) => out.write_all(bytes)?,
+            Content::File { file, offset, len } => {
+                file.seek(SeekFrom::Start(*offset))?;
+                let sent = io::copy(&mut file.take(*len), out)?;
+                if sent != *len {
+                    return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the file is shorter than its row says"));
+                }
+            }
+        }
         out.flush()
     }
 }
@@ -306,7 +458,7 @@ mod tests {
     use super::*;
 
     fn parse(wire: &[u8]) -> Result<Option<Request>, ProtocolError> {
-        read_request(&mut io::BufReader::new(wire), &mut Vec::new())
+        read_request(&mut io::BufReader::new(wire), &mut Vec::new(), &|_, _| false)
     }
 
     #[test]

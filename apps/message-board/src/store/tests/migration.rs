@@ -93,7 +93,9 @@ fn has_event_column(path: &Path, column: &str) -> Result<bool, Box<dyn StdError>
 
 fn has_table(path: &Path, table: &str) -> Result<bool, Box<dyn StdError>> {
     let conn = Connection::open(path)?;
-    Ok(conn.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", [table], |r| r.get::<_, i64>(0))? > 0)
+    Ok(conn.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", [table], |r| {
+        r.get::<_, i64>(0)
+    })? > 0)
 }
 
 fn has_thread_column(path: &Path) -> Result<bool, Box<dyn StdError>> {
@@ -202,8 +204,7 @@ fn a_version_3_database_gains_the_blob_tables() -> TestResult {
     f.create(&agent, "rev/log", NodeKind::Thread)?;
     f.post(&agent, "rev/log", "kept")?;
     f.board.close()?;
-    Connection::open(&f.path)?
-        .execute_batch("DROP TABLE blob_refs; DROP TABLE blobs; PRAGMA user_version = 3")?;
+    Connection::open(&f.path)?.execute_batch("DROP TABLE blob_refs; DROP TABLE blobs; PRAGMA user_version = 3")?;
     assert!(!has_table(&f.path, "blobs")?);
     let migrated = Board::open(&f.path)?.board;
     assert!(has_table(&f.path, "blobs")? && has_table(&f.path, "blob_refs")?);

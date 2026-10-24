@@ -16,8 +16,9 @@ use serde_json::{Value, json};
 
 use message_board::store::{Board, DbError, Error as StoreError};
 
+use crate::blobs::{self, Blobs};
 use crate::html;
-use crate::http::{Request, Response};
+use crate::http::{Body, Request, Response};
 use crate::log;
 use crate::writes::{Json, Write};
 use crate::{api, web};
@@ -26,6 +27,8 @@ pub struct App {
     pub board: Board,
     /// htmx.min.js and board-sign.js.
     pub static_dir: PathBuf,
+    /// The blob store's files and limits.
+    pub blobs: Blobs,
 }
 
 /// Why a request was not answered as asked.
@@ -147,7 +150,9 @@ impl Reply {
             Self::Fragment => Response::html(told.status, html::error_fragment(told.message())),
             Self::Text => Response::text(told.status, told.message()),
         };
-        response.with_header("Board-Error", told.code)
+        let response = response.with_header("Board-Error", told.code);
+        // a busy board, or one with every upload slot taken, is worth asking again shortly
+        if told.status == 503 { response.with_header("Retry-After", "5") } else { response }
     }
 }
 
@@ -161,7 +166,7 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
-    fn log(&self, what: &str) {
+    pub fn log(&self, what: &str) {
         log::line(&format!("board: {} {} from {}: {what}", self.method, self.path, self.peer));
     }
 
@@ -209,9 +214,21 @@ impl Params {
     }
 }
 
+/// Whether a request's body is left for its handler to stream rather than
+/// read whole: only a blob upload's.
+pub fn streamed(method: &str, target: &str) -> bool {
+    blobs::streamed(method, split_target(target).0)
+}
+
 /// Answer a request. `None` only when the client left before there was an
-/// answer, as `waiting` (asked during a long poll) found.
-pub fn handle(app: &App, request: &Request, peer: SocketAddr, waiting: &dyn Fn() -> bool) -> Option<Response> {
+/// answer, as `waiting` (asked during a long poll, or an upload's body) found.
+pub fn handle(
+    app: &App,
+    request: &Request,
+    peer: SocketAddr,
+    waiting: &dyn Fn() -> bool,
+    body: &mut Body<'_, '_>,
+) -> Option<Response> {
     let (path, query) = split_target(&request.target);
     let ctx = Context { method: &request.method, path, peer, waiting };
     let answer = match foreign(request) {
@@ -219,7 +236,7 @@ pub fn handle(app: &App, request: &Request, peer: SocketAddr, waiting: &dyn Fn()
             ctx.log(&why);
             Err(StoreError::Forbidden(why).into())
         }
-        None => route(app, request, path, query, &ctx),
+        None => route(app, request, path, query, &ctx, body),
     };
     match answer {
         Ok(response) => Some(response),
@@ -244,10 +261,11 @@ fn foreign(request: &Request) -> Option<String> {
     }
 }
 
-fn route(app: &App, request: &Request, path: &str, query: &str, ctx: &Context<'_>) -> Answer {
+fn route(app: &App, request: &Request, path: &str, query: &str, ctx: &Context<'_>, body: &mut Body<'_, '_>) -> Answer {
     match request.method.as_str() {
-        "GET" => get(app, path, &Params::parse(query.as_bytes()), ctx),
-        "POST" => post(&app.board, path, &request.body),
+        "GET" => get(app, request, path, &Params::parse(query.as_bytes()), ctx),
+        "POST" => post(app, path, &request.body),
+        "PUT" if request.streamed => blobs::put(app, request, body, ctx),
         other => Err(Failure::Method(other.to_owned())),
     }
 }
@@ -256,7 +274,7 @@ fn not_found() -> Failure {
     StoreError::NotFound("nothing here: see GET /n/ for the tree, or / for the web view".to_owned()).into()
 }
 
-fn get(app: &App, path: &str, q: &Params, ctx: &Context<'_>) -> Answer {
+fn get(app: &App, request: &Request, path: &str, q: &Params, ctx: &Context<'_>) -> Answer {
     let board = &app.board;
     match path {
         "/healthz" => api::healthz(board),
@@ -264,6 +282,8 @@ fn get(app: &App, path: &str, q: &Params, ctx: &Context<'_>) -> Answer {
         "/keys" => api::keys(board),
         "/registrations" => api::registrations(board),
         "/brief" => api::brief(board, q),
+        "/blobs" => blobs::list(app, q),
+        "/blob-refs" => blobs::refs(board, q),
         "/poll" => api::poll(board, q, ctx.waiting),
         "/static/htmx.min.js" | "/static/board-sign.js" => Ok(static_file(app, path, ctx)),
         "/" => web::view(board, "", q),
@@ -283,15 +303,21 @@ fn get(app: &App, path: &str, q: &Params, ctx: &Context<'_>) -> Answer {
                 "event" => api::event(board, &rest),
                 "item" => api::item(board, &rest),
                 "keys" => api::key(board, &rest),
+                "blobs" => blobs::one(board, &rest),
+                "sha256" => blobs::download(app, &rest, request),
                 _ => Err(not_found()),
             }
         }
     }
 }
 
-fn post(board: &Board, path: &str, body: &[u8]) -> Answer {
+fn post(app: &App, path: &str, body: &[u8]) -> Answer {
+    let board = &app.board;
     if let Some(ui) = path.strip_prefix("/ui/") {
         return web::write(board, web::Form::named(ui).ok_or_else(not_found)?, &Params::parse(body));
+    }
+    if path == "/blob-delete" {
+        return blobs::delete(app, &Json::parse(body)?);
     }
     let write = path.strip_prefix('/').and_then(Write::named).ok_or_else(not_found)?;
     api::write(board, write, &Json::parse(body)?)
