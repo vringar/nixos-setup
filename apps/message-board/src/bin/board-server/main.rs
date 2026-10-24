@@ -33,7 +33,10 @@
 //! 4 uploads run at once. Routes: `PUT /blob` (signed, streamed),
 //! `GET /sha256/<hash>` (the bytes, with ranges), `GET /blobs` and
 //! `GET /blobs/<hash>`, `GET /blob-refs?event=ID`, `POST /blob-delete`, and
-//! `GET /ui/blobs` (the web view's list of blobs).
+//! `GET /ui/blobs` (the web view's list of blobs). The web view's post, ask
+//! and note forms attach files (board-sign.js signs and uploads them with
+//! `PUT /blob`), `/ui/keys` shows what each key uploaded, and a raster image
+//! blob (by its stored type, up to 10 MB) is shown inline below its link.
 //!
 //! One thread per connection: a long poll blocks its thread on the store's
 //! condition variable for up to five minutes, which needs no async

@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from board_harness import (  # noqa: F401 (fixtures)
-    HANG_TIMEOUT, Pick, Server, Wait, board, cli, cli_bytes, drive_tui, isolated, keyring, owner_env, raw_request,
+    HANG_TIMEOUT, Pick, Server, dead_url, Wait, board, cli, cli_bytes, drive_tui, isolated, keyring, owner_env, raw_request,
     refusal, request, running, sql, team, wait_until, Refused, proxy, admin,
 )
 
@@ -1076,8 +1076,9 @@ def admin_run(board, *args, env=None):
 
 
 def test_fsck_refuses_what_it_does_not_know_and_a_database_that_is_not_there(board, tmp_path):
-    run = admin_run(board, "fsck", "--quarantine")
-    assert run.code == 2 and "usage: board-admin" in run.err
+    for args in (("fsck", "--frobnicate"), ("fsck", "--deep", "--deep"), ("fsck", "--quarantine", "extra")):
+        run = admin_run(board, *args)
+        assert run.code == 2 and "usage: board-admin" in run.err, args
     assert admin_run(board, "frobnicate").code == 2
     run = admin_run(board, "fsck", env={"BOARD_DB": str(tmp_path / "nowhere.db")})
     assert run.code == 1 and "no database at" in run.err and not (tmp_path / "nowhere.db").exists()
@@ -1261,3 +1262,144 @@ def test_resume_needs_a_file_to_resume(board, team):
     h = team.alice.put(data(100, b"x"))["hash"]
     assert cli("get", h, "--resume", "-o", "-").code == 2
     assert cli_bytes("get", h, "--resume")[0] == 2
+
+
+# --- phase 3: quarantine, usage per key, image preview, the page's upload -----------------------------
+
+PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000001e221bc330000000049454e44ae426082")
+
+
+def quarantine_env(board, tmp_path, url=None):
+    """The env of an admin run that writes: the service is none, and nothing answers at `url`."""
+    return {"BOARD_URL": url or dead_url(), "BOARD_ADMIN_LOG": str(tmp_path / "audit.log")}
+
+
+def test_fsck_quarantine_moves_bad_files_aside_drops_their_rows_and_deletes_nothing(board, team, tmp_path, keyring):
+    a = team.alice
+    good = a.put(data(4000, b"good"))["hash"]
+    flipped = a.put(data(4000, b"flipped"))["hash"]
+    short = a.put(data(4000, b"short"))["hash"]
+    gone = a.put(data(4000, b"gone"))["hash"]
+    pinned = a.put(data(4000, b"pinned"))["hash"]
+    message = a.post("rev/log", f"keep {ref(pinned)}")
+    paths = {h: board.blobs_dir / h[:2] / h for h in (good, flipped, short, gone, pinned)}
+    kept = {}
+    for h, damage in ((flipped, lambda b: bytes([b[0] ^ 1]) + b[1:]), (short, lambda b: b[:10]),
+                      (pinned, lambda b: b[:-1] + bytes([b[-1] ^ 1]))):
+        paths[h].chmod(0o600)
+        kept[h] = damage(paths[h].read_bytes())
+        paths[h].write_bytes(kept[h])
+    paths[gone].unlink()
+
+    # with the board serving, it writes nothing: the index is the server's while it runs
+    run = admin_run(board, "fsck", "--deep", "--quarantine", env=quarantine_env(board, tmp_path, board.url))
+    assert run.code == 1 and "stop it first" in run.err, run
+    assert len(board.blob_rows()) == 5 and not (board.blobs_dir / "quarantine").exists()
+
+    board.server.stop()
+    env = quarantine_env(board, tmp_path)
+    run = admin_run(board, "fsck", "--deep", "--quarantine", env=env)
+    lines = run.out.splitlines()
+    # the pinned one cannot be repaired by moving it: the reference to it is now a finding
+    assert run.code == 1, run
+    for h in (flipped, short, pinned):
+        assert any(line.startswith(f"quarantined {h} ") and f"{board.blobs_dir}/quarantine/{h}" in line
+                   for line in lines), run.out
+    assert any(line.startswith(f"quarantined {gone} ") and "no file" in line for line in lines), run.out
+    assert f"reference #{message} pins board-blob://{pinned}, which the board does not have" in run.out
+    assert lines[-1].endswith(": 1 findings"), run.out
+    # nothing was deleted: every bad file is under quarantine/ with the bytes it had, the good one stays
+    for h, damaged in kept.items():
+        assert (board.blobs_dir / "quarantine" / h).read_bytes() == damaged and not paths[h].exists()
+    assert paths[good].exists() and board.blob_rows() == [(good, 4000)]
+    assert stat.S_IMODE((board.blobs_dir / "quarantine").stat().st_mode) == 0o700
+    audit = (tmp_path / "audit.log").read_text()
+    assert audit.count(" quarantine_blob quarantined ") == 4
+    # run again: the quarantine directory is no stray, and there is nothing left to repair but the dangling reference
+    again = admin_run(board, "fsck", "--deep", "--quarantine", env=env)
+    assert again.code == 1 and "quarantined" not in again.out and "misplaced" not in again.out, again.out
+
+    # the same bytes uploaded again are stored afresh (not taken for stored), and the reference is whole
+    board.server.start(**owner_env(keyring["owner"]))
+    assert board.put_blob(a.key, data(4000, b"pinned"))["existed"] is False
+    assert board.get_blob(pinned)[2] == data(4000, b"pinned")
+    board.server.stop()
+    final = admin_run(board, "fsck", "--deep", "--quarantine", env=env)
+    assert final.code == 0 and final.out.splitlines()[-1].endswith(": clean"), final.out
+
+
+def test_quarantine_never_overwrites_an_earlier_one(board, team, tmp_path):
+    a = team.alice
+    h = a.put(data(100, b"twice"))["hash"]
+    board.server.stop()
+    env = quarantine_env(board, tmp_path)
+    for n, wrong in enumerate((b"1" * 100, b"2" * 100)):
+        path = board.blobs_dir / h[:2] / h
+        if n:  # the same hash comes back, damaged again
+            path.parent.mkdir(exist_ok=True)
+            board.sql("INSERT INTO blobs(sha256,size,uploader,uploader_fp,ts,head,nonce,signature) "
+                      "VALUES(?,?,?,?,?,?,?,?)", h, 100, "alice", team.alice.fingerprint,
+                      "2026-01-01T00:00:00Z", 0, "n", "s")
+        else:
+            path.chmod(0o600)
+        path.write_bytes(wrong)
+        assert admin_run(board, "fsck", "--deep", "--quarantine", env=env).code == 0
+    quarantined = board.blobs_dir / "quarantine"
+    assert sorted(p.name for p in quarantined.iterdir()) == [h, f"{h}.1"]
+    assert (quarantined / h).read_bytes() == b"1" * 100 and (quarantined / f"{h}.1").read_bytes() == b"2" * 100
+
+
+def test_usage_adds_up_what_each_key_uploaded_first_in_admin_and_on_the_keys_page(board, team):
+    a, b = team.alice, team.bob
+    pinned = a.put(data(3000, b"a1"))["hash"]
+    a.put(data(1000, b"a2"))
+    b.put(data(5000, b"b1"))
+    b.put(data(3000, b"a1"))  # the same bytes again: still alice's
+    a.post("rev/log", f"keep {ref(pinned)}")
+    run = admin_run(board, "usage")
+    assert run.code == 0 and run.err == "", run
+    lines = run.out.splitlines()
+    assert lines[0].split()[:1] == ["bob"] and "1 blobs" in lines[0] and "5 kB" in lines[0] and "0 bytes pinned" in lines[0]
+    assert lines[1].split()[:1] == ["alice"] and "2 blobs" in lines[1] and "4 kB" in lines[1] and "3 kB pinned" in lines[1]
+    assert lines[2] == "usage: 2 keys, 3 blobs, 9 kB"
+    page = board.get("/ui/keys").text
+    assert "<th>blobs</th>" in page
+    assert "2 blobs, 4 kB (3 kB pinned)" in page and "1 blob, 5 kB (0 bytes pinned)" in page
+    # nobody is limited: a third upload by alice still lands
+    a.put(data(2000, b"a3"))
+    assert board.get("/ui/keys").text.count("3 blobs, 6 kB") == 1
+
+
+def test_an_image_blob_shows_inline_and_nothing_else_does(board, team):
+    a = team.alice
+    png = a.put(PNG, media_type="image/png", filename="shot <1>.png")["hash"]
+    plain = a.put(data(200, b"text"), media_type="text/plain", filename="log.txt")["hash"]
+    svg = a.put(b"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>",
+                media_type="image/svg+xml")["hash"]
+    a.post("rev/log", f"{ref(png)} {ref(plain)} {ref(svg)}")
+    page = board.get("/view/rev/log")
+    assert page.text.count("<img") == 1, page.text
+    assert f'<img class="preview" src="/sha256/{png}" alt="" loading="lazy">' in page.text
+    assert "shot &lt;1&gt;.png (" in page.text and "shot <1>" not in page.text
+    # the picture is the blob's own bytes, from the board's origin, and the page's CSP (no script,
+    # nothing from elsewhere) is the one it always had
+    assert board.get_blob(png)[2] == PNG
+    csp = page.headers["content-security-policy"]
+    assert "default-src 'self'" in csp and "script-src 'self'" in csp and "img-src" not in csp
+    # the stored type decides, never the bytes: the server does not look at them
+    liar = a.put(data(300, b"lie"), media_type="image/png")["hash"]
+    a.post("rev/log", ref(liar))
+    assert board.get("/view/rev/log").text.count("<img") == 2
+    # a blob that is gone loses its picture with its link
+    board.sql("DELETE FROM blobs WHERE sha256=?", png)
+    after = board.get("/view/rev/log").text
+    assert f"/sha256/{png}" not in after and after.count("<img") == 1 and "(file removed)" in after
+
+
+def test_the_write_forms_offer_a_file_that_is_no_field_of_the_write(board, team):
+    team.alice.create("rev/state", "note", body="v1")
+    team.alice.create("rev/q", "queue")
+    for path in ("/view/rev/log", "/view/rev/q", "/view/rev/state"):
+        page = board.get(path).text
+        assert page.count('<input type="file" data-attach multiple>') == 1, path
+        assert '<input type="file" name' not in page, path

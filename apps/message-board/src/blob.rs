@@ -179,6 +179,18 @@ pub fn media_type(value: &str) -> Result<String, String> {
     }
 }
 
+/// The biggest image a page shows inline; a bigger one stays a link.
+pub const PREVIEW_MAX: u64 = 10_000_000;
+
+/// Whether a web page may show a blob of this stored media type and size
+/// inline as an image. Raster formats only, by the uploader's say (the
+/// server never sniffs): an `<img>` never runs what it shows, but a type
+/// that is not an image the browsers draw would only be a broken picture.
+#[must_use]
+pub fn previewable(media_type: &str, size: u64) -> bool {
+    size <= PREVIEW_MAX && matches!(media_type, "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/avif")
+}
+
 /// An original file name, once decoded: refused rather than rewritten.
 ///
 /// # Errors
@@ -365,6 +377,15 @@ mod tests {
         assert_eq!(media_type("application/vnd.x+json").as_deref(), Ok("application/vnd.x+json"));
         for bad in ["", "text", "text/", "/x", "a b/c", "a/b/c", &format!("a/{}", "b".repeat(MEDIA_TYPE_MAX))] {
             assert!(media_type(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn only_raster_images_of_a_sane_size_are_previewed() {
+        assert!(previewable("image/png", 1) && previewable("image/jpeg", PREVIEW_MAX));
+        assert!(!previewable("image/png", PREVIEW_MAX + 1));
+        for other in ["image/svg+xml", "text/html", "application/octet-stream", "image/png; x", ""] {
+            assert!(!previewable(other, 1), "{other:?}");
         }
     }
 

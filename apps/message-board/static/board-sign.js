@@ -26,7 +26,8 @@
     approve: ["board2-approve", ["item", "name", "fingerprint", "key", "nonce"]],
     revoke: ["board2-revoke", ["fingerprint", "reason", "key", "nonce"]],
     archive: ["board2-archive", ["event", "archived", "reason", "key", "nonce"]],
-    // uploading and deleting a blob (`board put`, `board blob-rm`); the web view signs neither yet
+    // uploading and deleting a blob (`board put`, `board blob-rm`); the web view uploads (the forms'
+    // attach control and drop target) but does not delete
     blob: ["board2-blob", ["sha256", "size", "media_type", "filename", "key", "nonce"]],
     blobdel: ["board2-blobdel", ["sha256", "key", "nonce"]],
   };
@@ -158,6 +159,65 @@
     }
   }
 
+  // The biggest file the page uploads: `crypto.subtle.digest` has no streaming
+  // form, so the whole file is read into memory to be hashed. Anything bigger
+  // goes in with `board put`, which streams.
+  const UPLOAD_MAX = 256 * 1024 * 1024;
+  const hex = (b) => Array.from(b, (c) => c.toString(16).padStart(2, "0")).join("");
+  // The stored form of a media type, as the board reads one: no parameters,
+  // lowercase, type/subtype of token characters; anything else is no type.
+  const mediaType = (given) => {
+    const main = String(given ?? "").split(";")[0].trim().toLowerCase();
+    return main.length <= 127 && /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(main) ? main : "application/octet-stream";
+  };
+
+  // Upload `file` (a Blob or File) as the board's `board put` does: hash it,
+  // sign `board2-blob` against the head of the moment, PUT it to `url`
+  // (`/blob`). Resolves to what the board answers ({hash, reference, size,
+  // existed, ...}); rejects with the board's refusal as the CLI prints it.
+  //
+  // The board answers an upload it already has, or refuses one (a stale
+  // nonce, a full store), before it reads the body, and a browser may lose
+  // such an answer when the connection closes over a body it is still
+  // sending. So a transport failure is not taken for a failure: if the board
+  // has the blob by then, it is done; otherwise the upload is signed and sent
+  // again, as a stale nonce is.
+  async function uploadBlob(signer, file, url) {
+    if (file.size === 0) throw new Error("an empty file cannot be uploaded");
+    if (file.size > UPLOAD_MAX) {
+      throw new Error(`${file.name || "this file"} is over ${UPLOAD_MAX / 1048576} MiB, which is as much as the page hashes in memory; use \`board put\``);
+    }
+    const base = globalThis.location?.href;
+    const sha256 = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())));
+    const type = mediaType(file.type);
+    const values = { sha256, size: String(file.size), media_type: type, filename: file.name ?? "", key: crypto.randomUUID() };
+    for (let attempt = 1; ; attempt++) {
+      let response;
+      try {
+        const { head } = await (await fetch(new URL("/healthz", new URL(url, base)), { signal: AbortSignal.timeout(WRITE_TIMEOUT_MS) })).json();
+        const signed = { ...values, nonce: String(head) };
+        const signature = await sign(signer, KINDS.blob, signed);
+        const headers = { "Board-Sha256": sha256, "Board-Key": signed.key, "Board-Nonce": signed.nonce,
+                          "Board-Signature": signature, "Content-Type": type };
+        if (values.filename) headers["Board-Filename"] = encodeURIComponent(values.filename);
+        response = await fetch(new URL(url, base), { method: "PUT", headers, body: file,
+                                                     signal: AbortSignal.timeout(Math.max(WRITE_TIMEOUT_MS, file.size / 1024)) });
+      } catch (e) {
+        const there = await fetch(new URL(`/blobs/${sha256}`, new URL(url, base))).catch(() => null);
+        if (there?.ok) return { hash: sha256, reference: `board-blob://${sha256}`, size: file.size, existed: true };
+        if (attempt === NONCE_TRIES) throw e;
+        await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS[1] * attempt));
+        continue;
+      }
+      if (response.ok) return response.json();
+      const text = await response.text();
+      if (attempt < NONCE_TRIES && response.headers.get("Board-Error") === "stale-nonce") continue;
+      let message = text;
+      try { message = JSON.parse(text).message ?? text; } catch { /* not JSON: as it came */ }
+      throw new Error(refusalText(response, message));
+    }
+  }
+
   // The client key of a form's write: one per write, kept until the write
   // lands, so that sending it again after an answer was lost (a click on the
   // button once more) is the same write and cannot be made twice. A form
@@ -202,7 +262,7 @@
     (live.contains(active) && !!active.matches?.("input, textarea, select")) ||
     Array.from(live.querySelectorAll("input, textarea")).some((f) => f.value !== f.defaultValue) ||
     live.querySelector("details[open], .error:not([hidden])") !== null;
-  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate, refusalText, clientKey, keyUsed, RETRY, liveBusy };
+  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate, refusalText, clientKey, keyUsed, RETRY, liveBusy, uploadBlob, mediaType, UPLOAD_MAX };
   if (typeof document === "undefined") return;
 
   // --- the page --------------------------------------------------------------
@@ -325,6 +385,10 @@
     if (!me || !signedForm(path)) return;  // unsigned: htmx's own submit, which the board refuses
     e.preventDefault();
     e.stopPropagation();  // capture phase: htmx's listener on the form never sees it
+    if (form.dataset.uploading) {
+      showError(form, "a file is still uploading; its reference lands in the text when it is done");
+      return;
+    }
     submitSigned(form, path);
   }, true);
 
@@ -339,6 +403,54 @@
       me = null;
       render();
     }
+  });
+
+  // --- attaching files ---------------------------------------------------
+  // The post, ask and note forms take files, by the file input (`data-attach`)
+  // or by dropping them on the text: each is uploaded as a blob, signed with
+  // the authorized key, and its `board-blob://` reference goes into the text
+  // at the caret, where the write that follows picks it up.
+  async function attach(form, files) {
+    const text = form.querySelector("textarea[name=body]");
+    const note = form.querySelector(".attach-note");
+    if (!text || files.length === 0) return;
+    if (!me) { showError(form, "authorize a key first"); return; }
+    showError(form, "");
+    form.dataset.uploading = "1";
+    try {
+      for (const file of files) {
+        if (note) note.textContent = `uploading ${file.name} ...`;
+        const { reference, existed } = await uploadBlob(me, file, "/blob");
+        const [from, to] = [text.selectionStart, text.selectionEnd];
+        const before = text.value.slice(0, from);
+        text.setRangeText(`${before === "" || /\s$/.test(before) ? "" : " "}${reference} `, from, to, "end");
+        if (note) note.textContent = `${file.name}: ${existed ? "the board had it already" : "uploaded"}`;
+      }
+    } catch (e) {
+      if (note) note.textContent = "";
+      showError(form, `not uploaded: ${e.message}`);
+    } finally {
+      delete form.dataset.uploading;
+    }
+  }
+
+  const attachable = (el) => el.closest?.("form[hx-post]") && signedForm(el.closest("form").getAttribute("hx-post"))
+    && el.closest("form").querySelector("[data-attach]") !== null;
+  const hasFiles = (e) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+  document.addEventListener("change", (e) => {
+    if (!e.target.matches?.("input[data-attach]")) return;
+    const files = Array.from(e.target.files);
+    e.target.value = "";
+    attach(e.target.form, files);
+  });
+  document.addEventListener("dragover", (e) => {
+    if (e.target.matches?.("textarea") && attachable(e.target) && hasFiles(e)) e.preventDefault();
+  });
+  document.addEventListener("drop", (e) => {
+    if (!e.target.matches?.("textarea") || !attachable(e.target) || !hasFiles(e)) return;
+    e.preventDefault();
+    attach(e.target.form, Array.from(e.dataTransfer.files));
   });
 
   // A refused write keeps the page and what was typed; the reason goes next

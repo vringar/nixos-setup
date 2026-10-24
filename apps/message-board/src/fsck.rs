@@ -20,6 +20,14 @@
 //! - `corrupt` (only with `deep`): the file's bytes do not hash to its name;
 //! - `over-cap`: the rows total more than the cap.
 //!
+//! With [`quarantine`] a finding of kind `corrupt`, `size` or `missing` is
+//! repaired: the bad file is moved (never deleted) to `quarantine/` in the
+//! blob directory and its row dropped, so that nothing keeps serving wrong
+//! bytes and an upload of the right ones is stored afresh instead of being
+//! taken for already stored. A pinned reference to it then shows up as a
+//! `reference` finding on the next check, which is true: the file is gone
+//! until somebody uploads it again.
+//!
 //! It runs beside the server (SQLite lets two programs share a file, and
 //! nothing is written), so a finding that a running server could explain
 //! (a blob landing or being evicted between two looks) is looked at again
@@ -29,6 +37,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Read as _};
+use std::os::unix::fs::DirBuilderExt as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -41,6 +50,9 @@ use crate::store::{Board, DbError};
 /// How long an upload's temp file may have stood still to be called left over.
 /// An upload gives up on a client that sends nothing for far less.
 pub const TMP_IDLE: Duration = Duration::from_secs(600);
+
+/// Where bad files are put aside, under the blob directory.
+pub const QUARANTINE: &str = "quarantine";
 
 /// What kind of thing is wrong.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +88,8 @@ impl Kind {
 pub struct Finding {
     pub kind: Kind,
     pub detail: String,
+    /// The blob, for the kinds that are about one blob's file or row.
+    pub hash: Option<String>,
 }
 
 impl fmt::Display for Finding {
@@ -100,7 +114,11 @@ pub struct Report {
 
 impl Report {
     fn find(&mut self, kind: Kind, detail: String) {
-        self.findings.push(Finding { kind, detail });
+        self.findings.push(Finding { kind, detail, hash: None });
+    }
+
+    fn find_blob(&mut self, kind: Kind, hash: &str, detail: String) {
+        self.findings.push(Finding { kind, detail, hash: Some(hash.to_owned()) });
     }
 }
 
@@ -169,6 +187,9 @@ fn walk(root: &Path, options: &Options, report: &mut Report) -> Result<Vec<(Stri
         if name == ".lock" && kind.is_file() {
             continue;
         }
+        if name == QUARANTINE && kind.is_dir() {
+            continue;
+        }
         if name == "tmp" && kind.is_dir() {
             tmp(&path, options, report)?;
         } else if is_prefix(&name) && kind.is_dir() {
@@ -229,7 +250,7 @@ pub fn check(board: &Board, root: &Path, options: &Options) -> Result<Report, Er
     let present: BTreeSet<&str> = files.iter().map(|(hash, _, _)| hash.as_str()).collect();
     for (hash, size) in &index {
         if !present.contains(hash.as_str()) && board.blob(hash)?.is_some() {
-            report.find(Kind::Missing, format!("{hash} has a row ({size} bytes) but no file"));
+            report.find_blob(Kind::Missing, hash, format!("{hash} has a row ({size} bytes) but no file"));
         }
     }
     let sizes: std::collections::BTreeMap<&str, u64> = index.iter().map(|(h, s)| (h.as_str(), *s)).collect();
@@ -239,13 +260,13 @@ pub fn check(board: &Board, root: &Path, options: &Options) -> Result<Report, Er
                 report.find(Kind::Orphan, format!("{hash} is a file ({on_disk} bytes) with no row"));
             }
             Some(size) if size != on_disk => {
-                report.find(Kind::Size, format!("{hash} has a row of {size} bytes but a file of {on_disk}"));
+                report.find_blob(Kind::Size, hash, format!("{hash} has a row of {size} bytes but a file of {on_disk}"));
             }
             Some(_) if options.deep => {
                 let got = hash_file(path).map_err(io_error(format!("cannot read {}", path.display())))?;
                 report.hashed += 1;
                 if got != *hash {
-                    report.find(Kind::Corrupt, format!("{hash} has bytes that hash to {got}"));
+                    report.find_blob(Kind::Corrupt, hash, format!("{hash} has bytes that hash to {got}"));
                 }
             }
             _ => {}
@@ -262,6 +283,93 @@ pub fn check(board: &Board, root: &Path, options: &Options) -> Result<Report, Er
     }
     report.findings.sort_by(|a, b| a.kind.as_str().cmp(b.kind.as_str()).then_with(|| a.detail.cmp(&b.detail)));
     Ok(report)
+}
+
+/// What [`quarantine`] did to one blob.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Quarantined {
+    pub hash: String,
+    pub kind: Kind,
+    /// Where its file went; `None` when there was no file to move.
+    pub moved_to: Option<PathBuf>,
+}
+
+impl fmt::Display for Quarantined {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.moved_to {
+            Some(to) => write!(
+                f,
+                "quarantined {} ({}): the file is now {}, the row is dropped",
+                self.hash,
+                self.kind.as_str(),
+                to.display()
+            ),
+            None => {
+                write!(f, "quarantined {} ({}): there was no file, the row is dropped", self.hash, self.kind.as_str())
+            }
+        }
+    }
+}
+
+/// A free name for `hash` in `dir`: the hash, then the hash with `.1`, `.2`...
+fn free_name(dir: &Path, hash: &str) -> PathBuf {
+    let mut to = dir.join(hash);
+    let mut n = 0_u32;
+    while to.exists() {
+        n = n.saturating_add(1);
+        to = dir.join(format!("{hash}.{n}"));
+    }
+    to
+}
+
+/// Put aside what `report` found wrong with blobs' files and rows (kinds
+/// `corrupt`, `size`, `missing`), never deleting a byte: the file moves to
+/// `quarantine/<hash>` (`.1`, `.2`... if that name is taken), then the row is
+/// dropped. In that order, so that a stop in between leaves a row without a
+/// file (found again, and repaired by the next run), never a bad file that an
+/// upload of the same hash would adopt.
+///
+/// Only with the server stopped: the row goes in the index the server keeps.
+///
+/// # Errors
+/// If a file cannot be moved or the database written; what was done before
+/// is not undone.
+pub fn quarantine(board: &Board, root: &Path, report: &Report) -> Result<Vec<Quarantined>, Error> {
+    let mut done = Vec::new();
+    let dir = root.join(QUARANTINE);
+    for finding in &report.findings {
+        let (Some(hash), Kind::Corrupt | Kind::Size | Kind::Missing) = (&finding.hash, finding.kind) else {
+            continue;
+        };
+        let moved_to = match blobdir::path_in(root, hash).filter(|from| from.exists()) {
+            Some(from) => {
+                fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(&dir)
+                    .map_err(io_error(format!("cannot make {}", dir.display())))?;
+                let to = free_name(&dir, hash);
+                fs::rename(&from, &to).map_err(io_error(format!(
+                    "cannot move {} to {}",
+                    from.display(),
+                    to.display()
+                )))?;
+                for synced in [&dir, from.parent().unwrap_or(root)] {
+                    File::open(synced)
+                        .and_then(|d| d.sync_all())
+                        .map_err(io_error(format!("cannot sync {}", synced.display())))?;
+                }
+                Some(to)
+            }
+            None => None,
+        };
+        board.blob_forget_bad(hash).map_err(|err| Error::Io {
+            what: format!("cannot drop the row of {hash}"),
+            source: io::Error::other(err.to_string()),
+        })?;
+        done.push(Quarantined { hash: hash.clone(), kind: finding.kind, moved_to });
+    }
+    Ok(done)
 }
 
 /// Where the blobs are, as the server decides it: `BOARD_BLOBS`, else
@@ -339,6 +447,10 @@ mod tests {
             Ok(())
         }
 
+        fn path_of(&self, hash: &str) -> PathBuf {
+            self.root.join(hash.get(..2).unwrap_or_default()).join(hash)
+        }
+
         fn check(&self, deep: bool, tmp_idle: Duration) -> Result<Report, Error> {
             check(&self.board, &self.root, &Options { deep, cap: 1 << 30, tmp_idle })
         }
@@ -407,6 +519,42 @@ mod tests {
         let report = s.check(false, Duration::ZERO)?;
         assert!(kinds(&report).contains(&"tmp"));
         assert!(!kinds(&s.check(false, TMP_IDLE)?).contains(&"tmp"));
+        Ok(())
+    }
+
+    #[test]
+    fn quarantine_moves_bad_files_aside_drops_their_rows_and_deletes_nothing() -> TestResult {
+        let s = store()?;
+        let (corrupt, wrong, missing, fine, orphan) =
+            (hash_of(b"1"), hash_of(b"2"), hash_of(b"3"), hash_of(BYTES), hash_of(b"5"));
+        s.add(&corrupt, 3, Some(b"bad"))?;
+        s.add(&wrong, 7, Some(b"two"))?;
+        s.add(&missing, 5, None)?;
+        s.add(&fine, BYTES.len() as u64, Some(BYTES))?;
+        s.file(&orphan, b"five")?;
+        let report = s.check(true, TMP_IDLE)?;
+        assert_eq!(kinds(&report), ["corrupt", "missing", "orphan", "size"]);
+        let done = quarantine(&s.board, &s.root, &report)?;
+        assert_eq!(done.len(), 3);
+        // the files are kept, with their bytes, under quarantine/
+        assert_eq!(fs::read(s.root.join(QUARANTINE).join(&corrupt))?, b"bad");
+        assert_eq!(fs::read(s.root.join(QUARANTINE).join(&wrong))?, b"two");
+        assert!(!s.path_of(&corrupt).exists());
+        assert_eq!(fs::metadata(s.root.join(QUARANTINE))?.permissions().mode() & 0o777, 0o700);
+        // what was fine, and what is only an orphan, stays where it was
+        assert!(s.path_of(&fine).exists() && s.path_of(&orphan).exists());
+        let held: Vec<String> = s.board.blob_index()?.into_iter().map(|(h, _)| h).collect();
+        assert_eq!(held, std::slice::from_ref(&fine));
+        // the next check does not mistake the quarantine directory for a stray, and finds only the orphan
+        assert_eq!(kinds(&s.check(true, TMP_IDLE)?), ["orphan"]);
+        // a second file for the same hash does not overwrite the first
+        s.add(&corrupt, 4, Some(b"bad2"))?;
+        let again = quarantine(&s.board, &s.root, &s.check(true, TMP_IDLE)?)?;
+        assert_eq!(
+            again.first().and_then(|q| q.moved_to.clone()),
+            Some(s.root.join(QUARANTINE).join(format!("{corrupt}.1")))
+        );
+        assert_eq!(fs::read(s.root.join(QUARANTINE).join(&corrupt))?, b"bad");
         Ok(())
     }
 

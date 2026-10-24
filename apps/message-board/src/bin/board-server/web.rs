@@ -251,7 +251,7 @@ pub fn inbox(board: &Board, q: &Params) -> Answer {
 }
 
 fn keys_html(board: &Board) -> Result<Html, Failure> {
-    Ok(html::keys(&board.keys()?, &board.registrations()?))
+    Ok(html::keys(&board.keys()?, &board.registrations()?, &board.blob_usage()?))
 }
 
 pub fn keys(board: &Board) -> Answer {

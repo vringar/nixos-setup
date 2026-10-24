@@ -1,4 +1,4 @@
-//! The audit log: one line per deletion, kept outside the board (whose own
+//! The audit log: one line per deletion (and per blob set aside by `fsck --quarantine`), kept outside the board (whose own
 //! API this tool never touches), since unlike an archive none of it can be
 //! undone.
 

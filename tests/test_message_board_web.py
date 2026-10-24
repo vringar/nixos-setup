@@ -4,6 +4,7 @@ same-origin rules; and board-sign.js, run under node, signing exactly what
 ssh-keygen signs and approving a registration as the page would.
 See board_harness."""
 
+import hashlib
 import html
 import json
 import re
@@ -15,7 +16,7 @@ from html.parser import HTMLParser
 import pytest
 
 from board_harness import (  # noqa: F401 (fixtures)
-    ALL_KINDS, Key, board, canonical, error_answer, isolated, keyring, new_client_key,
+    ALL_KINDS, Key, board, canonical, error_answer, isolated, keyring, new_client_key, owner_env,
     parse_answer, request, ssh_verify, team,
 )
 
@@ -398,6 +399,96 @@ let log = [], races = 1;
     assert got["status"] < 400, got["text"]
     assert board.key_info(newbie.fingerprint)["state"] == "trusted"
     assert [m["body"] for m in board.messages("rev/log")] == ["concurrent"]
+
+
+def test_the_page_uploads_a_file_as_a_blob_signing_what_board_put_signs(board, team, tmp_path):
+    """What the attach control does, run under node against a real board: hash the file, sign
+    board2-blob against the head of the moment, PUT it, and hand back the reference; the same
+    bytes again are `existed`; a write landing in between is a stale nonce and is signed again."""
+    _node()
+    payload = bytes(range(256)) * 40
+    script = tmp_path / "drive.js"
+    script.write_text(FIND_KINDS + """
+const fs = require("fs");
+const [js, agentKey, base, payloadPath] = process.argv.slice(2);
+require(js);
+const B = globalThis.BoardSign;
+const kinds = findKinds(B);
+const realFetch = globalThis.fetch;
+const bytes = fs.readFileSync(payloadPath);
+const failure = async (f) => { try { await f(); return null; } catch (e) { return e.message; } };
+(async () => {
+  const agent = await B.importKey(fs.readFileSync(agentKey, "utf8"));
+  const out = {};
+  const file = new File([bytes], "trace v1.bin", { type: "Image/PNG; charset=x" });
+  out.first = await B.uploadBlob(agent, file, base + "/blob");
+  out.again = await B.uploadBlob(agent, new File([bytes], "other.bin"), base + "/blob");
+  // someone else writes between the head being read and the upload: the first try is stale
+  let races = 1;
+  globalThis.fetch = async (url, init) => {
+    const response = await realFetch(url, init);
+    if (new URL(url, base).pathname === "/healthz" && races > 0) {
+      races--;
+      const { head } = await response.clone().json();
+      const values = { path: "rev/log", body: "concurrent", key: crypto.randomUUID(), nonce: String(head) };
+      values.signature = await B.sign(agent, kinds["board2-post"], values);
+      await realFetch(base + "/post", { method: "POST", headers: { "content-type": "application/json" },
+                                         body: JSON.stringify(values) });
+    }
+    return response;
+  };
+  out.raced = await B.uploadBlob(agent, new File([Buffer.from("raced bytes")], "r.txt", { type: "text/plain" }), base + "/blob");
+  globalThis.fetch = realFetch;
+  out.empty = await failure(() => B.uploadBlob(agent, new File([], "empty"), base + "/blob"));
+  out.huge = await failure(() => B.uploadBlob(agent, { size: B.UPLOAD_MAX + 1, name: "big.bin" }, base + "/blob"));
+  out.types = ["Text/Plain; charset=utf-8", "", "nonsense", "a/b/c", "image/png"].map(B.mediaType);
+  console.log(JSON.stringify(out));
+})();
+""")
+    path = tmp_path / "payload"
+    path.write_bytes(payload)
+    run = subprocess.run(["node", script, _served_js(board, tmp_path), team.alice.key.path, board.url, str(path)],
+                         capture_output=True, text=True, check=True)
+    got = json.loads(run.stdout)
+    h = hashlib.sha256(payload).hexdigest()
+    assert got["first"]["hash"] == h and got["first"]["reference"] == f"board-blob://{h}"
+    assert (got["first"]["existed"], got["again"]["existed"]) == (False, True)
+    assert (got["first"]["media_type"], got["first"]["filename"]) == ("image/png", "trace v1.bin")
+    assert board.get_blob(h)[2] == payload
+    [(who, fp)] = board.sql("SELECT uploader, uploader_fp FROM blobs WHERE sha256=?", h)
+    assert (who, fp) == ("alice", team.alice.fingerprint)
+    # the board verified the board2-blob signature before it read a byte, so the PUT landing proves it
+    raced = got["raced"]
+    assert raced["hash"] == hashlib.sha256(b"raced bytes").hexdigest() and raced["existed"] is False
+    assert [m["body"] for m in board.messages("rev/log")] == ["concurrent"]
+    assert got["empty"] == "an empty file cannot be uploaded"
+    assert "over 256 MiB" in got["huge"] and "board put" in got["huge"]
+    assert got["types"] == ["text/plain", "application/octet-stream", "application/octet-stream",
+                            "application/octet-stream", "image/png"]
+
+
+def test_a_refused_upload_from_the_page_says_what_the_cli_says(board, team, keyring, tmp_path):
+    _node()
+    board.server.restart(**owner_env(keyring["owner"]), BOARD_BLOB_CAP="1000")
+    script = tmp_path / "drive.js"
+    script.write_text("""
+const fs = require("fs");
+const [js, agentKey, base] = process.argv.slice(2);
+require(js);
+const B = globalThis.BoardSign;
+(async () => {
+  const agent = await B.importKey(fs.readFileSync(agentKey, "utf8"));
+  try {
+    await B.uploadBlob(agent, new File([Buffer.alloc(5000, 7)], "big.bin"), base + "/blob");
+    console.log(JSON.stringify({ error: null }));
+  } catch (e) { console.log(JSON.stringify({ error: e.message })); }
+})();
+""")
+    run = subprocess.run(["node", script, _served_js(board, tmp_path), team.alice.key.path, board.url],
+                         capture_output=True, text=True, check=True)
+    error = json.loads(run.stdout)["error"]
+    assert error and error.startswith("blob-store-full: the blob store is full"), error
+    assert board.sql("SELECT count(*) FROM blobs") == [(0,)]
 
 
 # --- the write forms: post to a thread, edit a note ---------------------------------------------

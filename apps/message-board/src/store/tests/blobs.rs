@@ -127,7 +127,10 @@ fn a_reference_reads_pinned_released_or_gone_by_what_pins_the_blob_now() -> Test
     f.post(&alice, "rev/log", &reference(1))?;
     assert_eq!(state(item)?, RefState::Pinned);
     let present = f.board.blobs_present(&[h(1), h(2), "nonsense".to_owned()])?;
-    assert_eq!(present.get(&h(1)), Some(&(100, "f.txt".to_owned())));
+    assert_eq!(
+        present.get(&h(1)),
+        Some(&Present { size: 100, filename: "f.txt".to_owned(), media_type: "text/plain".to_owned() })
+    );
     assert_eq!(present.len(), 1);
     Ok(())
 }
@@ -359,5 +362,44 @@ fn the_index_lists_every_blob_and_a_pinned_reference_without_one_is_found() -> T
     let conn = rusqlite::Connection::open(&f.path)?;
     conn.execute("DELETE FROM blobs WHERE sha256 = ?", [h(1)])?;
     assert_eq!(f.board.pinned_without_blob()?, [(message, h(1))]);
+    Ok(())
+}
+
+#[test]
+fn usage_adds_up_what_each_key_stored_first_and_how_much_of_it_is_pinned() -> TestResult {
+    let f = fixture()?;
+    let (alice, bob) = f.desk()?;
+    let all = limits(1 << 30, 3600);
+    assert_eq!(f.board.blob_usage()?, []);
+    f.put_blob(&alice, &h(1), 100, &all)?;
+    f.put_blob(&alice, &h(2), 50, &all)?;
+    f.put_blob(&bob, &h(3), 400, &all)?;
+    // the same bytes again, by bob: still alice's
+    f.put_blob(&bob, &h(1), 100, &all)?;
+    f.post(&alice, "rev/log", &reference(2))?;
+    let usage = f.board.blob_usage()?;
+    let shown: Vec<(&str, u64, u64, u64)> =
+        usage.iter().map(|u| (u.name.as_str(), u.blobs, u.bytes, u.pinned_bytes)).collect();
+    assert_eq!(shown, [("bob", 1, 400, 0), ("alice", 2, 150, 50)]);
+    assert_eq!(usage.first().map(|u| u.fingerprint.clone()), Some(bob.fingerprint()));
+    Ok(())
+}
+
+#[test]
+fn a_bad_blob_loses_its_row_even_when_pinned_and_the_same_bytes_can_come_back() -> TestResult {
+    let f = fixture()?;
+    let (alice, _bob) = f.desk()?;
+    let all = limits(1 << 30, 3600);
+    f.put_blob(&alice, &h(1), 100, &all)?;
+    f.post(&alice, "rev/log", &reference(1))?;
+    assert_eq!(in_use(f.delete_blob(&alice, &h(1)))?, 1);
+    assert!(f.board.blob_forget_bad(&h(1))?);
+    assert!(!f.board.blob_forget_bad(&h(1))?);
+    assert_eq!(f.held()?, Vec::<String>::new());
+    // the pinned reference now has no blob (fsck reports it) until the bytes are uploaded again
+    assert_eq!(f.board.pinned_without_blob()?.len(), 1);
+    f.put_blob(&alice, &h(1), 100, &all)?;
+    assert_eq!(f.board.pinned_without_blob()?, []);
+    assert!(f.board.blob_forget_bad("nonsense").is_err());
     Ok(())
 }

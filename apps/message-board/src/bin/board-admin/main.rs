@@ -43,13 +43,22 @@
 //! current note pins is deleted, by anyone. Deleting a blob's last holder
 //! (a message here) is what frees it.
 //!
-//! Usage: `board-admin` for the session above, or `board-admin fsck [--deep]`
-//! to check the blob directory against the index: read-only, so a flagged
-//! command is no hazard, and it leaves the service running (see
+//! Usage: `board-admin` for the session above, or `board-admin fsck [--deep]
+//! [--quarantine]` to check the blob directory against the index: read-only,
+//! so a flagged command is no hazard, and it leaves the service running (see
 //! `message_board::fsck` for what it finds). It prints one line per
 //! finding and a summary, and exits 0 when the store is clean, 1 when it
 //! found something. `--deep` also hashes every file (minutes for tens of
-//! gigabytes; it runs niced).
+//! gigabytes; it runs niced). `--quarantine` then repairs what is wrong with
+//! blob files and rows (bad bytes, a wrong size, a row without a file): the
+//! file is moved to `quarantine/` in the blob directory, never deleted, and
+//! the row dropped. That writes the index, so it refuses while the service
+//! (or anything else) is serving the board, as deleting does; each blob
+//! dealt with is a line in the audit log, and the exit status is that of a
+//! check run again afterwards.
+//!
+//! `board-admin usage` prints what each key uploaded as blobs (count, bytes,
+//! of which pinned): read-only, no quota.
 //!
 //! Config via env, as board-server: `BOARD_DB`, `BOARD_BLOBS` and
 //! `BOARD_BLOB_CAP` and `BOARD_BLOB_GRACE` (as the server reads them),
@@ -123,10 +132,13 @@ fn main() -> ExitCode {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let outcome = match args.iter().map(|a| a.to_str()).collect::<Option<Vec<_>>>().as_deref() {
         Some([]) => run(),
-        Some(["fsck"]) => check(false),
-        Some(["fsck", "--deep"]) => check(true),
+        Some(["usage"]) => usage(),
+        Some(["fsck", flags @ ..]) if fsck_flags(flags).is_some() => {
+            let (deep, quarantine) = fsck_flags(flags).unwrap_or_default();
+            check(deep, quarantine)
+        }
         _ => {
-            let usage = "usage: board-admin            browse the board and delete from it\n       board-admin fsck [--deep]  check the blob directory against the index (read-only)";
+            let usage = "usage: board-admin            browse the board and delete from it\n       board-admin fsck [--deep] [--quarantine]\n                                  check the blob directory against the index (read-only);\n                                  --quarantine moves bad files aside and drops their rows (service stopped)\n       board-admin usage          what each key uploaded as blobs";
             return match note(usage) {
                 Ok(()) => ExitCode::from(2),
                 Err(_unwritable) => ExitCode::from(74),
@@ -208,12 +220,81 @@ fn number_var(name: &str, default: u64) -> Result<u64, Failure> {
     }
 }
 
-/// `board-admin fsck`: see the module docs.
-fn check(deep: bool) -> Result<ExitCode, Failure> {
+/// The flags of `fsck` as (deep, quarantine), if they are only those, each at most once.
+fn fsck_flags(flags: &[&str]) -> Option<(bool, bool)> {
+    let (mut deep, mut quarantine) = (false, false);
+    for flag in flags {
+        let seen = match *flag {
+            "--deep" => &mut deep,
+            "--quarantine" => &mut quarantine,
+            _ => return None,
+        };
+        if std::mem::replace(seen, true) {
+            return None;
+        }
+    }
+    Some((deep, quarantine))
+}
+
+/// The board's address and its systemd unit, as the session reads them.
+fn endpoint() -> Result<(String, Service), Failure> {
+    let url = match text_var("BOARD_URL")? {
+        Some(url) => url.trim_end_matches('/').to_owned(),
+        None => format!("http://127.0.0.1:{}", text_var("BOARD_PORT")?.unwrap_or_else(|| "8777".to_owned())),
+    };
+    let unit = text_var("BOARD_ADMIN_SERVICE")?.unwrap_or_else(|| "message-board".to_owned());
+    Ok((url, Service { unit: (!unit.is_empty()).then_some(unit) }))
+}
+
+/// `board-admin usage`: see the module docs.
+fn usage() -> Result<ExitCode, Failure> {
     let home = std::env::home_dir();
     let no_home = || Failure::Exit("board-admin: cannot tell where the home directory is".to_owned());
     let db = db_path(nonempty_var("BOARD_DB"), nonempty_var("XDG_STATE_HOME"), home).ok_or_else(no_home)?;
     check_database(&db)?;
+    let board = Board::open(&db)?.board;
+    let usage = board.blob_usage();
+    let closed = board.close().map_err(Failure::from);
+    let usage = usage?;
+    closed?;
+    let mut out = io::stdout().lock();
+    let wrote = |cause| Failure::Io { what: "cannot write the usage".to_owned(), cause };
+    let (mut blobs, mut bytes) = (0_u64, 0_u64);
+    for u in &usage {
+        writeln!(
+            out,
+            "{:<16} {}  {:>5} blobs  {:>9}  {:>9} pinned  last upload {}",
+            u.name,
+            u.fingerprint,
+            u.blobs,
+            blob::human(u.bytes),
+            blob::human(u.pinned_bytes),
+            u.last_upload
+        )
+        .map_err(wrote)?;
+        blobs = blobs.saturating_add(u.blobs);
+        bytes = bytes.saturating_add(u.bytes);
+    }
+    writeln!(out, "usage: {} keys, {blobs} blobs, {}", usage.len(), blob::human(bytes)).map_err(wrote)?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `board-admin fsck`: see the module docs.
+fn check(deep: bool, quarantine: bool) -> Result<ExitCode, Failure> {
+    let home = std::env::home_dir();
+    let no_home = || Failure::Exit("board-admin: cannot tell where the home directory is".to_owned());
+    let db = db_path(nonempty_var("BOARD_DB"), nonempty_var("XDG_STATE_HOME"), home.clone()).ok_or_else(no_home)?;
+    check_database(&db)?;
+    if quarantine {
+        let (url, service) = endpoint()?;
+        if service.is_active()? || service::is_live(&url)? {
+            return Err(Failure::Exit(format!(
+                "board-admin: --quarantine writes the index, which the board serving {url} keeps: stop it first \
+                 (systemctl --user stop {})",
+                service.unit.as_deref().unwrap_or("message-board")
+            )));
+        }
+    }
     let root = fsck::blob_root(nonempty_var("BOARD_BLOBS"), &db);
     let board = Board::open(&db)?.board;
     if deep {
@@ -225,11 +306,32 @@ fn check(deep: bool) -> Result<ExitCode, Failure> {
     let options =
         fsck::Options { deep, cap: number_var("BOARD_BLOB_CAP", blob::CAP_DEFAULT)?, tmp_idle: fsck::TMP_IDLE };
     let checked = fsck::check(&board, &root, &options);
+    let (checked, quarantined) = match checked {
+        Ok(first) if quarantine => {
+            // what is left once the bad files are aside, checked again (shallow: they were hashed already)
+            let again = fsck::quarantine(&board, &root, &first)
+                .and_then(|done| Ok((done, fsck::check(&board, &root, &fsck::Options { deep: false, ..options })?)));
+            match again {
+                Ok((done, after)) => (Ok(after), done),
+                Err(err) => (Err(err), Vec::new()),
+            }
+        }
+        other => (other, Vec::new()),
+    };
     let closed = board.close().map_err(Failure::from);
     let report = checked.map_err(|err| Failure::Exit(format!("board-admin: fsck: {err}")))?;
     closed?;
+    if !quarantined.is_empty() {
+        let audit = Audit { path: audit_path(home).ok_or_else(no_home)? };
+        for q in &quarantined {
+            audit.record("quarantine_blob", &q.to_string())?;
+        }
+    }
     let mut out = io::stdout().lock();
     let wrote = |cause| Failure::Io { what: "cannot write the report".to_owned(), cause };
+    for q in &quarantined {
+        writeln!(out, "{q}").map_err(wrote)?;
+    }
     for finding in &report.findings {
         writeln!(out, "{finding}").map_err(wrote)?;
     }
@@ -248,12 +350,7 @@ fn check(deep: bool) -> Result<ExitCode, Failure> {
 fn run() -> Result<ExitCode, Failure> {
     // First, so that from here on a kill ends the session like a quit.
     let signals = Signals::install()?;
-    let url = match text_var("BOARD_URL")? {
-        Some(url) => url.trim_end_matches('/').to_owned(),
-        None => format!("http://127.0.0.1:{}", text_var("BOARD_PORT")?.unwrap_or_else(|| "8777".to_owned())),
-    };
-    let unit = text_var("BOARD_ADMIN_SERVICE")?.unwrap_or_else(|| "message-board".to_owned());
-    let service = Service { unit: (!unit.is_empty()).then_some(unit) };
+    let (url, service) = endpoint()?;
     // HOME, else the passwd entry's home.
     let home = std::env::home_dir();
     let no_home = || Failure::Exit("board-admin: cannot tell where the home directory is".to_owned());

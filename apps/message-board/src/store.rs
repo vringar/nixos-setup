@@ -58,7 +58,8 @@
 //! an open item, a thread message that is not archived and the latest version
 //! of a note, and by nothing else; an upload that does not fit evicts
 //! unpinned blobs, oldest upload first, past a grace. An upload is not an
-//! event and does not move the head.
+//! event and does not move the head. What each key uploaded first is summed
+//! by [`Board::blob_usage`] (shown, never limited: there is no quota).
 //!
 //! Names are bound to keys by the owner's approval ([`Board::approve`]);
 //! the server derives who wrote from the key, never from the request.
@@ -89,8 +90,8 @@ pub use actions::{
     SetNote, Signed,
 };
 pub use blobs::{
-    Begun, BlobHolder, BlobInfo, BlobPage, BlobQuery, BlobRef, BlobReferrer, BlobStats, Landing, Limits, Pinner,
-    RefState, StoreFull, Uploader, Victim,
+    Begun, BlobHolder, BlobInfo, BlobPage, BlobQuery, BlobRef, BlobReferrer, BlobStats, KeyUsage, Landing, Limits,
+    Pinner, Present, RefState, StoreFull, Uploader, Victim,
 };
 pub use events::{Event, EventType, Message};
 pub use items::{Item, ItemDetail, ItemPage, ItemQuery, ItemResolution, ItemState, StateFilter};

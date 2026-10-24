@@ -338,8 +338,16 @@ pub fn blob(board: &Board, grace: u64, sort: Sort, hash: &str) -> Result<Screen,
             info.signed_by
         ),
         format!("file name {:?}, type {}", info.filename, info.media_type),
-        String::new(),
     ];
+    if let Some(u) = board.blob_usage()?.into_iter().find(|u| u.fingerprint == info.signed_by) {
+        lines.push(format!(
+            "that key has uploaded {} in all, {}, of which {} pinned",
+            count(usize::try_from(u.blobs).unwrap_or(usize::MAX), "blob", "blobs"),
+            blob::human(u.bytes),
+            blob::human(u.pinned_bytes)
+        ));
+    }
+    lines.push(String::new());
     if referrers.is_empty() {
         lines.push("nothing references it".to_owned());
     } else {

@@ -15,15 +15,15 @@ use std::collections::BTreeMap;
 
 use message_board::blob;
 use message_board::store::{
-    BlobInfo, BlobReferrer, BlobStats, Board, Child, DbError, Item, ItemPage, ItemState, Key, KeyState, Node, NodeKind,
-    NoteVersion, READ_BYTES_MAX, READ_ROWS_MAX, Range, Registration, Status, ThreadPage, Version,
+    BlobInfo, BlobReferrer, BlobStats, Board, Child, DbError, Item, ItemPage, ItemState, Key, KeyState, KeyUsage, Node,
+    NodeKind, NoteVersion, Present, READ_BYTES_MAX, READ_ROWS_MAX, Range, Registration, Status, ThreadPage, Version,
 };
 
 /// The blobs a page's bodies reference that exist, with their size and
 /// original file name: a reference is a link while its blob is there and
 /// plain text once it is not, decided every time the page is made.
 #[derive(Debug, Default)]
-pub struct Links(BTreeMap<String, (u64, String)>);
+pub struct Links(BTreeMap<String, Present>);
 
 impl Links {
     /// No blob exists: every reference is shown as removed.
@@ -54,10 +54,15 @@ fn body(h: &mut Html, text: &str, links: &Links) {
         h.text(text.get(rest..found.start).unwrap_or_default());
         let reference = text.get(found.start..found.end).unwrap_or_default();
         match links.0.get(&found.hash) {
-            Some((size, filename)) => {
+            Some(Present { size, filename, media_type }) => {
                 let name = if filename.is_empty() { found.hash.get(..12).unwrap_or_default() } else { filename };
                 h.markup("<a class=\"blob\" href=\"/sha256/").text(&found.hash).markup("\" download>");
                 h.text(&format!("{name} ({})", blob::human(*size))).markup("</a>");
+                if blob::previewable(media_type, *size) {
+                    // the file by itself, from the board's own origin: no script, nothing sniffed
+                    h.markup("<br><img class=\"preview\" src=\"/sha256/").text(&found.hash);
+                    h.markup("\" alt=\"\" loading=\"lazy\">");
+                }
             }
             None => {
                 h.text(reference).markup(" <span class=\"gone\">(file removed)</span>");
@@ -161,6 +166,8 @@ const HEAD: &str = r##"</title>
   .flag { color: var(--flag); margin: .2rem 0; }
   .revoked { color: var(--error); }
   .gone { color: var(--faint); font-size: 12px; }
+  .attach { margin: .3rem 0; }
+  img.preview { display: block; max-width: min(100%, 36rem); max-height: 24rem; margin: .25rem 0; border-radius: 4px; }
   #messages { border: 1px solid var(--border); border-radius: 6px; padding: .5rem;
               margin: .8rem 0; max-height: 60vh; overflow-y: auto; }
   .msg, .item { padding: .4rem 0; border-bottom: 1px solid var(--rule-soft); }
@@ -627,7 +634,9 @@ pub fn thread(node: &Node, page: &ThreadPage, range: Range, default: i64, show_a
             Range::Since(id) => hidden_input(&mut h, "since", &id.to_string()),
             Range::All => hidden_input(&mut h, "all", "1"),
         }
-        h.markup("<textarea name=\"body\" placeholder=\"message\" required></textarea>\n<button type=\"submit\">post</button>\n</form></div>\n");
+        h.markup("<textarea name=\"body\" placeholder=\"message\" required></textarea>\n");
+        attach(&mut h);
+        h.markup("<button type=\"submit\">post</button>\n</form></div>\n");
     }
     h
 }
@@ -738,6 +747,7 @@ pub fn note_form(f: &NoteForm<'_>) -> Html {
     hidden_input(&mut h, "path", f.path);
     hidden_input(&mut h, "base_version", &f.base_version.to_string());
     h.markup("<textarea name=\"body\" required>").text(f.body).markup("</textarea>\n");
+    attach(&mut h);
     h.markup(
         "<label>summarizes the thread (with a message, or neither) <input name=\"thread\" placeholder=\"area/group/thread\" value=\"",
     )
@@ -750,6 +760,14 @@ pub fn note_form(f: &NoteForm<'_>) -> Html {
         .text(&encoded(f.path))
         .markup("\" hx-target=\"#note\" hx-swap=\"innerHTML\">back</button>\n</form>");
     h
+}
+
+/// The control to attach a file to the text above it: board-sign.js uploads
+/// what is chosen (or dropped on the text) as a blob and writes its reference
+/// into the text. It has no `name`, so it is no field of the write.
+fn attach(h: &mut Html) {
+    h.markup("<div class=\"attach\"><label>attach a file <input type=\"file\" data-attach multiple></label> ");
+    h.markup("<span class=\"attach-note meta\" role=\"status\"></span></div>\n");
 }
 
 /// One item: who asked, what, and how it ended if it has.
@@ -796,7 +814,9 @@ pub fn queue(node: &Node, page: &ItemPage, after: i64, show_archived: bool, link
         if show_archived {
             hidden_input(&mut h, "shown", "archived");
         }
-        h.markup("<textarea name=\"body\" placeholder=\"new request\" required></textarea>\n<button type=\"submit\">file request</button>\n</form></div>\n");
+        h.markup("<textarea name=\"body\" placeholder=\"new request\" required></textarea>\n");
+        attach(&mut h);
+        h.markup("<button type=\"submit\">file request</button>\n</form></div>\n");
     }
     let archived = if show_archived { "&archived=1" } else { "" };
     let url = format!("/ui/live/queue?path={}&after={after}{archived}", encoded(&node.path));
@@ -1005,8 +1025,8 @@ fn event_ref(h: &mut Html, id: Option<i64>) {
 /// The trust list, the content of `#keys`: every key the board knows,
 /// with Revoke for each trusted one, and for each pending one the
 /// registration to approve or decline (or, if it cannot be found, the way
-/// to the inbox).
-pub fn keys(keys: &[Key], registrations: &[Registration]) -> Html {
+/// to the inbox), and what each key has uploaded as blobs (shown, not limited).
+pub fn keys(keys: &[Key], registrations: &[Registration], usage: &[KeyUsage]) -> Html {
     let mut h = Html::new();
     let pending = keys.iter().filter(|k| k.state == KeyState::Pending).count();
     if pending > 0 {
@@ -1014,7 +1034,7 @@ pub fn keys(keys: &[Key], registrations: &[Registration]) -> Html {
         h.markup(" pending → <a href=\"/ui/inbox\">inbox</a></p>\n");
     }
     h.markup("<p class=\"meta\">As the board writes it after every change: <a href=\"/view/_board/trust\">_board/trust</a></p>\n");
-    h.markup("<table class=\"keys\"><thead><tr><th>name</th><th>state</th><th>fingerprint</th><th>approved</th><th>revoked</th><th>repo</th><th>note</th><th></th></tr></thead><tbody>\n");
+    h.markup("<table class=\"keys\"><thead><tr><th>name</th><th>state</th><th>fingerprint</th><th>approved</th><th>revoked</th><th>repo</th><th>note</th><th>blobs</th><th></th></tr></thead><tbody>\n");
     for key in keys {
         h.markup("<tr><td>").text(&key.name).markup("</td><td>").text(key.state.as_str()).markup("</td><td><code>");
         h.text(&key.fingerprint).markup("</code></td><td>");
@@ -1022,6 +1042,15 @@ pub fn keys(keys: &[Key], registrations: &[Registration]) -> Html {
         h.markup("</td><td>");
         event_ref(&mut h, key.revoked);
         h.markup("</td><td><code>").text(&key.repo).markup("</code></td><td class=\"body\">").text(&key.note);
+        h.markup("</td><td>");
+        if let Some(u) = usage.iter().find(|u| u.fingerprint == key.fingerprint) {
+            h.number(i64::try_from(u.blobs).unwrap_or(i64::MAX)).markup(if u.blobs == 1 {
+                " blob, "
+            } else {
+                " blobs, "
+            });
+            h.text(&blob::human(u.bytes)).markup(" (").text(&blob::human(u.pinned_bytes)).markup(" pinned)");
+        }
         h.markup("</td><td>");
         if key.state == KeyState::Trusted {
             h.markup("<div data-needs=\"owner\" hidden><form hx-post=\"/ui/revoke\" hx-target=\"#keys\" hx-swap=\"innerHTML\">\n");
@@ -1243,7 +1272,7 @@ mod tests {
             key("bob", "SHA256:lost", KeyState::Pending),
             key("carol", "SHA256:carol", KeyState::Trusted),
         ];
-        let page = text(super::keys(&keys, &[known]));
+        let page = text(super::keys(&keys, &[known], &[]));
         assert!(page.contains("2 pending → <a href=\"/ui/inbox\">inbox</a>"), "{page}");
         // alice: approve and decline, each swapping the keys page and saying so; bob: a way out
         assert_eq!(page.matches("hx-post=\"/ui/approve\" hx-target=\"#keys\"").count(), 1, "{page}");
@@ -1254,6 +1283,24 @@ mod tests {
         // every form, revoke included, sits in a control only the owner is shown
         assert_eq!(page.matches("<form").count(), 3, "{page}");
         assert_eq!(page.matches("data-needs=\"owner\" hidden").count(), 2, "{page}");
+    }
+
+    #[test]
+    fn the_keys_page_shows_what_each_key_uploaded() {
+        let keys = [key("alice", "SHA256:alice", KeyState::Trusted), key("bob", "SHA256:bob", KeyState::Trusted)];
+        let usage = [KeyUsage {
+            fingerprint: "SHA256:alice".to_owned(),
+            name: "al<i>ce".to_owned(),
+            blobs: 2,
+            bytes: 12_300_000,
+            pinned_bytes: 300_000,
+            last_upload: "2026-10-21T23:51:46Z".to_owned(),
+        }];
+        let page = text(super::keys(&keys, &[], &usage));
+        assert!(page.contains("<td>2 blobs, 12.3 MB (300 kB pinned)</td>"), "{page}");
+        // a key that uploaded nothing has an empty cell, and the usage is no markup
+        assert_eq!(page.matches("blobs, ").count(), 1, "{page}");
+        assert!(!page.contains("al<i>ce"), "{page}");
     }
 
     #[test]
@@ -1274,6 +1321,8 @@ mod tests {
         assert!(page.contains("<div data-needs=\"trusted\" hidden>"), "{page}");
         assert!(page.contains("hx-post=\"/ui/ask\" hx-target=\"#queue-items\""), "{page}");
         assert!(page.contains("name=\"path\" value=\"rev/q\"") && page.contains("<textarea name=\"body\""), "{page}");
+        // the file control is no field of the write: it has no name
+        assert!(page.contains("<input type=\"file\" data-attach multiple>"), "{page}");
         assert!(
             page.contains("<div id=\"queue-items\" data-live hx-get=\"/ui/live/queue?path=rev%2Fq&amp;after=0\" hx-trigger=\"every 5s\" hx-swap=\"innerHTML\"><p class=\"empty\">nothing open</p>"),
             "{page}"
@@ -1634,7 +1683,10 @@ mod tests {
     #[test]
     fn a_blob_reference_is_a_link_while_the_blob_exists_and_text_once_it_does_not() {
         let (there, gone) = ("a".repeat(64), "b".repeat(64));
-        let links = Links(BTreeMap::from([(there.clone(), (12_300_000, "trace <1>.bin".to_owned()))]));
+        let links = Links(BTreeMap::from([(
+            there.clone(),
+            Present { size: 12_300_000, filename: "trace <1>.bin".to_owned(), media_type: "text/plain".to_owned() },
+        )]));
         let text_of = |text: &str| {
             let mut h = Html::new();
             body(&mut h, text, &links);
@@ -1653,10 +1705,39 @@ mod tests {
         let page = text_of(&format!("\\board-blob://{there} board-blob://{}", &there[..10]));
         assert!(!page.contains("<a ") && !page.contains("removed"), "{page}");
         // no file name: the first 12 digits
-        let nameless = Links(BTreeMap::from([(there.clone(), (3, String::new()))]));
+        let nameless = Links(BTreeMap::from([(
+            there.clone(),
+            Present { size: 3, filename: String::new(), media_type: "image/png".to_owned() },
+        )]));
         let mut h = Html::new();
         body(&mut h, &format!("board-blob://{there}"), &nameless);
         assert!(String::from_utf8(h.into_bytes()).unwrap_or_default().contains("download>aaaaaaaaaaaa (3 bytes)</a>"));
+    }
+
+    #[test]
+    fn an_image_blob_is_shown_inline_from_the_boards_own_origin_and_nothing_else_is() {
+        let (png, text, big, gone) = ("a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64));
+        let present = |media_type: &str, size| Present {
+            size,
+            filename: "p<x>.png".to_owned(),
+            media_type: media_type.to_owned(),
+        };
+        let links = Links(BTreeMap::from([
+            (png.clone(), present("image/png", 100)),
+            (text.clone(), present("text/plain", 100)),
+            (big.clone(), present("image/png", blob::PREVIEW_MAX + 1)),
+        ]));
+        let mut h = Html::new();
+        body(&mut h, &format!("board-blob://{png} board-blob://{text} board-blob://{big} board-blob://{gone}"), &links);
+        let page = String::from_utf8(h.into_bytes()).unwrap_or_default();
+        assert_eq!(page.matches("<img").count(), 1, "{page}");
+        assert!(
+            page.contains(&format!("<img class=\"preview\" src=\"/sha256/{png}\" alt=\"\" loading=\"lazy\">")),
+            "{page}"
+        );
+        // the link stays, so the file can still be downloaded; the name is escaped
+        assert!(page.contains("p&lt;x&gt;.png (100 bytes)</a><br><img"), "{page}");
+        assert!(!page.contains("<x>") && !page.contains("http"), "{page}");
     }
 
     #[test]

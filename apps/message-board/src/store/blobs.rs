@@ -279,6 +279,30 @@ pub struct BlobStats {
     pub pinned_bytes: u64,
 }
 
+/// A blob that exists, as much of it as a page that links it needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Present {
+    pub size: u64,
+    pub filename: String,
+    /// What the first uploader said it is; never sniffed.
+    pub media_type: String,
+}
+
+/// What the blobs one key uploaded first add up to. There is no quota: this
+/// is for looking at who fills the store.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct KeyUsage {
+    pub fingerprint: String,
+    /// The name the key had at its first upload.
+    pub name: String,
+    pub blobs: u64,
+    pub bytes: u64,
+    /// Of `bytes`, what something live pins.
+    pub pinned_bytes: u64,
+    /// The newest upload time among them.
+    pub last_upload: String,
+}
+
 /// A list of blobs, newest upload first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BlobPage {
@@ -718,6 +742,48 @@ impl Board {
         })
     }
 
+    /// What each key uploaded first, the biggest user first: a blob counts
+    /// for the key that stored it, not for later uploads of the same bytes.
+    ///
+    /// # Errors
+    /// On a database fault.
+    pub fn blob_usage(&self) -> Result<Vec<KeyUsage>, DbError> {
+        let sql = "SELECT fp, max(name), count(*), sum(size), COALESCE(sum(CASE WHEN pinned THEN size END), 0), max(ts)
+                     FROM (SELECT b.uploader_fp AS fp, b.uploader AS name, b.size AS size, b.ts AS ts, PINNED AS pinned
+                             FROM blobs b)
+                    GROUP BY fp ORDER BY sum(size) DESC, fp"
+            .replace("PINNED", &pinned("b.sha256"));
+        self.read_db(|conn| {
+            conn.prepare(&sql)?
+                .query_map([], |r| {
+                    Ok(KeyUsage {
+                        fingerprint: text(r, 0)?,
+                        name: text(r, 1)?,
+                        blobs: count(r.get(2)?),
+                        bytes: count(r.get(3)?),
+                        pinned_bytes: count(r.get(4)?),
+                        last_upload: text(r, 5)?,
+                    })
+                })?
+                .collect()
+        })
+    }
+
+    /// Drop the row of a blob whose file is bad, whatever references it:
+    /// the bytes the row promised are not there, so the row would only keep
+    /// serving the wrong ones and make an upload of the right ones look
+    /// stored. The references stay; the next upload of the same bytes makes
+    /// them good again. Whether a row was there.
+    ///
+    /// # Errors
+    /// On a database fault.
+    pub fn blob_forget_bad(&self, hash: &str) -> Result<bool, Error> {
+        if !blob::is_hash(hash) {
+            return Err(Error::BadRequest("sha256 is 64 lowercase hex digits".to_owned()));
+        }
+        self.write(|conn, _| Ok(conn.execute("DELETE FROM blobs WHERE sha256 = ?", [hash])? > 0))
+    }
+
     /// Every blob's address and size, by address: what the index says the
     /// directory holds.
     ///
@@ -863,20 +929,25 @@ impl Board {
         })
     }
 
-    /// Which of `hashes` exist: each one's size and original file name.
-    /// One lookup for a page that links blobs.
+    /// Which of `hashes` exist: each one's size, original file name and
+    /// media type. One lookup for a page that links blobs.
     ///
     /// # Errors
     /// On a database fault.
-    pub fn blobs_present(&self, hashes: &[String]) -> Result<BTreeMap<String, (u64, String)>, DbError> {
+    pub fn blobs_present(&self, hashes: &[String]) -> Result<BTreeMap<String, Present>, DbError> {
         let valid: Vec<&String> = hashes.iter().filter(|h| blob::is_hash(h)).collect();
         if valid.is_empty() {
             return Ok(BTreeMap::new());
         }
         let marks = vec!["?"; valid.len()].join(",");
         self.read_db(|conn| {
-            conn.prepare(&format!("SELECT sha256, size, filename FROM blobs WHERE sha256 IN ({marks})"))?
-                .query_map(params_from_iter(valid), |r| Ok((text(r, 0)?, (count(r.get(1)?), text(r, 2)?))))?
+            conn.prepare(&format!("SELECT sha256, size, filename, media_type FROM blobs WHERE sha256 IN ({marks})"))?
+                .query_map(params_from_iter(valid), |r| {
+                    Ok((
+                        text(r, 0)?,
+                        Present { size: count(r.get(1)?), filename: text(r, 2)?, media_type: text(r, 3)? },
+                    ))
+                })?
                 .collect()
         })
     }
