@@ -464,6 +464,80 @@ def make_v1_db(path):
     return path
 
 
+# --- blobs over HTTP ------------------------------------------------------------------
+
+@dataclass
+class RawAnswer(Response):
+    """An answer read off a socket: `headers` has lowercase names, `raw` is the body's bytes
+    (`text` its decoding), `continued` whether the server sent `100 Continue` first."""
+    continued: bool = False
+    raw: bytes = b""
+
+
+def _read_answer(sock, buf=b""):
+    """The final answer on `sock`, starting from the bytes already read."""
+    while b"\r\n\r\n" not in buf:
+        chunk = sock.recv(65536)
+        if not chunk:
+            break
+        buf += chunk
+    head, _, rest = buf.partition(b"\r\n\r\n")
+    lines = head.decode("latin-1").split("\r\n")
+    headers = {k.strip().lower(): v.strip() for k, _, v in (line.partition(":") for line in lines[1:])}
+    length = int(headers.get("content-length", 0))
+    while len(rest) < length:
+        chunk = sock.recv(1 << 20)
+        if not chunk:
+            break
+        rest += chunk
+    status = int(lines[0].split(" ", 2)[1])
+    return RawAnswer(status, headers, rest[:length].decode("utf-8", "replace"), raw=rest[:length])
+
+
+def raw_request(url, method, path, headers, body=b"", *, expect=False, send_body=True,
+                timeout=HANG_TIMEOUT):
+    """One request on a raw socket, its head and body as given. With `expect` the body waits for
+    the server's `100 Continue` (the answer is the final one if the server refuses first);
+    `send_body=False` sends the head only, to show a refusal reads no body."""
+    host, port = url.removeprefix("http://").split(":")
+    head = f"{method} {path} HTTP/1.1\r\nHost: {host}:{port}\r\n"
+    head += "".join(f"{k}: {v}\r\n" for k, v in headers.items())
+    if expect:
+        head += "Expect: 100-continue\r\n"
+    head += "\r\n"
+    with socket.create_connection((host, int(port)), timeout=timeout) as sock:
+        if not expect and send_body:
+            try:
+                sock.sendall(head.encode() + body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the server answered without reading it all: its answer is what counts
+            return _read_answer(sock)
+        sock.sendall(head.encode())
+        if not expect or not send_body:
+            return _read_answer(sock)
+        first = sock.recv(65536)
+        if not first.startswith(b"HTTP/1.1 100"):
+            return _read_answer(sock, first)
+        left = first.partition(b"\r\n\r\n")[2]
+        sock.sendall(body)
+        answer = _read_answer(sock, left)
+        answer.continued = True
+        return answer
+
+
+def fetch(url, path, headers=None, timeout=HANG_TIMEOUT):
+    """GET with the answer's raw bytes: (status, lowercase headers, body)."""
+    host, port = url.removeprefix("http://").split(":")
+    conn = http.client.HTTPConnection(host, int(port), timeout=timeout)
+    try:
+        conn.request("GET", path, headers=headers or {})
+        response = conn.getresponse()
+        data = response.read()
+        return response.status, {k.lower(): v for k, v in response.getheaders()}, data
+    finally:
+        conn.close()
+
+
 # --- the server -------------------------------------------------------------------
 
 class Server:
@@ -669,7 +743,8 @@ class Board:
     def signed(self, action, key, values, nonce=None):
         """The body of a signed `action` with these field values (any not
         given are ""), its nonce the head as of now unless given."""
-        namespace, fields = ALL_KINDS["archive" if action == "unarchive" else action]
+        kind = {"unarchive": "archive", "blob-delete": "blobdel"}.get(action, action)
+        namespace, fields = ALL_KINDS[kind]
         unknown = set(values) - set(fields)
         assert not unknown, f"{action} has no fields {unknown}"
         signed = {name: text(values.get(name)) for name in fields}
@@ -712,6 +787,67 @@ class Board:
         item = self.register(key, name)["item"]
         self.approve(item, name, key.fingerprint)
         return Agent(self, key, name)
+
+    # blobs
+    @property
+    def blobs_dir(self):
+        return Path(self.db).parent / "blobs"
+
+    def blob_headers(self, key, sha256, size, media_type="application/octet-stream", filename="",
+                     client_key=None, nonce=None):
+        """The headers of a signed PUT /blob (Content-Length too), the nonce the head as of now unless given."""
+        signed = {"sha256": sha256, "size": str(size), "media_type": media_type, "filename": filename,
+                  "key": client_key or new_client_key(), "nonce": text(self.head_id() if nonce is None else nonce)}
+        namespace, fields = BLOB_KINDS["blob"]
+        headers = {"Content-Length": str(size), "Content-Type": media_type, "Board-Sha256": sha256,
+                   "Board-Key": signed["key"], "Board-Nonce": signed["nonce"],
+                   "Board-Signature": key.sign(namespace, canonical(fields, signed))}
+        if filename:
+            headers["Board-Filename"] = urllib.parse.quote(filename, safe="")
+        return headers
+
+    def put_raw(self, key, data, *, sha256=None, media_type="application/octet-stream", filename="",
+                expect=True, send_body=True, nonce=None, headers=None, drop=()):
+        """PUT /blob once, signed by `key`: the RawAnswer. `headers` replace or add to the signed
+        ones, `drop` names some to leave out; `sha256` overrides the hash that is signed and sent."""
+        digest = sha256 or hashlib.sha256(data).hexdigest()
+        sent = self.blob_headers(key, digest, len(data), media_type, filename, nonce=nonce)
+        sent.update(headers or {})
+        for name in drop:
+            sent.pop(name, None)
+        return raw_request(self.url, "PUT", "/blob", sent, data, expect=expect, send_body=send_body)
+
+    def put_blob(self, key, data, **kw):
+        """PUT /blob, signed again on a stale nonce as every client does: the answer's JSON
+        ({hash, url, reference, size, media_type, filename, existed}), or Refused."""
+        for _ in range(NONCE_TRIES):
+            answer = self.put_raw(key, data, **kw)
+            if answer.status == 200:
+                return answer.json()
+            failure = refused(answer)
+            if failure.code != "stale-nonce":
+                raise failure
+        raise failure
+
+    def get_blob(self, hash_, **headers):
+        """GET /sha256/<hash>: (status, lowercase headers, bytes)."""
+        return fetch(self.url, f"/sha256/{hash_}", headers)
+
+    def blobs(self, **query):
+        return self.get_json("/blobs", **query)
+
+    def blob_rows(self):
+        return self.sql("SELECT sha256, size FROM blobs ORDER BY sha256")
+
+    def blob_files(self):
+        """The blob files on disk: {hash: size}."""
+        return {p.name: p.stat().st_size for p in self.blobs_dir.glob("??/*") if p.is_file()}
+
+    def blob_tmp(self):
+        return sorted(p.name for p in (self.blobs_dir / "tmp").iterdir())
+
+    def delete_blob(self, key, hash_):
+        return self.write("blob-delete", key, sha256=hash_)
 
     # the database file
     def sql(self, query, *args):
@@ -770,6 +906,13 @@ class Agent:
 
     def revoke(self, fingerprint, reason=""):
         return self.write("revoke", fingerprint=fingerprint, reason=reason)
+
+    def put(self, data, **kw):
+        """PUT /blob as this key: the answer's JSON, or Refused (see Board.put_blob)."""
+        return self.board.put_blob(self.key, data, **kw)
+
+    def delete_blob(self, hash_):
+        return self.board.delete_blob(self.key, hash_)
 
     def archive(self, event, reason=""):
         """POST /archive: {id, event, archived: true}."""
@@ -859,6 +1002,8 @@ class Proxy:
                 try:
                     headers = {"Content-Type": self.headers["Content-Type"]} \
                         if self.headers.get("Content-Type") else {}
+                    # a blob upload's envelope travels as Board-* headers
+                    headers.update({k: v for k, v in self.headers.items() if k.lower().startswith("board-")})
                     conn.request(self.command, self.path, body=ex.body or None, headers=headers)
                     resp = conn.getresponse()
                     ex.answer, ex.status, ex.headers = resp.read(), resp.status, resp.getheaders()
@@ -883,7 +1028,7 @@ class Proxy:
                 except OSError:  # the client left before its answer
                     self.close_connection = True
 
-            do_GET = do_POST = _relay
+            do_GET = do_POST = do_PUT = _relay
 
         class Quiet(http.server.ThreadingHTTPServer):
             daemon_threads = True
@@ -971,7 +1116,14 @@ def cli(*args, stdin="", env=None, key=None, timeout=HANG_TIMEOUT):
     done = subprocess.run([program("board"), *map(str, args)], **TIED, input=stdin.encode(),
                           capture_output=True, cwd=os.getcwd(), env=_env(env, key),
                           timeout=timeout, check=False)
-    return Run(done.returncode, done.stdout.decode(), done.stderr.decode())
+    return Run(done.returncode, done.stdout.decode("utf-8", "replace"), done.stderr.decode())
+
+
+def cli_bytes(*args, stdin=b"", env=None, key=None, timeout=HANG_TIMEOUT):
+    """`cli`, for a command whose standard output is data: (exit code, stdout bytes, stderr)."""
+    done = subprocess.run([program("board"), *map(str, args)], **TIED, input=stdin, capture_output=True,
+                          cwd=os.getcwd(), env=_env(env, key), timeout=timeout, check=False)
+    return done.returncode, done.stdout, done.stderr.decode()
 
 
 class Process:
