@@ -525,6 +525,9 @@ view does:
 - refusals show as `code: message`; a write whose answer was lost is sent again
   under the same client key, so it cannot land twice; queue, inbox and keys
   pages refresh themselves every 5 s while the tab is visible and untouched.
+- the "show archived" toggle holds across paging, posting and the refresh; an
+  archived item offers only Unarchive (the owner's), never answer, decline or
+  cancel.
 
 Signing needs HTTPS or localhost: at `http://sz1:8777` from another device the
 Authorize dialog says so. Open it through `ssh -L 8777:127.0.0.1:8777 sz1`, or

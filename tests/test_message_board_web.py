@@ -834,13 +834,14 @@ require(js);
         + page.count("hx-post=\"/ui/archive\"") > 0
 # --- resolving items from a queue page ----------------------------------------------------------
 
-def _web(board, path, key, action, view=None, **values):
-    """A signed form post to /ui/<path>, as the page sends it."""
+def _web(board, route, key, action, view=None, extra=None, **values):
+    """A signed form post to /ui/<route>, as the page sends it."""
     values.setdefault("key", new_client_key())
     body = board.signed(action, key, values)
     if view:
         body["view"] = view
-    return request(f"{board.url}/ui/{path}", body, form=True)
+    body.update(extra or {})  # not signed: which window of the page the answer is
+    return request(f"{board.url}/ui/{route}", body, form=True)
 
 
 def _stand_in_gate(board, tmp_path, key_path, controls):
@@ -1031,7 +1032,7 @@ const B = globalThis.BoardSign;
 # --- paging ------------------------------------------------------------------------------------
 
 def _count(page):
-    return len(re.findall(r'<div class="msg">', page))
+    return len(re.findall(r'<div class="msg( archived)?">', page))
 
 
 def test_a_thread_page_shows_the_last_100_and_pages_older_by_links(board, team):
@@ -1276,3 +1277,64 @@ console.log(JSON.stringify({
         (False, True, True, "")
     page = board.get("/").text
     assert "tailscale serve --bg 8777" in page and "ssh -L 8777:127.0.0.1:8777" in page
+
+
+# --- archive together with controls, paging and live refresh -------------------------------------
+
+def test_archived_items_stay_out_of_the_live_fragments_and_have_no_resolve_controls(board, team):
+    team.bob.create("rev/bob", "queue")
+    keep = team.alice.ask("rev/bob", "still open")
+    gone = team.alice.ask("rev/bob", "archived open one")
+    team.owner.archive(gone)
+    plain = board.get("/view/rev/bob").text
+    assert "archived open one" not in plain
+    assert 'data-live hx-get="/ui/live/queue?path=rev%2Fbob&amp;after=0"' in plain
+    both = board.get("/view/rev/bob?archived=1").text
+    assert "archived open one" in both
+    assert 'hx-get="/ui/live/queue?path=rev%2Fbob&amp;after=0&amp;archived=1"' in both
+    # the toggle is outside what refreshes, so a refresh cannot undo it
+    assert plain.index("show archived") < plain.index('id="queue-items"')
+    assert both.index("hide archived") < both.index('id="queue-items"')
+    # the refresh keeps the page's view: without the toggle archived items stay out, with it they stay in
+    assert "archived open one" not in board.get("/ui/live/queue?path=rev/bob").text
+    live = board.get("/ui/live/queue?path=rev/bob&archived=1").text
+    assert "archived open one" in live and "still open" in live
+    # only the live item offers Answer, Decline and Cancel; the archived one offers Unarchive alone
+    for fragment in (both, live):
+        items = fragment.split('<div class="item')[1:]
+        archived = [i for i in items if "archived open one" in i]
+        assert len(archived) == 1 and "/ui/resolve" not in archived[0] and "/ui/unarchive" in archived[0]
+        assert fragment.count('hx-post="/ui/resolve"') == 3  # answer, cancel, decline of the open one
+    # answers keep the view the form sat on
+    r = _web(board, "ask", team.carol.key, "file", extra={"shown": "archived"}, path="rev/bob", body="one more")
+    assert r.status == 200 and "archived open one" in r.text and "one more" in r.text
+    r = _web(board, "ask", team.carol.key, "file", path="rev/bob", body="and another")
+    assert "archived open one" not in r.text and "and another" in r.text
+    r = _web(board, "resolve", team.bob.key, "resolve", view="queue", extra={"shown": "archived"}, item=keep,
+             state="declined", body="no")
+    assert r.status == 200 and "archived open one" in r.text
+    # an archived item is not resolved any more: the board refuses
+    r = _web(board, "resolve", team.bob.key, "resolve", view="queue", item=gone, state="declined",
+             body="late")
+    assert r.status >= 400
+
+
+def test_thread_paging_and_posting_keep_the_archived_view(board, team):
+    ids = [team.alice.post("rev/log", f"line {n}") for n in range(120)]
+    team.owner.archive(ids[-1])
+    plain = board.get("/view/rev/log").text
+    assert f"#{ids[-1]} " not in plain and 'href="/view/rev/log?last=200"' in plain
+    both = board.get("/view/rev/log?archived=1").text
+    assert f"#{ids[-1]} " in both
+    assert 'href="/view/rev/log?last=200&amp;archived=1">show older' in both
+    assert 'href="/view/rev/log?all=1&amp;archived=1">show all' in both
+    assert 'hx-get="/ui/messages?path=rev%2Flog&amp;archived=1&amp;last=100"' in both
+    assert forms(both)["/ui/post"]["shown"] == "archived"
+    assert "shown" not in forms(plain)["/ui/post"]
+    assert _count(board.get("/ui/messages?path=rev/log&last=150&archived=1").text) == 120
+    assert _count(board.get("/ui/messages?path=rev/log&last=150").text) == 119
+    r = _web(board, "post", team.alice.key, "post", extra={"shown": "archived", "last": "150"}, path="rev/log",
+             body="new")
+    assert r.status == 200 and f"#{ids[-1]} " in r.text and "new" in r.text
+    r = _web(board, "post", team.alice.key, "post", extra={"last": "150"}, path="rev/log", body="newer")
+    assert f"#{ids[-1]} " not in r.text
