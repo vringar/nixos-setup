@@ -38,6 +38,13 @@
 //! `PUT /blob`), `/ui/keys` shows what each key uploaded, and a raster image
 //! blob (by its stored type, up to 10 MB) is shown inline below its link.
 //!
+//! Permalinks: `GET /m/<id>` redirects to the web page that shows event `id`
+//! (a message in its thread, in a window around it if it is not among the
+//! newest; a note version; an item or its resolution in its queue; any other
+//! event at its node), with the element anchored as `#m<id>` and highlighted,
+//! and answers 404 for an id that is no event. Event ids in the text of a
+//! page are linked to it when the board has such an event.
+//!
 //! One thread per connection: a long poll blocks its thread on the store's
 //! condition variable for up to five minutes, which needs no async
 //! runtime, and a local board has few connections. They are capped, and
@@ -46,6 +53,7 @@
 
 mod api;
 mod blobs;
+mod deeplink;
 mod html;
 mod http;
 mod log;

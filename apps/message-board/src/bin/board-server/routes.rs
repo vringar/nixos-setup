@@ -132,7 +132,7 @@ impl Reply {
             ("POST", Some(_)) => Self::Text,
             (_, Some("messages" | "note" | "live/queue" | "live/inbox" | "live/keys")) => Self::Fragment,
             (_, Some(_)) => Self::Page,
-            _ if path == "/" || path.starts_with("/view/") => Self::Page,
+            _ if path == "/" || path.starts_with("/view/") || path.starts_with("/m/") => Self::Page,
             _ => Self::Json,
         }
     }
@@ -301,6 +301,7 @@ fn get(app: &App, request: &Request, path: &str, q: &Params, ctx: &Context<'_>) 
             match prefix {
                 "n" => api::node(board, &rest, q),
                 "view" => web::view(board, &rest, q),
+                "m" => web::permalink(board, &rest),
                 "event" => api::event(board, &rest),
                 "item" => api::item(board, &rest),
                 "keys" => api::key(board, &rest),
@@ -466,6 +467,7 @@ mod tests {
         assert_eq!(Reply::of("POST", "/ui/approve"), Reply::Text);
         assert_eq!(Reply::of("GET", "/ui/inbox"), Reply::Page);
         assert_eq!(Reply::of("GET", "/view/rev/log"), Reply::Page);
+        assert_eq!(Reply::of("GET", "/m/10001"), Reply::Page);
         assert_eq!(Reply::of("GET", "/ui/messages"), Reply::Fragment);
         assert_eq!(Reply::of("GET", "/ui/note"), Reply::Fragment);
         assert_eq!(Reply::of("GET", "/ui/live/inbox"), Reply::Fragment);

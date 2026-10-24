@@ -1,13 +1,13 @@
 //! Events: the rows every write appends, the board's only counter, and the
 //! `@name` mentions taken from them.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::str::FromStr;
 
 use rusqlite::Error::FromSqlConversionFailure;
 use rusqlite::types::Type;
-use rusqlite::{Connection, OptionalExtension as _, Row, params};
+use rusqlite::{Connection, OptionalExtension as _, Row, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 
 use super::actions::Stamp;
@@ -115,6 +115,25 @@ pub struct Event {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub archived: bool,
 }
+
+/// What an event id points at, for a page that links ids found in text:
+/// enough to say where the link goes and to title it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventRef {
+    pub event: EventType,
+    pub path: String,
+    pub kind: NodeKind,
+    /// A note version's version.
+    pub version: Option<i64>,
+    /// The start of its body; empty for an archived event, whose text a
+    /// page shows only on request.
+    pub snippet: String,
+}
+
+/// How many ids one lookup asks for.
+const REF_CHUNK: usize = 500;
+/// How much of a body [`EventRef::snippet`] keeps, in characters.
+const SNIPPET_MAX: usize = 80;
 
 /// The longest summary of a body, in characters.
 const SUMMARY_MAX: usize = 200;
@@ -294,7 +313,137 @@ pub(super) fn record_mentions(conn: &Connection, id: i64, body: &str) -> rusqlit
     Ok(())
 }
 
+/// The id of the message or filing `context` places before `id` among the
+/// node's `kind` events, less one: a read `since` it starts that far
+/// before `id`. 0 if there are not that many.
+fn floor(
+    conn: &Connection,
+    path: &str,
+    kind: EventType,
+    id: i64,
+    archived: bool,
+    context: i64,
+) -> rusqlite::Result<i64> {
+    let visible = if archived { "" } else { " AND archived IS NULL" };
+    let before = conn
+        .query_row(
+            &format!(
+                "SELECT id FROM events WHERE node=(SELECT id FROM nodes WHERE path=?1) AND type=?2 AND id<?3{visible}
+                  ORDER BY id DESC LIMIT 1 OFFSET ?4"
+            ),
+            params![path, kind.as_str(), id, context.saturating_sub(1).max(0)],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?;
+    Ok(before.map_or(0, |before| before.saturating_sub(1)))
+}
+
+/// How many of the node's `kind` events are before (`earlier`) or after
+/// `id`.
+fn count_around(
+    conn: &Connection,
+    path: &str,
+    kind: EventType,
+    id: i64,
+    archived: bool,
+    earlier: bool,
+) -> rusqlite::Result<i64> {
+    let visible = if archived { "" } else { " AND archived IS NULL" };
+    let side = if earlier { "<" } else { ">" };
+    conn.query_row(
+        &format!(
+            "SELECT count(*) FROM events WHERE node=(SELECT id FROM nodes WHERE path=?1) AND type=?2 AND id{side}?3{visible}"
+        ),
+        params![path, kind.as_str(), id],
+        |r| r.get(0),
+    )
+}
+
 impl Board {
+    /// What each of `ids` that is an event points at; the others are not
+    /// in the answer.
+    ///
+    /// # Errors
+    /// On a database fault.
+    pub fn event_refs(&self, ids: &[i64]) -> Result<BTreeMap<i64, EventRef>, DbError> {
+        self.read_db(|conn| {
+            let mut found = BTreeMap::new();
+            for chunk in ids.chunks(REF_CHUNK) {
+                let marks = vec!["?"; chunk.len()].join(",");
+                let mut select = conn.prepare(&format!(
+                    "SELECT e.id, e.type, n.path, n.kind, e.version, substr(e.body, 1, {SNIPPET_MAX}), {}
+                       FROM {EVENT_FROM} WHERE e.id IN ({marks})",
+                    event_archived!()
+                ))?;
+                let rows = select.query_map(params_from_iter(chunk), |r| {
+                    let archived: bool = r.get(6)?;
+                    let snippet = if archived { String::new() } else { text(r, 5)? };
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        EventRef {
+                            event: parsed(r, 1)?,
+                            path: text(r, 2)?,
+                            kind: parsed(r, 3)?,
+                            version: r.get(4)?,
+                            snippet,
+                        },
+                    ))
+                })?;
+                for row in rows {
+                    let (id, event) = row?;
+                    found.insert(id, event);
+                }
+            }
+            Ok(found)
+        })
+    }
+
+    /// Where in the thread at `path` message `id` is for a page that shows
+    /// the newest `newest` messages: `None` if it is among them, else the
+    /// `since` that starts a window `context` messages before it. `archived`:
+    /// the message is one, and the page shows those.
+    ///
+    /// # Errors
+    /// On a database fault.
+    pub fn message_window(
+        &self,
+        path: &str,
+        id: i64,
+        archived: bool,
+        newest: i64,
+        context: i64,
+    ) -> Result<Option<i64>, DbError> {
+        self.read_db(|conn| {
+            if count_around(conn, path, EventType::Message, id, archived, false)? < newest {
+                return Ok(None);
+            }
+            floor(conn, path, EventType::Message, id, archived, context).map(Some)
+        })
+    }
+
+    /// As [`Board::message_window`] for item `id` in the queue at `path`,
+    /// whose page lists items oldest first from `after`: `None` if fewer
+    /// than `free` items come before it, else the `after` that starts a
+    /// window `context` items before it.
+    ///
+    /// # Errors
+    /// On a database fault.
+    pub fn item_window(
+        &self,
+        path: &str,
+        id: i64,
+        archived: bool,
+        free: i64,
+        context: i64,
+    ) -> Result<Option<i64>, DbError> {
+        self.read_db(|conn| {
+            if count_around(conn, path, EventType::ItemFiled, id, archived, true)? < free {
+                return Ok(None);
+            }
+            floor(conn, path, EventType::ItemFiled, id, archived, context).map(Some)
+        })
+    }
+
     /// One event, with its full body.
     ///
     /// # Errors

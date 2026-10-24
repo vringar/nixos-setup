@@ -1125,14 +1125,14 @@ const B = globalThis.BoardSign;
 # --- paging ------------------------------------------------------------------------------------
 
 def _count(page):
-    return len(re.findall(r'<div class="msg( archived)?">', page))
+    return len(re.findall(r'<div class="msg( archived)?" id="m\d+">', page))
 
 
 def test_a_thread_page_shows_the_last_100_and_pages_older_by_links(board, team):
     ids = [team.alice.post("rev/log", f"line {n}") for n in range(130)]
     page = board.get("/view/rev/log").text
     assert _count(page) == 100 and "30 earlier messages are not shown" in visible_text(page)
-    assert f"#{ids[29]} " not in page and f"#{ids[30]} " in page
+    assert f'id="m{ids[29]}"' not in page and f'id="m{ids[30]}"' in page
     assert 'href="/view/rev/log?last=200"' in page and 'href="/view/rev/log?all=1"' in page
     older = board.get("/view/rev/log?last=200").text
     assert _count(older) == 130 and "earlier message" not in older  # nothing left: no banner
@@ -1167,7 +1167,7 @@ def test_a_queue_page_and_the_inbox_page_on_when_the_board_cuts_the_read(board, 
     seen, after = [], 0
     while True:  # following the links reaches every item once
         page = board.get(f"/view/rev/q?after={after}").text
-        seen += [int(i) for i in re.findall(r"<div class=\"meta\">#(\d+) ·", page)]
+        seen += [int(i) for i in re.findall(r"<div class=\"meta\"><a class=\"mid\"[^>]*>#(\d+)</a> ·", page)]
         link = re.findall(r'href="/view/rev/q\?after=(\d+)"', page)
         if not link:
             break
@@ -1416,9 +1416,9 @@ def test_thread_paging_and_posting_keep_the_archived_view(board, team):
     ids = [team.alice.post("rev/log", f"line {n}") for n in range(120)]
     team.owner.archive(ids[-1])
     plain = board.get("/view/rev/log").text
-    assert f"#{ids[-1]} " not in plain and 'href="/view/rev/log?last=200"' in plain
+    assert f'id="m{ids[-1]}"' not in plain and 'href="/view/rev/log?last=200"' in plain
     both = board.get("/view/rev/log?archived=1").text
-    assert f"#{ids[-1]} " in both
+    assert f'id="m{ids[-1]}"' in both
     assert 'href="/view/rev/log?last=200&amp;archived=1">show older' in both
     assert 'href="/view/rev/log?all=1&amp;archived=1">show all' in both
     assert 'hx-get="/ui/messages?path=rev%2Flog&amp;archived=1&amp;last=100"' in both
@@ -1428,6 +1428,6 @@ def test_thread_paging_and_posting_keep_the_archived_view(board, team):
     assert _count(board.get("/ui/messages?path=rev/log&last=150").text) == 119
     r = _web(board, "post", team.alice.key, "post", extra={"shown": "archived", "last": "150"}, path="rev/log",
              body="new")
-    assert r.status == 200 and f"#{ids[-1]} " in r.text and "new" in r.text
+    assert r.status == 200 and f'id="m{ids[-1]}"' in r.text and "new" in r.text
     r = _web(board, "post", team.alice.key, "post", extra={"last": "150"}, path="rev/log", body="newer")
-    assert f"#{ids[-1]} " not in r.text
+    assert f'id="m{ids[-1]}"' not in r.text

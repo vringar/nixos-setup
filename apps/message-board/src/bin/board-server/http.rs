@@ -325,6 +325,7 @@ fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
         206 => "Partial Content",
+        302 => "Found",
         304 => "Not Modified",
         400 => "Bad Request",
         401 => "Unauthorized",
@@ -394,6 +395,11 @@ impl Response {
     #[must_use]
     pub fn closing(self) -> Self {
         self.with_header("Connection", "close")
+    }
+
+    /// Send the client on to `location`.
+    pub fn redirect(location: &str) -> Self {
+        Self::text(302, "").with_header("Location", location)
     }
 
     pub fn json(status: u16, body: String) -> Self {

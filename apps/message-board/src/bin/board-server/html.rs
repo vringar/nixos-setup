@@ -15,15 +15,24 @@ use std::collections::BTreeMap;
 
 use message_board::blob;
 use message_board::store::{
-    BlobInfo, BlobReferrer, BlobStats, Board, Child, DbError, Item, ItemPage, ItemState, Key, KeyState, KeyUsage, Node,
-    NodeKind, NoteVersion, Present, READ_BYTES_MAX, READ_ROWS_MAX, Range, Registration, Status, ThreadPage, Version,
+    BlobInfo, BlobReferrer, BlobStats, Board, Child, DbError, EventRef, EventType, Item, ItemPage, ItemState, Key,
+    KeyState, KeyUsage, Node, NodeKind, NoteVersion, Present, READ_BYTES_MAX, READ_ROWS_MAX, Range, Registration,
+    Status, ThreadPage, Version,
 };
 
-/// The blobs a page's bodies reference that exist, with their size and
-/// original file name: a reference is a link while its blob is there and
-/// plain text once it is not, decided every time the page is made.
+use crate::deeplink;
+
+/// What a page's bodies refer to that exists. The blobs they reference,
+/// with their size and original file name: a reference is a link while its
+/// blob is there and plain text once it is not. And the events whose ids
+/// they mention: a number is a link to the event's permalink if the board
+/// has such an event, and plain text if not. Decided every time the page
+/// is made.
 #[derive(Debug, Default)]
-pub struct Links(BTreeMap<String, Present>);
+pub struct Links {
+    blobs: BTreeMap<String, Present>,
+    events: BTreeMap<i64, EventRef>,
+}
 
 impl Links {
     /// No blob exists: every reference is shown as removed.
@@ -32,28 +41,86 @@ impl Links {
         Self::default()
     }
 
-    /// One lookup for every blob the `bodies` reference.
+    /// One lookup for every blob the `bodies` reference, and one for every
+    /// number in them that may be an event id.
     ///
     /// # Errors
     /// On a database fault.
     pub fn of<'a>(board: &Board, bodies: impl IntoIterator<Item = &'a str>) -> Result<Self, DbError> {
-        let mut hashes: Vec<String> =
-            bodies.into_iter().flat_map(|body| blob::found(body).into_iter().map(|found| found.hash)).collect();
+        let mut hashes = Vec::new();
+        let mut ids = Vec::new();
+        for text in bodies {
+            hashes.extend(blob::found(text).into_iter().map(|found| found.hash));
+            ids.extend(deeplink::scan(text).into_iter().map(|mention| mention.id));
+        }
         hashes.sort();
         hashes.dedup();
-        Ok(Self(board.blobs_present(&hashes)?))
+        ids.sort_unstable();
+        ids.dedup();
+        Ok(Self { blobs: board.blobs_present(&hashes)?, events: board.event_refs(&ids)? })
+    }
+
+    /// Events by id, as if the board had them.
+    #[cfg(test)]
+    pub fn with_events(events: impl IntoIterator<Item = (i64, EventRef)>) -> Self {
+        Self { events: events.into_iter().collect(), ..Self::default() }
     }
 }
 
+/// How a link to an event says what is at the end of it.
+fn mention_title(event: &EventRef) -> String {
+    let what = match event.event {
+        EventType::Message => "message".to_owned(),
+        EventType::NoteVersion => format!("note version {}", event.version.unwrap_or_default()),
+        EventType::ItemFiled => "request".to_owned(),
+        EventType::ItemAnswered => "answer".to_owned(),
+        EventType::ItemDeclined => "decline".to_owned(),
+        EventType::ItemCancelled => "cancellation".to_owned(),
+        EventType::ItemReassigned => "reassignment".to_owned(),
+        EventType::NodeCreated => "creation".to_owned(),
+        EventType::NodeArchived | EventType::NodeUnarchived => "archive event".to_owned(),
+    };
+    let first = event.snippet.trim().lines().next().unwrap_or_default();
+    if first.is_empty() { format!("{what} in {}", event.path) } else { format!("{what} in {}: {first}", event.path) }
+}
+
+/// A body's text with its event ids linked: the numbers in `text[from..to]`
+/// that the board has an event for.
+fn text_with_mentions(h: &mut Html, text: &str, from: usize, to: usize, links: &Links) {
+    let mut rest = from;
+    for mention in deeplink::scan(text) {
+        let Some(event) = links.events.get(&mention.id).filter(|_| mention.at.start >= from && mention.at.end <= to)
+        else {
+            continue;
+        };
+        h.text(text.get(rest..mention.at.start).unwrap_or_default());
+        h.markup("<a class=\"mref\" hx-boost=\"false\" href=\"/m/").number(mention.id).markup("\" title=\"");
+        h.text(&mention_title(event)).markup("\">").number(mention.id).markup("</a>");
+        rest = mention.at.end;
+    }
+    h.text(text.get(rest..to).unwrap_or_default());
+}
+
+/// An event's id as the page shows it: a small link to its permalink, which
+/// is what to copy to cite it.
+fn mid(h: &mut Html, id: i64) {
+    h.markup("<a class=\"mid\" hx-boost=\"false\" href=\"/m/")
+        .number(id)
+        .markup("\" title=\"permalink\">#")
+        .number(id)
+        .markup("</a>");
+}
+
 /// A body's text, its blob references linked to their downloads where the
-/// blob exists, and marked removed where it does not. What starts like a
-/// reference but is not one stays text.
+/// blob exists, and marked removed where it does not, and the ids of events
+/// linked to their permalinks. What starts like a reference but is not one
+/// stays text.
 fn body(h: &mut Html, text: &str, links: &Links) {
     let mut rest = 0;
     for found in blob::found(text) {
-        h.text(text.get(rest..found.start).unwrap_or_default());
+        text_with_mentions(h, text, rest, found.start, links);
         let reference = text.get(found.start..found.end).unwrap_or_default();
-        match links.0.get(&found.hash) {
+        match links.blobs.get(&found.hash) {
             Some(Present { size, filename, media_type }) => {
                 let name = if filename.is_empty() { found.hash.get(..12).unwrap_or_default() } else { filename };
                 h.markup("<a class=\"blob\" href=\"/sha256/").text(&found.hash).markup("\" download>");
@@ -70,7 +137,7 @@ fn body(h: &mut Html, text: &str, links: &Links) {
         }
         rest = found.end;
     }
-    h.text(text.get(rest..).unwrap_or_default());
+    text_with_mentions(h, text, rest, text.len(), links);
 }
 
 /// A value as it goes into a URL query: form-urlencoded.
@@ -171,6 +238,10 @@ const HEAD: &str = r##"</title>
   #messages { border: 1px solid var(--border); border-radius: 6px; padding: .5rem;
               margin: .8rem 0; max-height: 60vh; overflow-y: auto; }
   .msg, .item { padding: .4rem 0; border-bottom: 1px solid var(--rule-soft); }
+  .msg:target, .item:target, .note:target { background: var(--accent-bg); outline: 2px solid var(--accent); }
+  .msg, .item, .note { scroll-margin-top: 1rem; }
+  a.mid:link, a.mid:visited { color: inherit; text-decoration: none; font-size: 11px; }
+  a.mid:hover { text-decoration: underline; }
   .msg:last-child, .item:last-child { border-bottom: 0; }
   .note, .card { border: 1px solid var(--note-border); background: var(--note-bg); border-radius: 6px;
                  padding: .5rem .7rem; margin: .6rem 0; }
@@ -593,8 +664,10 @@ pub fn messages(path: &str, page: &ThreadPage, range: Range, default: i64, show_
         h.markup("<p class=\"empty\">no messages yet</p>");
     }
     for m in &page.messages {
-        h.markup(if m.archived { "<div class=\"msg archived\">" } else { "<div class=\"msg\">" });
-        h.markup("<div class=\"meta\">#").number(m.id).markup(" · ");
+        h.markup(if m.archived { "<div class=\"msg archived\" id=\"m" } else { "<div class=\"msg\" id=\"m" });
+        h.number(m.id).markup("\"><div class=\"meta\">");
+        mid(&mut h, m.id);
+        h.markup(" · ");
         author(&mut h, &m.from, m.signed_by.as_deref(), m.revoked_at);
         h.markup(" · ").text(&m.ts);
         if m.archived {
@@ -663,9 +736,15 @@ pub fn note(v: &NoteView<'_>) -> Html {
             h.markup("<p class=\"empty\">no version yet</p>\n");
         }
         Some(note) => {
-            h.markup("<div class=\"note\"><div class=\"meta\">v").number(note.version).markup(" · ");
+            h.markup("<div class=\"note\" id=\"m")
+                .number(note.id)
+                .markup("\"><div class=\"meta\">v")
+                .number(note.version)
+                .markup(" · ");
             author(&mut h, &note.from, note.signed_by.as_deref(), note.revoked_at);
-            h.markup(" · ").text(&note.ts).markup(" · #").number(note.id).markup("</div>\n");
+            h.markup(" · ").text(&note.ts).markup(" · ");
+            mid(&mut h, note.id);
+            h.markup("</div>\n");
             if !v.current {
                 h.markup("<p class=\"flag\">an earlier version; <a href=\"/view/")
                     .text(path)
@@ -772,7 +851,9 @@ fn attach(h: &mut Html) {
 
 /// One item: who asked, what, and how it ended if it has.
 fn item(h: &mut Html, item: &Item, with_queue: bool, links: &Links) {
-    h.markup("<div class=\"meta\">#").number(item.id).markup(" · ");
+    h.markup("<div class=\"meta\">");
+    mid(h, item.id);
+    h.markup(" · ");
     if with_queue {
         link(h, &item.path);
         h.markup(" · ");
@@ -789,12 +870,15 @@ fn item(h: &mut Html, item: &Item, with_queue: bool, links: &Links) {
     body(h, &item.body, links);
     h.markup("</div>\n");
     if let Some(r) = &item.resolution {
-        h.markup("<div class=\"resolution\"><div class=\"meta\">#").number(r.id).markup(" ").text(r.event.as_str());
+        h.markup("<div class=\"resolution\"><div class=\"meta\">");
+        mid(h, r.id);
+        h.markup(" ").text(r.event.as_str());
         if let Some(from) = &r.from {
             h.markup(" by ").text(from);
         }
         if let Some(reference) = r.reference {
-            h.markup(" · see #").number(reference);
+            h.markup(" · see ");
+            mid(h, reference);
         }
         h.markup("</div><div class=\"body\">");
         body(h, &r.body, links);
@@ -804,7 +888,7 @@ fn item(h: &mut Html, item: &Item, with_queue: bool, links: &Links) {
 
 /// A queue: the form to file a request, and its items (the archived ones
 /// too, marked, if `show_archived`).
-pub fn queue(node: &Node, page: &ItemPage, after: i64, show_archived: bool, links: &Links) -> Html {
+pub fn queue(node: &Node, page: &ItemPage, after: i64, focus: Option<i64>, show_archived: bool, links: &Links) -> Html {
     let mut h = heading(node);
     archived_toggle(&mut h, &node.path, show_archived);
     if !node.generated {
@@ -819,14 +903,16 @@ pub fn queue(node: &Node, page: &ItemPage, after: i64, show_archived: bool, link
         h.markup("<button type=\"submit\">file request</button>\n</form></div>\n");
     }
     let archived = if show_archived { "&archived=1" } else { "" };
-    let url = format!("/ui/live/queue?path={}&after={after}{archived}", encoded(&node.path));
-    h.html(&live("queue-items", &url, &queue_items(&node.path, page, show_archived, links)));
+    let focused = focus.map_or_else(String::new, |id| format!("&focus={id}"));
+    let url = format!("/ui/live/queue?path={}&after={after}{archived}{focused}", encoded(&node.path));
+    h.html(&live("queue-items", &url, &queue_items(&node.path, page, focus, show_archived, links)));
     h
 }
 
 /// One item of a queue, with the owner's Archive (or Unarchive) control.
 fn queue_item(h: &mut Html, i: &Item, show_archived: bool, links: &Links) {
-    h.markup(if i.archived { "<div class=\"item archived\">" } else { "<div class=\"item\">" });
+    h.markup(if i.archived { "<div class=\"item archived\" id=\"m" } else { "<div class=\"item\" id=\"m" });
+    h.number(i.id).markup("\">");
     item(h, i, false, links);
     archive_form(h, i.id, !i.archived, "queue-items", show_archived);
     // Only an open item is resolved, and an archived one is out of play.
@@ -857,9 +943,9 @@ fn resolve_controls(h: &mut Html, i: &Item, show_archived: bool) {
 }
 
 /// A queue's items, as `#queue-items` holds them: the open ones oldest
-/// first, and the resolved ones folded away; `page` has the archived ones
-/// only if `show_archived`.
-pub fn queue_items(path: &str, page: &ItemPage, show_archived: bool, links: &Links) -> Html {
+/// first, and the resolved ones folded away (unfolded if they hold item
+/// `focus`); `page` has the archived ones only if `show_archived`.
+pub fn queue_items(path: &str, page: &ItemPage, focus: Option<i64>, show_archived: bool, links: &Links) -> Html {
     let mut h = Html::new();
     let items = &page.items;
     let (open, resolved): (Vec<&Item>, Vec<&Item>) = items.iter().partition(|i| i.state == ItemState::Open);
@@ -870,7 +956,11 @@ pub fn queue_items(path: &str, page: &ItemPage, show_archived: bool, links: &Lin
         queue_item(&mut h, i, show_archived, links);
     }
     if !resolved.is_empty() {
-        h.markup("<details><summary>");
+        h.markup(if resolved.iter().any(|i| Some(i.id) == focus) {
+            "<details open><summary>"
+        } else {
+            "<details><summary>"
+        });
         plural(&mut h, i64::try_from(resolved.len()).unwrap_or(i64::MAX), "resolved item", "resolved items");
         h.markup("</summary>\n");
         for i in resolved {
@@ -1317,7 +1407,7 @@ mod tests {
             created: 10_010,
             archived: None,
         };
-        let page = text(queue(&node, &ItemPage { items: vec![], truncated: false }, 0, false, &Links::none()));
+        let page = text(queue(&node, &ItemPage { items: vec![], truncated: false }, 0, None, false, &Links::none()));
         assert!(page.contains("<div data-needs=\"trusted\" hidden>"), "{page}");
         assert!(page.contains("hx-post=\"/ui/ask\" hx-target=\"#queue-items\""), "{page}");
         assert!(page.contains("name=\"path\" value=\"rev/q\"") && page.contains("<textarea name=\"body\""), "{page}");
@@ -1329,7 +1419,7 @@ mod tests {
         );
         let generated = Node { generated: true, ..node };
         assert!(
-            !text(queue(&generated, &ItemPage { items: vec![], truncated: false }, 0, false, &Links::none()))
+            !text(queue(&generated, &ItemPage { items: vec![], truncated: false }, 0, None, false, &Links::none()))
                 .contains("/ui/ask")
         );
     }
@@ -1353,6 +1443,7 @@ mod tests {
         let page = text(queue_items(
             "rev/bob",
             &ItemPage { items: vec![open_item(10_030, Some("alice")), open_item(10_031, None)], truncated: false },
+            None,
             false,
             &Links::none(),
         ));
@@ -1372,19 +1463,26 @@ mod tests {
         let mut done = open_item(10_032, Some("alice"));
         done.state = ItemState::Answered;
         assert!(
-            !text(queue_items("rev/bob", &ItemPage { items: vec![done], truncated: false }, false, &Links::none()))
-                .contains("/ui/resolve")
+            !text(queue_items(
+                "rev/bob",
+                &ItemPage { items: vec![done], truncated: false },
+                None,
+                false,
+                &Links::none()
+            ))
+            .contains("/ui/resolve")
         );
         // nor on an archived open item, which keeps only its Unarchive
         let mut gone = open_item(10_033, Some("alice"));
         gone.archived = true;
         let page =
-            text(queue_items("rev/bob", &ItemPage { items: vec![gone], truncated: false }, true, &Links::none()));
+            text(queue_items("rev/bob", &ItemPage { items: vec![gone], truncated: false }, None, true, &Links::none()));
         assert!(!page.contains("/ui/resolve") && page.contains("hx-post=\"/ui/unarchive\""), "{page}");
         // a page that shows archived items sends that along with each form
         let page = text(queue_items(
             "rev/bob",
             &ItemPage { items: vec![open_item(10_034, Some("alice"))], truncated: false },
+            None,
             true,
             &Links::none(),
         ));
@@ -1477,12 +1575,13 @@ mod tests {
                 items: vec![open_item(10_030, Some("alice")), open_item(10_031, Some("alice"))],
                 truncated: true,
             },
+            None,
             false,
             &Links::none(),
         ));
         assert!(page.contains("<a href=\"/view/rev/bob?after=10031\">next items</a>"), "{page}");
         assert!(
-            !text(queue_items("rev/bob", &ItemPage { items: vec![], truncated: false }, false, &Links::none()))
+            !text(queue_items("rev/bob", &ItemPage { items: vec![], truncated: false }, None, false, &Links::none()))
                 .contains("next items")
         );
     }
@@ -1544,7 +1643,11 @@ mod tests {
         };
         item(&mut h, &answered, true, &Links::none());
         let page = text(h);
-        assert!(page.contains("a registration") && page.contains("#10031 item_answered by bob · see #10029"), "{page}");
+        assert!(
+            page.contains("a registration") && page.contains(">#10031</a> item_answered by bob · see <a class=\"mid\""),
+            "{page}"
+        );
+        assert!(page.contains("href=\"/m/10029\" title=\"permalink\">#10029</a>"), "{page}");
         assert!(page.contains(ESCAPED) && page.contains("<a href=\"/view/rev/bob\">"), "{page}");
     }
 
@@ -1683,10 +1786,13 @@ mod tests {
     #[test]
     fn a_blob_reference_is_a_link_while_the_blob_exists_and_text_once_it_does_not() {
         let (there, gone) = ("a".repeat(64), "b".repeat(64));
-        let links = Links(BTreeMap::from([(
-            there.clone(),
-            Present { size: 12_300_000, filename: "trace <1>.bin".to_owned(), media_type: "text/plain".to_owned() },
-        )]));
+        let links = Links {
+            blobs: BTreeMap::from([(
+                there.clone(),
+                Present { size: 12_300_000, filename: "trace <1>.bin".to_owned(), media_type: "text/plain".to_owned() },
+            )]),
+            ..Links::default()
+        };
         let text_of = |text: &str| {
             let mut h = Html::new();
             body(&mut h, text, &links);
@@ -1705,10 +1811,13 @@ mod tests {
         let page = text_of(&format!("\\board-blob://{there} board-blob://{}", &there[..10]));
         assert!(!page.contains("<a ") && !page.contains("removed"), "{page}");
         // no file name: the first 12 digits
-        let nameless = Links(BTreeMap::from([(
-            there.clone(),
-            Present { size: 3, filename: String::new(), media_type: "image/png".to_owned() },
-        )]));
+        let nameless = Links {
+            blobs: BTreeMap::from([(
+                there.clone(),
+                Present { size: 3, filename: String::new(), media_type: "image/png".to_owned() },
+            )]),
+            ..Links::default()
+        };
         let mut h = Html::new();
         body(&mut h, &format!("board-blob://{there}"), &nameless);
         assert!(String::from_utf8(h.into_bytes()).unwrap_or_default().contains("download>aaaaaaaaaaaa (3 bytes)</a>"));
@@ -1722,11 +1831,14 @@ mod tests {
             filename: "p<x>.png".to_owned(),
             media_type: media_type.to_owned(),
         };
-        let links = Links(BTreeMap::from([
-            (png.clone(), present("image/png", 100)),
-            (text.clone(), present("text/plain", 100)),
-            (big.clone(), present("image/png", blob::PREVIEW_MAX + 1)),
-        ]));
+        let links = Links {
+            blobs: BTreeMap::from([
+                (png.clone(), present("image/png", 100)),
+                (text.clone(), present("text/plain", 100)),
+                (big.clone(), present("image/png", blob::PREVIEW_MAX + 1)),
+            ]),
+            ..Links::default()
+        };
         let mut h = Html::new();
         body(&mut h, &format!("board-blob://{png} board-blob://{text} board-blob://{big} board-blob://{gone}"), &links);
         let page = String::from_utf8(h.into_bytes()).unwrap_or_default();
@@ -1738,6 +1850,35 @@ mod tests {
         // the link stays, so the file can still be downloaded; the name is escaped
         assert!(page.contains("p&lt;x&gt;.png (100 bytes)</a><br><img"), "{page}");
         assert!(!page.contains("<x>") && !page.contains("http"), "{page}");
+    }
+    #[test]
+    fn an_id_of_a_known_event_is_a_link_and_any_other_number_stays_text() {
+        let event = EventRef {
+            event: EventType::Message,
+            path: "a/<log>".to_owned(),
+            kind: NodeKind::Thread,
+            version: None,
+            snippet: "<i>hello</i>\nsecond line".to_owned(),
+        };
+        let links = Links::with_events([(10_234, event)]);
+        let hash = "1".repeat(64);
+        let mut h = Html::new();
+        body(
+            &mut h,
+            &format!(
+                "see #10234, not 10235 or 110234 or `10234` or http://x/10234 or board-blob://{hash} <b>10234</b>."
+            ),
+            &links,
+        );
+        let page = String::from_utf8(h.into_bytes()).unwrap_or_default();
+        let link = "<a class=\"mref\" hx-boost=\"false\" href=\"/m/10234\" \
+            title=\"message in a/&lt;log&gt;: &lt;i&gt;hello&lt;/i&gt;\">10234</a>";
+        assert!(
+            page.starts_with(&format!("see #{link}, not 10235 or 110234 or `10234` or http://x/10234 or ")),
+            "{page}"
+        );
+        assert!(page.ends_with(&format!("(file removed)</span> &lt;b&gt;{link}&lt;/b&gt;.")), "{page}");
+        assert_eq!(page.matches("<a ").count(), 2, "{page}");
     }
 
     #[test]

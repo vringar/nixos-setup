@@ -4,9 +4,10 @@
 //! and post the JSON API's fields, form-encoded, under `/ui/`; each
 //! answers with the piece of page it changed.
 
+use message_board::blob;
 use message_board::store::{
-    BlobQuery, Board, Error as StoreError, ItemPage, ItemQuery, Limits, Node, NodeKind, REGISTER_QUEUE, Range,
-    StateFilter,
+    BlobQuery, Board, Error as StoreError, EventType, ItemPage, ItemQuery, Limits, Node, NodeKind, REGISTER_QUEUE,
+    Range, StateFilter,
 };
 
 use crate::api;
@@ -25,6 +26,70 @@ fn window(fields: &Params) -> Result<Range, StoreError> {
         Range::Last(_) if fields.number("last")?.is_none() => Ok(Range::Last(RECENT)),
         other => Ok(other),
     }
+}
+
+/// How many messages before a permalinked one its window starts, when it is
+/// older than the page's newest [`RECENT`].
+const CONTEXT: i64 = 20;
+
+/// How many items a queue page lists before a permalinked one without
+/// starting its window late: well within what the board answers in one read.
+const ITEMS_FREE: i64 = 1000;
+
+/// `GET /m/<id>`: the page that shows event `id`, with it highlighted: a
+/// message in its thread (in a window around it if it is not among the
+/// newest), a note version as that version of the note, an item, or what
+/// resolved it, in its queue (the archived ones shown if it is one), and any
+/// other event at its node.
+pub fn permalink(board: &Board, id: &str) -> Answer {
+    let missing = || StoreError::NotFound(format!("no event #{id}: ids are the numbers on the board, from 10001"));
+    let id: i64 = id.bytes().all(|b| b.is_ascii_digit()).then(|| id.parse().ok()).flatten().ok_or_else(missing)?;
+    let mut event = board.event(id)?.ok_or_else(missing)?;
+    // An archive event stands for what it archived.
+    if let (EventType::NodeArchived | EventType::NodeUnarchived, Some(target)) = (event.event, event.reference) {
+        event = board.event(target)?.unwrap_or(event);
+    }
+    let mut query: Vec<String> = Vec::new();
+    let mut anchor = None;
+    match event.event {
+        EventType::Message => {
+            if event.archived {
+                query.push("archived=1".to_owned());
+            }
+            if let Some(since) = board.message_window(&event.path, event.id, event.archived, RECENT, CONTEXT)? {
+                query.push(format!("since={since}"));
+            }
+            anchor = Some(event.id);
+        }
+        EventType::NoteVersion => {
+            query.push(format!("version={}", event.version.unwrap_or_default()));
+            anchor = Some(event.id);
+        }
+        EventType::ItemFiled
+        | EventType::ItemAnswered
+        | EventType::ItemDeclined
+        | EventType::ItemCancelled
+        | EventType::ItemReassigned => {
+            let item = event.item.unwrap_or(event.id);
+            if event.archived {
+                query.push("archived=1".to_owned());
+            }
+            if let Some(after) = board.item_window(&event.path, item, event.archived, ITEMS_FREE, CONTEXT)? {
+                query.push(format!("after={after}"));
+            }
+            query.push(format!("focus={item}"));
+            anchor = Some(item);
+        }
+        EventType::NodeCreated | EventType::NodeArchived | EventType::NodeUnarchived => {}
+    }
+    let path: Vec<String> = event.path.split('/').map(blob::pct_encode).collect();
+    let mut location = format!("/view/{}", path.join("/"));
+    if !query.is_empty() {
+        location.push('?');
+        location.push_str(&query.join("&"));
+    }
+    let anchor = anchor.map_or_else(String::new, |anchor| format!("#m{anchor}"));
+    Ok(Response::redirect(&format!("{location}{anchor}")))
 }
 
 /// A signed form of the web view, by the path it posts to under `/ui/`.
@@ -93,10 +158,16 @@ fn item_bodies(page: &ItemPage) -> impl Iterator<Item = &str> {
 }
 
 /// A queue's items as its page shows them.
-fn queue_items_html(board: &Board, path: &str, after: i64, archived: bool) -> Result<Html, Failure> {
+fn queue_items_html(
+    board: &Board,
+    path: &str,
+    after: i64,
+    focus: Option<i64>,
+    archived: bool,
+) -> Result<Html, Failure> {
     let page = board.queue_with(path, StateFilter::All, after, archived)?;
     let links = Links::of(board, item_bodies(&page))?;
-    Ok(html::queue_items(path, &page, archived, &links))
+    Ok(html::queue_items(path, &page, focus, archived, &links))
 }
 
 fn fragment(content: Html) -> Response {
@@ -135,7 +206,7 @@ pub fn view(board: &Board, path: &str, q: &Params) -> Answer {
             let after = q.number("after")?.unwrap_or(0);
             let page = board.queue_with(path, StateFilter::All, after, archived)?;
             let links = Links::of(board, item_bodies(&page))?;
-            html::queue(&node, &page, after, archived, &links)
+            html::queue(&node, &page, after, q.number("focus")?, archived, &links)
         }
     };
     page(board, path, Some(path), &content)
@@ -204,7 +275,7 @@ pub fn live_queue(board: &Board, q: &Params) -> Answer {
     let path = path(q)?;
     let archived = q.flag("archived");
     let after = q.number("after")?.unwrap_or(0);
-    Ok(fragment(queue_items_html(board, path, after, archived)?))
+    Ok(fragment(queue_items_html(board, path, after, q.number("focus")?, archived)?))
 }
 
 /// `GET /ui/live/inbox?after=`: the inbox, as its page refreshes it.
@@ -299,7 +370,7 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
         Form::Ask => {
             let archived = shown_archived(fields);
             let path = path(fields)?;
-            queue_items_html(board, path, 0, archived)?
+            queue_items_html(board, path, 0, None, archived)?
         }
         // The message's or the item's list, as the page shows it.
         Form::Archive | Form::Unarchive => {
@@ -309,7 +380,7 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
             let target = target
                 .ok_or_else(|| StoreError::BadRequest("archived, but the answer was unreadable".to_owned()))??;
             match target.kind {
-                NodeKind::Queue => queue_items_html(board, &target.path, 0, archived)?,
+                NodeKind::Queue => queue_items_html(board, &target.path, 0, None, archived)?,
                 _ => messages_html(board, &target.path, Range::Last(RECENT), archived)?,
             }
         }
@@ -320,7 +391,7 @@ pub fn write(board: &Board, form: Form, fields: &Params) -> Answer {
                 Some(detail) => {
                     let archived = shown_archived(fields);
                     let path = &detail.item.path;
-                    queue_items_html(board, path, 0, archived)?
+                    queue_items_html(board, path, 0, None, archived)?
                 }
                 None => html::error_fragment("resolved, but the item cannot be found"),
             }

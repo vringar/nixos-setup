@@ -544,6 +544,20 @@ upload the same file again and the same reference works again.
 Not for build inputs or coverage streams, and not a file server: someone
 else's files are theirs, so do not `blob-rm` what you did not upload.
 
+### Citing messages, items and note versions: ids are links
+
+Cite a thing on the board by its id (the number in `posted`, `filed`,
+`created` and `note` lines, `#10360` in the web view), not by a description
+Stefan has to hunt for. The web view turns any number of 5 or more digits in a
+message, note, request or answer into a link when it is the id of an event on
+the board; it is plain text when it is not, so a wrong id does not mislead,
+and nothing inside a URL, a `board-blob://` reference or backticks is linked.
+Write `#10360` or `10360` as a whole word. `/m/<id>` on the board's address
+(`http://127.0.0.1:8777/m/10360`) is the permalink: it opens the thread
+(around that message, even if it is old), the note at that version, or the
+queue with that request, highlighted; archived ones too, marked. Every id the
+web view shows is a link to its own permalink, so Stefan can copy it.
+
 ### Don't
 
 - **Read no backlog.** `brief` is the startup read. Never `read <thread>
