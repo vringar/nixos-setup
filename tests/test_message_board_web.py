@@ -7,6 +7,7 @@ See board_harness."""
 import hashlib
 import html
 import json
+import os
 import re
 import shutil
 import socket
@@ -803,6 +804,110 @@ require(js);
                          capture_output=True, text=True, check=True, timeout=60)
     got = json.loads(run.stdout)
     assert got == {"watching": True, "shown": [True, True]}
+
+
+# --- local times -----------------------------------------------------------------------------
+
+TIME_RE = re.compile(r'<time datetime="(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)">([^<]*)</time>')
+
+
+def test_every_timestamp_the_pages_show_is_a_time_element_with_its_utc_text(board, team):
+    """The server keeps showing UTC, in an element the script can find; without
+    script that text is what a reader gets."""
+    _furnish(team)
+    team.alice.post("rev/log", "later")
+    for path in ("/view/rev/log", "/view/rev/q", "/view/rev/state"):
+        stamps = TIME_RE.findall(board.get(path).text)
+        assert stamps, path
+        assert all(utc == shown for utc, shown in stamps), (path, stamps)
+    log = board.get("/view/rev/log").text
+    assert len(TIME_RE.findall(log)) == 2
+    # no timestamp is left bare: every UTC stamp in the visible text sits in an element
+    bare = re.sub(TIME_RE, "", log)
+    assert not re.search(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", re.sub(r"<[^>]+>", " ", bare))
+
+
+LOCAL_TIMES_JS = """
+const [js] = process.argv.slice(2);
+const listeners = {};
+let observer = null;
+class Time {
+  constructor(utc) { this.utc = utc; this.nodeType = 1; this.dataset = {}; this.title = ""; this.writes = 0;
+                     this.textContent = utc; }
+  getAttribute(name) { return name === "datetime" ? this.utc : null; }
+  matches(sel) { return sel === "time[datetime]"; }
+  querySelector() { return null; }
+}
+let times = [];
+const doc = {
+  documentElement: {}, hidden: false, activeElement: null,
+  querySelector: () => null,
+  querySelectorAll: (sel) => (sel === "time[datetime]" ? times : []),
+  addEventListener: (name, fn) => { (listeners[name] ??= []).push(fn); },
+};
+globalThis.MutationObserver = class { constructor(fn) { observer = fn; } observe() {} };
+globalThis.window = { isSecureContext: true, crypto: globalThis.crypto };
+globalThis.document = doc;
+require(js);
+const shown = () => times.map((t) => [t.textContent, t.title]);
+const out = {};
+times = [new Time("2026-10-24T14:03:26Z"), new Time("2026-01-05T23:59:59Z")];
+for (const fn of listeners["htmx:after:swap"]) fn({});
+out.first = shown();
+// a live refresh swaps in fresh elements holding the UTC text again
+times = [new Time("2026-10-24T14:03:26Z"), new Time("2026-07-01T00:00:00Z")];
+for (const fn of listeners["htmx:after:swap"]) fn({});
+out.swapped = shown();
+// elements inserted by any other route are seen by the observer; a text node the
+// script wrote itself is not an element and starts nothing
+const late = new Time("2026-10-24T22:30:00Z");
+times = [late];
+observer([{ addedNodes: [late] }, { addedNodes: [{ nodeType: 3 }] }]);
+out.observed = shown();
+// converting twice changes nothing
+const before = late.textContent;
+observer([{ addedNodes: [late] }]);
+out.stable = late.textContent === before && late.dataset.utc === "2026-10-24T22:30:00Z";
+// not a date: left as the server wrote it
+const bad = new Time("soon");
+times = [bad];
+for (const fn of listeners["htmx:after:swap"]) fn({});
+out.bad = [bad.textContent, bad.title];
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.mark.parametrize("zone, expected", [
+    ("Europe/Berlin", {
+        "first": [["2026-10-24 16:03", "2026-10-24T14:03:26Z (GMT+2)"],
+                  ["2026-01-06 00:59", "2026-01-05T23:59:59Z (GMT+1)"]],
+        "swapped": [["2026-10-24 16:03", "2026-10-24T14:03:26Z (GMT+2)"],
+                    ["2026-07-01 02:00", "2026-07-01T00:00:00Z (GMT+2)"]],
+        "observed": [["2026-10-25 00:30", "2026-10-24T22:30:00Z (GMT+2)"]],
+    }),
+    ("America/New_York", {
+        "first": [["2026-10-24 10:03", "2026-10-24T14:03:26Z (EDT)"],
+                  ["2026-01-05 18:59", "2026-01-05T23:59:59Z (EST)"]],
+        "swapped": [["2026-10-24 10:03", "2026-10-24T14:03:26Z (EDT)"],
+                    ["2026-06-30 20:00", "2026-07-01T00:00:00Z (EDT)"]],
+        "observed": [["2026-10-24 18:30", "2026-10-24T22:30:00Z (EDT)"]],
+    }),
+])
+def test_the_script_shows_local_time_again_after_every_swap(board, tmp_path, zone, expected):
+    """board-sign.js under node in another time zone: the text is local date and
+    time without a zone, the tooltip holds the UTC value and the zone, fresh
+    elements from a swap are converted again, and its own writes start nothing."""
+    _node()
+    script = tmp_path / "drive.js"
+    script.write_text(LOCAL_TIMES_JS)
+    env = {**os.environ, "TZ": zone}
+    run = subprocess.run(["node", script, _served_js(board, tmp_path)], capture_output=True, text=True,
+                         check=True, timeout=60, env=env)
+    got = json.loads(run.stdout)
+    for name, want in expected.items():
+        assert got[name] == want, (name, got[name])
+    assert got["stable"] is True
+    assert got["bad"] == ["soon", ""]
 
 
 # --- archive: the owner's control on messages and items ------------------------------------------

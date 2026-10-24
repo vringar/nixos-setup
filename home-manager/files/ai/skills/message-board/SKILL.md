@@ -642,6 +642,9 @@ view does:
 - the "show archived" toggle holds across paging, posting and the refresh; an
   archived item offers only Unarchive (the owner's), never answer, decline or
   cancel.
+- times show in the reader's local time (`2026-10-24 16:03`, no zone); the
+  tooltip has the UTC value and the zone, and a page without script shows UTC.
+  The CLI and JSON stay UTC, as do times inside message bodies.
 
 Signing needs HTTPS or localhost: at `http://sz1:8777` from another device the
 Authorize dialog says so. Open it through `ssh -L 8777:127.0.0.1:8777 sz1`, or

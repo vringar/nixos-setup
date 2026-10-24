@@ -19,6 +19,7 @@ use message_board::store::{
     KeyState, KeyUsage, Node, NodeKind, NoteVersion, Present, READ_BYTES_MAX, READ_ROWS_MAX, Range, Registration,
     Status, ThreadPage, Version,
 };
+use message_board::timefmt;
 
 use crate::deeplink;
 
@@ -467,6 +468,17 @@ fn author(h: &mut Html, from: &str, signed_by: Option<&str>, revoked_at: Option<
     }
 }
 
+/// A board timestamp as the page shows it: `board-sign.js` rewrites the
+/// element to the reader's local time, and the UTC text stays for a page
+/// without script. Text that is no timestamp stays text.
+fn time(h: &mut Html, ts: &str) {
+    if timefmt::parse(ts).is_some() {
+        h.markup("<time datetime=\"").text(ts).markup("\">").text(ts).markup("</time>");
+    } else {
+        h.text(ts);
+    }
+}
+
 fn plural(h: &mut Html, n: i64, one: &'static str, many: &'static str) {
     h.number(n).markup(" ").markup(if n == 1 { one } else { many });
 }
@@ -484,7 +496,8 @@ fn status(h: &mut Html, status: &Status) {
                 h.markup(" by ").text(from);
             }
             if let Some(ts) = ts {
-                h.markup(" · ").text(ts);
+                h.markup(" · ");
+                time(h, ts);
             }
             if let Some(thread) = thread {
                 h.markup(" · summarizes /").text(thread);
@@ -496,13 +509,15 @@ fn status(h: &mut Html, status: &Status) {
         Status::Thread { last_id, last_ts, messages } => {
             plural(h, *messages, "message", "messages");
             if let (Some(id), Some(ts)) = (last_id, last_ts) {
-                h.markup(" · last #").number(*id).markup(" · ").text(ts);
+                h.markup(" · last #").number(*id).markup(" · ");
+                time(h, ts);
             }
         }
         Status::Queue { owner, open, oldest_open_ts } => {
             h.text(owner).markup("'s · ").number(*open).markup(" open");
             if let Some(ts) = oldest_open_ts {
-                h.markup(" · oldest ").text(ts);
+                h.markup(" · oldest ");
+                time(h, ts);
             }
         }
     }
@@ -669,7 +684,8 @@ pub fn messages(path: &str, page: &ThreadPage, range: Range, default: i64, show_
         mid(&mut h, m.id);
         h.markup(" · ");
         author(&mut h, &m.from, m.signed_by.as_deref(), m.revoked_at);
-        h.markup(" · ").text(&m.ts);
+        h.markup(" · ");
+        time(&mut h, &m.ts);
         if m.archived {
             h.markup(" <span class=\"tag\">archived</span>");
         }
@@ -742,7 +758,9 @@ pub fn note(v: &NoteView<'_>) -> Html {
                 .number(note.version)
                 .markup(" · ");
             author(&mut h, &note.from, note.signed_by.as_deref(), note.revoked_at);
-            h.markup(" · ").text(&note.ts).markup(" · ");
+            h.markup(" · ");
+            time(&mut h, &note.ts);
+            h.markup(" · ");
             mid(&mut h, note.id);
             h.markup("</div>\n");
             if !v.current {
@@ -792,7 +810,8 @@ pub fn note(v: &NoteView<'_>) -> Html {
                 .number(version.version)
                 .markup("</a> · ");
             author(&mut h, &version.from, version.signed_by.as_deref(), version.revoked_at);
-            h.markup(" · ").text(&version.ts);
+            h.markup(" · ");
+            time(&mut h, &version.ts);
             if let Some(thread) = &version.thread {
                 h.markup(" · summarizes /").text(thread);
                 if let Some(through) = version.through {
@@ -862,7 +881,9 @@ fn item(h: &mut Html, item: &Item, with_queue: bool, links: &Links) {
         Some(asker) => h.markup("asked by ").text(asker),
         None => h.markup("a registration"),
     };
-    h.markup(" · ").text(&item.ts).markup(" · ").text(item.state.as_str());
+    h.markup(" · ");
+    time(h, &item.ts);
+    h.markup(" · ").text(item.state.as_str());
     if item.archived {
         h.markup(" <span class=\"tag\">archived</span>");
     }
@@ -1014,7 +1035,9 @@ fn resolve_form(h: &mut Html, item: i64, state: ItemState, view: &'static str, s
 /// would do, and the owner's two answers; `view` is the page (`inbox` or
 /// `keys`) whose piece of page the answer swaps.
 fn registration(h: &mut Html, r: &Registration, view: &'static str) {
-    h.markup("<div class=\"card\"><div class=\"meta\">#").number(r.item).markup(" · ").text(&r.ts).markup("</div>\n");
+    h.markup("<div class=\"card\"><div class=\"meta\">#").number(r.item).markup(" · ");
+    time(h, &r.ts);
+    h.markup("</div>\n");
     h.markup("<div>key <code>").text(&r.fingerprint).markup("</code></div>\n");
     if let Some(old) = &r.replaces {
         h.markup("<p class=\"flag\">replaces <code>").text(old).markup("</code>: approving revokes it</p>\n");
@@ -1205,7 +1228,8 @@ pub fn blobs(v: &BlobsView<'_>) -> Html {
         let name = if info.filename.is_empty() { info.hash.get(..12).unwrap_or_default() } else { &info.filename };
         h.markup("<tr><td><a class=\"blob\" href=\"/sha256/").text(&info.hash).markup("\" download>").text(name);
         h.markup("</a><br><code title=\"").text(&info.hash).markup("\">").text(info.hash.get(..12).unwrap_or_default());
-        h.markup("</code></td><td>").text(&blob::human(info.size)).markup("</td><td>").text(&info.ts);
+        h.markup("</code></td><td>").text(&blob::human(info.size)).markup("</td><td>");
+        time(&mut h, &info.ts);
         h.markup(" (").text(&blob::age(&info.ts, v.now)).markup(" ago)</td><td>");
         h.text(blob::standing(info.pinned, &info.ts, v.now, v.grace)).markup("</td><td>").text(&info.from);
         h.markup("</td><td>");
@@ -1422,6 +1446,37 @@ mod tests {
             !text(queue(&generated, &ItemPage { items: vec![], truncated: false }, 0, None, false, &Links::none()))
                 .contains("/ui/ask")
         );
+    }
+
+    #[test]
+    fn a_timestamp_is_a_time_element_with_its_utc_text_and_anything_else_is_text() {
+        let shown = |ts: &str| {
+            let mut h = Html::new();
+            time(&mut h, ts);
+            text(h)
+        };
+        assert_eq!(
+            shown("2026-10-22T00:00:00Z"),
+            "<time datetime=\"2026-10-22T00:00:00Z\">2026-10-22T00:00:00Z</time>"
+        );
+        assert_eq!(shown(""), "");
+        assert_eq!(shown("<b>soon</b>"), "&lt;b&gt;soon&lt;/b&gt;");
+    }
+
+    #[test]
+    fn every_timestamp_a_view_shows_is_a_time_element() {
+        let stamp = "<time datetime=\"2026-10-22T00:00:00Z\">2026-10-22T00:00:00Z</time>";
+        let thread_messages = ThreadPage { messages: vec![message(10_010, true)], earlier: 0, truncated: false };
+        let page = text(messages("rev/log", &thread_messages, Range::Last(100), 100, true, &Links::none()));
+        assert!(page.contains(&format!("agent</span> · {stamp}")), "{page}");
+        let mut h = Html::new();
+        let mut queued = open_item(10_030, Some("alice"));
+        queued.ts = "2026-10-22T00:00:00Z".to_owned();
+        item(&mut h, &queued, true, &Links::none());
+        assert!(text(h).contains(&format!("asked by alice · {stamp} · open")));
+        let mut h = Html::new();
+        super::registration(&mut h, &registration("alice", "SHA256:new"), "inbox");
+        assert!(text(h).contains(&format!("#10020 · {stamp}</div>")));
     }
 
     fn open_item(id: i64, asker: Option<&str>) -> Item {

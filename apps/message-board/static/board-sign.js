@@ -262,7 +262,35 @@
     (live.contains(active) && !!active.matches?.("input, textarea, select")) ||
     Array.from(live.querySelectorAll("input, textarea")).some((f) => f.value !== f.defaultValue) ||
     live.querySelector("details[open], .error:not([hidden])") !== null;
-  globalThis.BoardSign = { KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate, refusalText, clientKey, keyUsed, RETRY, liveBusy, uploadBlob, mediaType, UPLOAD_MAX };
+  // The page shows a timestamp as <time datetime="2026-10-24T14:03:26Z"> with
+  // that UTC text inside, which is what stays without script. Here it becomes
+  // the reader's local time, `2026-10-24 16:03`, and the UTC value and the
+  // zone's name go to the tooltip. An element already shown that way is left alone, so
+  // what this writes cannot start it again.
+  const ZONED = new Intl.DateTimeFormat("en-US", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    hourCycle: "h23", timeZoneName: "short",
+  });
+  function localTime(utc) {
+    const at = new Date(utc);
+    if (Number.isNaN(at.getTime())) return null;
+    const p = Object.fromEntries(ZONED.formatToParts(at).map((x) => [x.type, x.value]));
+    return { text: `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`, zone: p.timeZoneName };
+  }
+  function localTimes(root) {
+    const found = Array.from(root.querySelectorAll?.("time[datetime]") ?? []);
+    if (root.matches?.("time[datetime]")) found.push(root);
+    for (const el of found) {
+      const utc = el.getAttribute("datetime");
+      if (el.dataset.utc === utc) continue;
+      const local = localTime(utc);
+      if (local === null) continue;
+      el.dataset.utc = utc;
+      el.title = `${utc} (${local.zone})`;
+      el.textContent = local.text;
+    }
+  }
+  globalThis.BoardSign = { localTime, localTimes, KINDS, canonical, parsePrivateKey, importKey, signData, sign, postSigned, postCreate, refusalText, clientKey, keyUsed, RETRY, liveBusy, uploadBlob, mediaType, UPLOAD_MAX };
   if (typeof document === "undefined") return;
 
   // --- the page --------------------------------------------------------------
@@ -487,9 +515,17 @@
   // are hidden until this has seen them. Only an inserted element that is or
   // holds a control counts, so render's own writes cannot loop back here.
   const isControl = (n) => n.nodeType === 1 && (n.matches("[data-needs]") || n.querySelector("[data-needs]"));
+  // Times too (see localTimes): on load, after every swap, the live refreshes
+  // included, and for whatever else inserts them. Only inserted elements are
+  // looked at, never text, so the rewriting does not come back here.
+  const timed = (n) => n.nodeType === 1 && (n.matches("time[datetime]") || n.querySelector("time[datetime]"));
   new MutationObserver((changes) => {
-    if (changes.some((c) => Array.from(c.addedNodes).some(isControl))) render();
+    const added = changes.flatMap((c) => Array.from(c.addedNodes));
+    if (added.some(isControl)) render();
+    for (const n of added) if (timed(n)) localTimes(n);
   }).observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener("htmx:after:swap", render);
+  document.addEventListener("htmx:after:swap", () => localTimes(document));
   render();
+  localTimes(document);
 })();
