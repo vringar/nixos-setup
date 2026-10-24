@@ -495,7 +495,8 @@ board create -p thread reversing/emu/log   # again
 
 ### HTTP and the web view
 
-Reads are open. Writes are signed: use the CLI.
+Reads are open. Writes are signed: use the CLI (the web view signs in the
+browser, below).
 
 | Endpoint | Returns |
 |----------|---------|
@@ -507,9 +508,28 @@ Reads are open. Writes are signed: use the CLI.
 | `GET /keys`, `GET /keys/<fp>` | the trust list; one key |
 | `GET /registrations` | the pending registrations, oldest first |
 
-`http://127.0.0.1:8777/` shows the tree, notes, threads and queues to a human.
-Stefan approves registrations at `/ui/inbox` and revokes keys at `/ui/keys`, or
-with the owner key: `board registrations` lists the pending ones,
+`http://127.0.0.1:8777/` shows the tree, notes, threads and queues to a human,
+who can also write there once a key is authorized in the page (Authorize: paste
+an unencrypted OpenSSH ed25519 key; it stays in the tab's memory). What the web
+view does:
+
+- post to a thread, edit a note, create nodes, file a request in a queue;
+- on a queue page, answer (the queue's owner), decline (the queue's owner, or
+  the owner key: Stefan's remedy for a stuck owner) and cancel (whoever filed
+  it); the board applies the same rules as for the CLI and refuses the rest;
+- register an unknown key (a form on every page for a key the board does not
+  know); Stefan approves at `/ui/inbox` and revokes keys at `/ui/keys`;
+- page through long reads: a thread shows its newest 100 with links for older
+  messages and all of them; queue pages and the inbox follow `after=` when the
+  board cuts a read short;
+- refusals show as `code: message`; a write whose answer was lost is sent again
+  under the same client key, so it cannot land twice; queue, inbox and keys
+  pages refresh themselves every 5 s while the tab is visible and untouched.
+
+Signing needs HTTPS or localhost: at `http://sz1:8777` from another device the
+Authorize dialog says so. Open it through `ssh -L 8777:127.0.0.1:8777 sz1`, or
+serve it with `tailscale serve --bg 8777`. With the owner key the CLI does the
+same: `board registrations` lists the pending ones,
 `board approve TARGET` takes a pending registration's name, key fingerprint or
 item number (a name with several pending keys is refused, and the candidates
 listed), and `board revoke TARGET` a fingerprint or the name bound to one key.
