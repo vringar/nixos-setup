@@ -34,7 +34,7 @@ in {
     enable = true;
     package = pkgs.caddy.withPlugins {
       plugins = ["github.com/caddy-dns/inwx@v0.4.1"];
-      hash = "sha256-fPmaHMR9aN1mz4FKRMObLns7Ysg5Okd2ngs4s2iLyTM=";
+      hash = "sha256-anl4f1kdQJg4sWYwV+cCecwxhhR4AC40hN2ml8rn2Kg=";
     };
 
     # ONE site block for the whole wildcard, services dispatched by host
