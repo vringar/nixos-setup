@@ -581,6 +581,71 @@ def test_a_service_that_does_not_come_up_says_how_far_it_got_and_is_cleaned_up(
             str(sandbox_tmp / "podman")] in podman_calls(podman)
 
 
+# --- starting Podman -----------------------------------------------------------
+
+# Podman's start, as far as it races: creates a lock file the first start of a
+# user makes, and fails as libpod does if another start made it meanwhile.
+RACY_PODMAN = """#!{python}
+import os, sys, time
+shared = os.environ["FAKE_SHM_LOCK"]
+if not os.path.exists(shared):
+    time.sleep(0.3)
+    try:
+        os.close(os.open(shared, os.O_CREAT | os.O_EXCL))
+    except FileExistsError:
+        sys.exit("failed to create 2048 locks: file exists")
+socket = [a for a in sys.argv if a.startswith("unix://")][-1][len("unix://"):]
+open(socket, "w").close()
+time.sleep(30)
+"""
+
+
+def racy_podman(tmp_path):
+    path = tmp_path / "racy-podman"
+    path.write_text(RACY_PODMAN.format(python=sys.executable))
+    path.chmod(0o755)
+    return path
+
+
+@pytest.mark.parametrize("serialised", [False, True])
+def test_concurrent_podman_starts_do_not_race_on_the_shared_lock(
+    tmp_path, monkeypatch, capsys, serialised
+):
+    import threading
+
+    monkeypatch.setenv("FAKE_SHM_LOCK", str(tmp_path / "shm-lock"))
+    podman = racy_podman(tmp_path)
+    lock = tmp_path / "state" / "podman-start.lock"
+    blocker = tmp_path / "blocker"
+    blocker.write_text("")
+    results = {}
+
+    def start(n):
+        sandbox_tmp = tmp_path / f"sandbox{n}"
+        sandbox_tmp.mkdir()
+        results[n] = sandbox.start_podman_service(
+            str(sandbox_tmp), [], podman=str(podman), bwrap="bwrap",
+            log_dir=str(tmp_path / "logs"),
+            lock_path=str(lock) if serialised else str(blocker / "x")  # under a file: cannot be made
+        )
+
+    threads = [threading.Thread(target=start, args=(n,)) for n in range(6)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    for proc, _ in results.values():
+        if proc:
+            proc.kill()
+            proc.wait()
+    started = sum(1 for proc, _ in results.values() if proc)
+    if serialised:
+        assert started == 6
+    else:
+        assert started < 6  # without the lock the fake loses the race, as libpod does
+        assert "could not lock" in capsys.readouterr().err
+
+
 # --- the temp dir -------------------------------------------------------------
 
 
@@ -1264,5 +1329,5 @@ def test_a_service_that_dies_mid_session_has_its_log_kept(tmp_path):
     result = launcher.run(shutil.which("sleep"), "1")
     assert result.returncode == 0, result.stderr
     assert "exited with status 7 during the session" in result.stderr
-    [saved] = (state / "claude-sandbox").iterdir()
+    [saved] = (state / "claude-sandbox").glob("podman-*.log")
     assert "late failure" in saved.read_text()

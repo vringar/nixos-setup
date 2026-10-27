@@ -265,7 +265,36 @@ def keep_podman_log(log_path, label, directory=None, keep=PODMAN_LOGS_KEPT):
     return saved, warnings
 
 
-def start_podman_service(sandbox_tmp, view_args, podman=None, bwrap=BWRAP, log_dir=None):
+def podman_start_lock_path():
+    """The lock the launchers of one user take to start their Podmans one by one."""
+    return os.path.join(state_dir(), "podman-start.lock")
+
+
+def start_podman_service(sandbox_tmp, view_args, podman=None, bwrap=BWRAP, log_dir=None,
+                         lock_path=None):
+    """Start the Podman service, one launcher at a time per user.
+
+    Every rootless Podman of a user creates the same lock file in /dev/shm on
+    its first start, and several doing so at once fail with "failed to create
+    2048 locks ... file exists", as the launchers of a rebooted host do. So
+    the start, up to the service's socket appearing, holds a lock on a file
+    in the launcher's state dir (host side: the sandbox's own /tmp is no
+    place to share a lock). If the lock cannot be had, it starts anyway.
+    """
+    lock_path = lock_path or podman_start_lock_path()
+    try:
+        os.makedirs(os.path.dirname(lock_path), mode=0o700, exist_ok=True)
+        lock = open(lock_path, "a")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    except OSError as e:
+        print(f"claude-sandbox: could not lock {lock_path} ({e}); starting Podman unserialised",
+              file=sys.stderr)
+        return _start_podman_service(sandbox_tmp, view_args, podman, bwrap, log_dir)
+    with lock:  # closing it releases the lock
+        return _start_podman_service(sandbox_tmp, view_args, podman, bwrap, log_dir)
+
+
+def _start_podman_service(sandbox_tmp, view_args, podman, bwrap, log_dir):
     """Start a per-sandbox rootless Podman service that sees what the sandbox sees.
 
     The service runs in a mount namespace set up with view_args, the bwrap
