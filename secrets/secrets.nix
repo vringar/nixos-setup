@@ -27,4 +27,10 @@ in {
   # not here yet and the machine is away; adding it needs a rekey.
   # Contents: username=... / password=...
   "smb-fritznas.age".publicKeys = [vringar sz1];
+  # Fine-grained PAT (vringar/zabka_it only, Administration: read/write) the
+  # sz1 GitHub Actions runner uses to fetch registration tokens at service
+  # start, before /home is available — hence the host key. Expires one year
+  # after creation; renew at github.com/settings/personal-access-tokens.
+  # Contents: the token, on its own.
+  "github-runner-zabka-it.age".publicKeys = [vringar sz1];
 }

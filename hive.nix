@@ -59,6 +59,7 @@ in {
       })
       ./hardware/sz1.nix
       ./modules/bluetooth.nix
+      ./modules/github-runner.nix
       ./modules/desktop.nix
       ./modules/wg-sect.nix
       ./modules/local-llm.nix
@@ -220,6 +221,7 @@ in {
       })
       ./hardware/sz3.nix
       ./modules/bluetooth.nix
+      ./modules/github-runner.nix
       ./modules/desktop.nix
       ./modules/wg-sect.nix
     ];
@@ -255,6 +257,7 @@ in {
       })
       ./hardware/sz2.nix
       ./modules/bluetooth.nix
+      ./modules/github-runner.nix
       ./modules/desktop.nix
     ];
 
