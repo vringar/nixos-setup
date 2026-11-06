@@ -23,7 +23,7 @@ in
 
     src = sources.bpmnlint;
 
-    npmDepsHash = "sha256-Cm7MnhUUNxqaXSyEWl4QXfgztr9GdYlx51dEXhdIMG8=";
+    npmDepsHash = "sha256-NqMHwvPIg0DcQSQzDsPUCHmWS/ly1xXMHQzf9LOqKzs=";
 
     # bpmnlint has no build step — the CLI and lib are plain JS.
     dontNpmBuild = true;

@@ -23,14 +23,14 @@
         "owner": "bpmn-io",
         "repo": "bpmn-auto-layout"
       },
-      "pre_releases": false,
+      "pre_releases": true,
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "v1.3.0",
-      "revision": "7214f038b57ed19356b1c3a5892f22c434d5cc1f",
-      "url": "https://api.github.com/repos/bpmn-io/bpmn-auto-layout/tarball/refs/tags/v1.3.0",
-      "hash": "sha256-+t8ONQQy9yWB/DtdzVmxVKyp4MQPhdU9wzZiWlnqtLc="
+      "version": "v2.0.0-alpha.2",
+      "revision": "73087ad7f32274a883584ae262d2302d3fc404c6",
+      "url": "https://api.github.com/repos/bpmn-io/bpmn-auto-layout/tarball/refs/tags/v2.0.0-alpha.2",
+      "hash": "sha256-qDbWVChN/Te3Eu2v7NhmVKLMYcuLBt6KCrjqtyMieyo="
     },
     "bpmn-to-image": {
       "type": "GitRelease",
@@ -136,9 +136,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "cb7de2c7e589afe7531d4832c71ad4df144624ea",
-      "url": "https://github.com/nix-community/home-manager/archive/cb7de2c7e589afe7531d4832c71ad4df144624ea.tar.gz",
-      "hash": "sha256-chUrnAqBhBLvXBUsLFxFYBIl8c0GWp06wdjmAMS8l+U="
+      "revision": "b787c48e2ec57a9d098f5c2721882a3bc1e16f97",
+      "url": "https://github.com/nix-community/home-manager/archive/b787c48e2ec57a9d098f5c2721882a3bc1e16f97.tar.gz",
+      "hash": "sha256-gyV7AtCwLnOImcrfSETP4J3Ie96bz19DY47B7m7Y3HM="
     },
     "htmx": {
       "type": "GitRelease",
@@ -151,10 +151,10 @@
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "v4.0.0",
-      "revision": "4195bc0dc26b612ea5bea46f5914c6386eadeba3",
-      "url": "https://api.github.com/repos/bigskysoftware/htmx/tarball/refs/tags/v4.0.0",
-      "hash": "sha256-SX2hAFDkOEyAjSxlr6Hsl1NEr46V4L+bWVyzdlRr7R0="
+      "version": "v4.0.1",
+      "revision": "f3ae2450279f1fbe44a31eadfe64b2f88244d0b7",
+      "url": "https://api.github.com/repos/bigskysoftware/htmx/tarball/refs/tags/v4.0.1",
+      "hash": "sha256-CtDnTsXax/mSkd/3wvU36uUz/8WKwus1xlgAqc2oX8o="
     },
     "lix-module": {
       "type": "Git",
@@ -180,9 +180,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "27c8a887d9ed348005d91787e10f9761f547e62b",
-      "url": "https://git.lix.systems/lix-project/lix/archive/27c8a887d9ed348005d91787e10f9761f547e62b.tar.gz",
-      "hash": "sha256-5M+lCq9w3THPCY7vXW9oHkO1yhVHCGzcYrRBMfQJkXk="
+      "revision": "e3aada3cbac5b2a1453536258222716193ced361",
+      "url": "https://git.lix.systems/lix-project/lix/archive/e3aada3cbac5b2a1453536258222716193ced361.tar.gz",
+      "hash": "sha256-G/yURBA5cXtLn47hEsHSX3+QQRJiQ5T1XnW+8r6lmwc="
     },
     "mcp": {
       "type": "Git",
@@ -192,9 +192,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "8a9515f8b0bf2aae4b01618b6382305e63c4c1d2",
+      "revision": "95eddf7df3424fb90aec1a2fa52024243287f896",
       "url": null,
-      "hash": "sha256-BRx0plnBZpEPKOakwoggDpEiwK9DxlwwZyGDaTqTdG4="
+      "hash": "sha256-CelyoUrS1b5ypm0/4vADheJKWeQJQDr94s9gDDNb3KE="
     },
     "nixGL": {
       "type": "Git",
@@ -205,16 +205,16 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "b6105297e6f0cd041670c3e8628394d4ee247ed5",
-      "url": "https://github.com/nix-community/nixGL/archive/b6105297e6f0cd041670c3e8628394d4ee247ed5.tar.gz",
-      "hash": "sha256-fbRQzIGPkjZa83MowjbD2ALaJf9y6KMDdJBQMKFeY/8="
+      "revision": "4306ae1d15adf3d386f1462b330d4f2648404711",
+      "url": "https://github.com/nix-community/nixGL/archive/4306ae1d15adf3d386f1462b330d4f2648404711.tar.gz",
+      "hash": "sha256-c263mBFrDLv2/sguzQeKL99aJ4PkCdcUzcAuA5Cpzjo="
     },
     "nixpkgs": {
       "type": "Channel",
       "name": "nixos-unstable",
       "artifact": "nixexprs.tar.xz",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1097682.02c087f3fe67/nixexprs.tar.xz",
-      "hash": "sha256-ij8QUxzTOHovLrNOxVRx+RAhGQFOMsJbji0veiatH5k="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1107793.1d060086d60c/nixexprs.tar.xz",
+      "hash": "sha256-iNjybNORi/2+shilhMlkNr01UHWKOHRGzQyIyvobs9o="
     },
     "nucleus": {
       "type": "Git",

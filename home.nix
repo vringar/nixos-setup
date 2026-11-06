@@ -52,6 +52,15 @@ in {
   home.packages = [
     c8ctl
     pkgs.auth0-cli
+    pkgs.awscli2
+    pkgs.cloudfoundry-cli
+    pkgs.k9s
+    pkgs.marksman
+    pkgs.nix-output-monitor
+    pkgs.nixpkgs-review
+    pkgs.teleport
+    pkgs.terraform-docs
+    pkgs.terraform-ls
     (pkgs.writeShellScriptBin "camunda-modeler" ''
       exec ${lib.getExe' pkgs.nixgl.auto.nixGLDefault "nixGL"} ${lib.getExe pkgs.camunda-modeler} "$@"
     '')
@@ -63,14 +72,10 @@ in {
   # store path. Personal plugins therefore have to land here, not in an
   # override on the package itself.
   home.file = {
-    ".config/camunda-modeler/resources/plugins/camunda-ai-lint/index.js".source =
-      "${sources.bpmnlint-aitools}/index.js";
-    ".config/camunda-modeler/resources/plugins/camunda-ai-lint/dist".source =
-      "${sources.bpmnlint-aitools}/dist";
-    ".config/camunda-modeler/resources/plugins/spacing-guides/index.js".source =
-      "${sources.bpmnlint-aitools}/spacing-guides/index.js";
-    ".config/camunda-modeler/resources/plugins/spacing-guides/dist".source =
-      "${sources.bpmnlint-aitools}/spacing-guides/dist";
+    ".config/camunda-modeler/resources/plugins/camunda-ai-lint/index.js".source = "${sources.bpmnlint-aitools}/index.js";
+    ".config/camunda-modeler/resources/plugins/camunda-ai-lint/dist".source = "${sources.bpmnlint-aitools}/dist";
+    ".config/camunda-modeler/resources/plugins/spacing-guides/index.js".source = "${sources.bpmnlint-aitools}/spacing-guides/index.js";
+    ".config/camunda-modeler/resources/plugins/spacing-guides/dist".source = "${sources.bpmnlint-aitools}/spacing-guides/dist";
   };
 
   programs.home-manager.enable = true;

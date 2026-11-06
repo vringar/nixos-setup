@@ -12,7 +12,7 @@ pkgs.buildNpmPackage {
 
   src = sources.dmnlint;
 
-  npmDepsHash = "sha256-pbslgjCqoQLc7sUVCFyOb99d8ltvWL0rPuX69bF/XGM=";
+  npmDepsHash = "sha256-cvl4JMLUZ6pM52ov/rIJgfqRRHok0WYVFy9qI4a4ZgA=";
 
   dontNpmBuild = true;
 

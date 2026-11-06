@@ -14,7 +14,10 @@ pkgs.buildNpmPackage {
   src = sources.bpmn-auto-layout;
 
   nodejs = pkgs.nodejs_22;
-  npmDepsHash = "sha256-qnXmPQzIapXpPb41yTwWcaxmdpTZqLdKGHIUcCftqxc=";
+  npmDepsHash = "sha256-ra+DpjCj/HXRFReWA1AtvtaN7HDAsHPV8WKAp/N/qRA=";
+
+  # 2.x pulls puppeteer as a dev dependency; its postinstall downloads Chromium.
+  env.PUPPETEER_SKIP_DOWNLOAD = "1";
 
   dontNpmBuild = true;
 

@@ -7,14 +7,14 @@
 }: let
   python3Packages = pkgs.python3Packages;
 
-  # feel-mcp-server pins mcp==2.2.0 and uses the 2.x MCPServer API; nixpkgs
+  # feel-mcp-server pins mcp==2.3.0 and uses the 2.x MCPServer API; nixpkgs
   # still ships 1.x. Drop these overrides once nixpkgs catches up.
-  mcpVersion = "2.2.0";
+  mcpVersion = "2.3.0";
   mcpSrc = pkgs.fetchFromGitHub {
     owner = "modelcontextprotocol";
     repo = "python-sdk";
     tag = "v${mcpVersion}";
-    hash = "sha256-nnpNXnQiFSGx5KQBDXHCOH0wE3cznlmI6s7vtchcj3A=";
+    hash = "sha256-CnXi78zYxm0/R4fON/DzRYMSDYM/XM/9SE3s+Cf1BR0=";
   };
 
   # 2.x splits the wire types into a sibling package in the same repo.

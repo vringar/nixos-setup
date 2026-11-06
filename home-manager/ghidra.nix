@@ -22,7 +22,6 @@ in {
             sleighdevtools
             ghidraninja-ghidra-scripts
             ret-sync
-            lightkeeper
           ]))
       ];
       nativeBuildInputs = [pkgs.makeWrapper];
