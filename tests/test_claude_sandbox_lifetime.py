@@ -585,11 +585,21 @@ def test_a_service_that_does_not_come_up_says_how_far_it_got_and_is_cleaned_up(
 
 # Podman's start, as far as it races: creates a lock file the first start of a
 # user makes, and fails as libpod does if another start made it meanwhile.
+# FAKE_RENDEZVOUS=<n> holds every start until n have begun, so the race happens
+# however the starts are scheduled; without it the starts overlap only if they
+# begin within 0.3 s of each other.
 RACY_PODMAN = """#!{python}
-import os, sys, time
+import glob, os, sys, time
 shared = os.environ["FAKE_SHM_LOCK"]
 if not os.path.exists(shared):
-    time.sleep(0.3)
+    want = int(os.environ.get("FAKE_RENDEZVOUS", "0"))
+    if want:
+        open(f"{{shared}}.begun.{{os.getpid()}}", "w").close()
+        deadline = time.monotonic() + 30
+        while len(glob.glob(f"{{shared}}.begun.*")) < want and time.monotonic() < deadline:
+            time.sleep(0.02)
+    else:
+        time.sleep(0.3)
     try:
         os.close(os.open(shared, os.O_CREAT | os.O_EXCL))
     except FileExistsError:
@@ -614,6 +624,8 @@ def test_concurrent_podman_starts_do_not_race_on_the_shared_lock(
     import threading
 
     monkeypatch.setenv("FAKE_SHM_LOCK", str(tmp_path / "shm-lock"))
+    if not serialised:
+        monkeypatch.setenv("FAKE_RENDEZVOUS", "6")
     podman = racy_podman(tmp_path)
     lock = tmp_path / "state" / "podman-start.lock"
     blocker = tmp_path / "blocker"
