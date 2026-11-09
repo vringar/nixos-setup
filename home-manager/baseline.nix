@@ -223,7 +223,6 @@ in {
         init.defaultBranch = "main";
         pull.ff = "only";
         merge.conflictstyle = "diff3";
-        # TODO: Why explicitly set this to default?
         diff.colorMoved = "default";
         push = {
           default = "upstream";

@@ -5,10 +5,6 @@ For my NixOS machines, this contains a colmena setup, that can hopefully describ
 However, for my non-nixos systems, I still want to have a ~ equivalent home setup, so I'm moving as much as possible
 into a home-manager configuration.
 
-## TODO
-
-- [ ] Add standalone home-manager deployment for non-NixOS machines
-
 ## Private GitHub packages
 
 Some npins sources (e.g. `c8ctl-plugin-model`) are private GitHub repos. Nix fetches them using credentials from `~/.config/nix/github-netrc`.
