@@ -34,6 +34,12 @@ in {
           outputHash = "sha256-prx9dX7kUvs/E3zopkaPk5LXh3xJAy5sZeum/W8L7cA=";
         };
       });
+      # The default Go now reports Unicode 17, but teleport's strcase dependency
+      # panics at startup unless it is Unicode 15 (`strcase.UnicodeVersion "15.0.0"
+      # != unicode.Version "17.0.0"`), so tsh is dead on arrival and the install
+      # check fails. Build it with Go 1.26. Remove once strcase supports the
+      # newer tables.
+      teleport_18 = prev.teleport_18.override {buildGoModule = final.buildGo126Module;};
       pre-commit = prev.pre-commit.overrideAttrs (old: {
         patches = (old.patches or []) ++ [./apps/pre-commit/meta-hooks-pythonpath.patch];
       });
