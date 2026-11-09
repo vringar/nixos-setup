@@ -28,7 +28,7 @@ def alive(pid):
     try:  # a zombie is dead; so is a pid that goes between two lines
         with open(f"/proc/{pid}/stat") as f:
             return f.read().rsplit(")", 1)[1].split()[0] != "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):  # reading it as it exits raises the latter
         return False
 
 
