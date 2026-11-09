@@ -167,16 +167,36 @@ globalThis.location = { origin: base };
 globalThis.MutationObserver = class { observe() {} };
 const realFetch = globalThis.fetch;
 let fetches = 0;
-globalThis.fetch = (url, init) => { fetches++; return realFetch(new URL(url, base), init); };
+// Every fetch and every read of its body counts as work in flight, so settle() can wait for the
+// page's own promise chain to finish instead of guessing how long it takes on a busy machine.
+let pending = 0;
+const tracked = (promise) => { pending++; return promise.finally(() => pending--); };
+globalThis.fetch = async (url, init) => {
+  fetches++;
+  const response = await tracked(realFetch(new URL(url, base), init));
+  const json = response.json.bind(response);
+  response.json = () => tracked(json());
+  return response;
+};
 require(js);
 
 const form = new El("form"); form.setAttribute("hx-post", "/ui/post");
 const box = new El("textarea"); box.setAttribute("name", "body"); box.form = form;
 form.append(box); document.body.append(form);
 const other = new El("textarea"); other.setAttribute("name", "note"); other.form = form;  // not a body
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const tick = () => new Promise((r) => setTimeout(r));
+// Idle once nothing is in flight across a few turns of the event loop (the page's handlers chain
+// promises and a zero-delay timeout); the deadline only turns a hang into a failure.
+const settle = async () => {
+  const deadline = Date.now() + 30000;
+  for (let quiet = 0; quiet < 3; ) {
+    if (Date.now() > deadline) throw new Error("the page never settled");
+    await tick();
+    quiet = pending === 0 ? quiet + 1 : 0;
+  }
+};
 const type = async (text) => { box.value = text; box.selectionStart = text.length; document.activeElement = box;
-                               fire("input", { target: box }); await sleep(150); };
+                               fire("input", { target: box }); await settle(); };
 const list = () => document.body.kids.find((k) => k.id === "mention-list");
 const shown = () => list()?.kids.map((li) => li.textContent) ?? [];
 const warning = () => box.nextElementSibling?.className === "mention-warn" ? box.nextElementSibling.textContent : null;
@@ -210,16 +230,16 @@ const out = {};
   out.warn = warning();
   box.value = "sent"; fire("focusout", { target: box });
   await type("@");
-  fire("focusout", { target: box }); document.activeElement = null; await sleep(150);
+  fire("focusout", { target: box }); document.activeElement = null; await settle();
   out.blurClosed = list() === undefined;
-  form.reset(); await sleep(50);
+  form.reset(); await settle();
   out.reset = [warning(), list() === undefined];
   // a box that is no body of a signed form is left alone
-  fire("input", { target: other }); await sleep(50);
+  fire("input", { target: other }); await settle();
   const note = new El("textarea"); note.setAttribute("name", "body"); const f2 = new El("form");
   f2.setAttribute("hx-post", "/elsewhere"); note.form = f2; f2.append(note); document.body.append(f2);
   note.value = "@"; note.selectionStart = 1; document.activeElement = note;
-  fire("input", { target: note }); await sleep(50);
+  fire("input", { target: note }); await settle();
   out.untouched = [list() === undefined, note.nextElementSibling];
   console.log(JSON.stringify(out));
 })();
