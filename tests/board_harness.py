@@ -1721,7 +1721,8 @@ def drive_tui(env, steps, rows=40, cols=120):
                 wait_for(lambda: step.text in term.text(), step.text)
             elif isinstance(step, Select):
                 wait_for(lambda: row_of(step.label) is not None, step.label)
-                send(b"j" * (row_of(step.label) - 1) + (b"\r" if isinstance(step, Pick) else b""))
+                # From the top ("g"): the row is counted from there, and the cursor may be anywhere.
+                send(b"g" + b"j" * (row_of(step.label) - 1) + (b"\r" if isinstance(step, Pick) else b""))
             elif isinstance(step, Do):
                 step.fn()
             elif isinstance(step, Kill):
