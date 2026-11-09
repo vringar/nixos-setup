@@ -25,6 +25,15 @@ in {
   nixpkgs.overlays = [
     (final: prev: {
       nixgl = import sources.nixGL {pkgs = final;};
+      # nixpkgs' opencode 2.2.5 carries a stale outputHash for its
+      # bun-installed node_modules, so the fixed-output build fails with a hash
+      # mismatch. Pin the hash it actually produces. Remove once nixpkgs
+      # refreshes it.
+      opencode = prev.opencode.overrideAttrs (old: {
+        node_modules = old.node_modules.overrideAttrs {
+          outputHash = "sha256-prx9dX7kUvs/E3zopkaPk5LXh3xJAy5sZeum/W8L7cA=";
+        };
+      });
       pre-commit = prev.pre-commit.overrideAttrs (old: {
         patches = (old.patches or []) ++ [./apps/pre-commit/meta-hooks-pythonpath.patch];
       });
@@ -58,6 +67,7 @@ in {
     pkgs.marksman
     pkgs.nix-output-monitor
     pkgs.nixpkgs-review
+    pkgs.opencode
     pkgs.teleport
     pkgs.terraform-docs
     pkgs.terraform-ls

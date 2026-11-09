@@ -61,8 +61,10 @@ def test_killing_the_process_that_owns_them_kills_server_watch_and_admin(tmp_pat
         owner.kill()
         owner.wait()
         for pid in locals().get("pids", []):
-            if alive(pid):
+            try:
                 os.kill(pid, 9)  # only when the test failed
+            except ProcessLookupError:
+                pass  # already gone, as it should be
 
 
 def test_a_terminal_that_closed_but_whose_program_lives_is_waited_on_not_spun_on(tmp_path, monkeypatch):
