@@ -70,7 +70,15 @@
     "jdtls-lsp@claude-plugins-official"
     "rust-analyzer-lsp@claude-plugins-official"
   ];
-  workPlugins = [];
+  workPlugins = ["camunda-design-system@camunda-design-system"];
+  workMarketplaces = {
+    camunda-design-system.source = {
+      source = "github";
+      repo = "camunda/design-system";
+    };
+  };
+  # Declared marketplaces; empty off the work machine.
+  extraKnownMarketplaces = lib.optionalAttrs config.my.work.enable workMarketplaces;
   enabledPlugins = basePlugins ++ lib.optionals config.my.work.enable workPlugins;
   # settings.json expects a record: {"name@marketplace": true}, not an array
   enabledPluginsRecord = builtins.listToAttrs (
@@ -87,6 +95,7 @@
   # — not ~/.claude/settings.json — and also writes its own state into it.
   claudeHooksJson = pkgs.writeText "claude-hooks.json" (builtins.toJSON claudeSettings.hooks);
   claudePluginsJson = pkgs.writeText "claude-plugins.json" (builtins.toJSON enabledPluginsRecord);
+  claudeMarketplacesJson = pkgs.writeText "claude-marketplaces.json" (builtins.toJSON extraKnownMarketplaces);
   claudeCleanupDays = builtins.toString claudeSettings.cleanupPeriodDays;
   claudeOutputStyle = claudeSettings.outputStyle;
   skillsDir = ./files/ai/skills;
@@ -297,16 +306,18 @@ in {
         _merged=$(${pkgs.jq}/bin/jq \
           --slurpfile h ${claudeHooksJson} \
           --slurpfile p ${claudePluginsJson} \
+          --slurpfile m ${claudeMarketplacesJson} \
           --argjson c ${claudeCleanupDays} \
           --arg o ${lib.escapeShellArg claudeOutputStyle} \
-          '.hooks = $h[0] | .enabledPlugins = $p[0] | .cleanupPeriodDays = $c | .outputStyle = $o' "$_settings")
+          '.hooks = $h[0] | .enabledPlugins = $p[0] | .extraKnownMarketplaces = ((.extraKnownMarketplaces // {}) + $m[0]) | .cleanupPeriodDays = $c | .outputStyle = $o' "$_settings")
       else
         _merged=$(${pkgs.jq}/bin/jq -n \
           --slurpfile h ${claudeHooksJson} \
           --slurpfile p ${claudePluginsJson} \
+          --slurpfile m ${claudeMarketplacesJson} \
           --argjson c ${claudeCleanupDays} \
           --arg o ${lib.escapeShellArg claudeOutputStyle} \
-          '{hooks: $h[0], enabledPlugins: $p[0], cleanupPeriodDays: $c, outputStyle: $o}')
+          '{hooks: $h[0], enabledPlugins: $p[0], extraKnownMarketplaces: $m[0], cleanupPeriodDays: $c, outputStyle: $o}')
       fi
       printf '%s\n' "$_merged" > "$_settings"
     '';
