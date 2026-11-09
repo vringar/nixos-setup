@@ -18,6 +18,7 @@ in
       # The message board's tests need nothing more: they drive its programs.
       (pkgs.python3.withPackages (ps: [
         ps.pytest
+        ps.pytest-xdist
         ps.requests
       ]))
     ];
