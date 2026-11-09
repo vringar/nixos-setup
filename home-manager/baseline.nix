@@ -188,7 +188,8 @@ in {
       };
     };
 
-    # TODO: reintroduce nbdime
+    # TODO: reintroduce nbdime: nixpkgs only has python3Packages.nbdime (no pkgs.nbdime) and
+    # home-manager has no module, so the diff/merge drivers and attributes need wiring by hand.
     programs.git = {
       package = pkgs.gitFull;
       enable = true;
@@ -218,8 +219,6 @@ in {
           smtpencryption = "ssl";
           smptserverport = 465;
         };
-        # TODO: Figure out how to refer to the git-cinnabar package
-        cinnabar.helper = "git-cinnabar-helper";
         init.defaultBranch = "main";
         pull.ff = "only";
         merge.conflictstyle = "diff3";
