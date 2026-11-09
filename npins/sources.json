@@ -136,9 +136,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "b787c48e2ec57a9d098f5c2721882a3bc1e16f97",
-      "url": "https://github.com/nix-community/home-manager/archive/b787c48e2ec57a9d098f5c2721882a3bc1e16f97.tar.gz",
-      "hash": "sha256-gyV7AtCwLnOImcrfSETP4J3Ie96bz19DY47B7m7Y3HM="
+      "revision": "82ce401aa350502897c3f2e85f384d61cd3b0b6d",
+      "url": "https://github.com/nix-community/home-manager/archive/82ce401aa350502897c3f2e85f384d61cd3b0b6d.tar.gz",
+      "hash": "sha256-rkrJwLgLSHBnXfgoSKIDa+2LLGdTqynsV3GAxOTGhUU="
     },
     "htmx": {
       "type": "GitRelease",
@@ -192,9 +192,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "95eddf7df3424fb90aec1a2fa52024243287f896",
+      "revision": "6c44a7246629021241007975382bec0fa4640e6a",
       "url": null,
-      "hash": "sha256-CelyoUrS1b5ypm0/4vADheJKWeQJQDr94s9gDDNb3KE="
+      "hash": "sha256-JK3NEzcfJ6mgAOEDWfC2uvL1BU2ovECE6TCP/wxKbrA="
     },
     "nixGL": {
       "type": "Git",
@@ -213,8 +213,8 @@
       "type": "Channel",
       "name": "nixos-unstable",
       "artifact": "nixexprs.tar.xz",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1107793.1d060086d60c/nixexprs.tar.xz",
-      "hash": "sha256-iNjybNORi/2+shilhMlkNr01UHWKOHRGzQyIyvobs9o="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1113206.f4a03c008967/nixexprs.tar.xz",
+      "hash": "sha256-VZ8WvA9m3XN36juXyg/GwbDRU2OezOHJlXpJCXkccv0="
     },
     "nucleus": {
       "type": "Git",
@@ -253,10 +253,10 @@
       "version_upper_bound": null,
       "release_prefix": null,
       "submodules": false,
-      "version": "v1.0.1",
-      "revision": "4ef8730cf3a0dea11c8d64a9b90bc0616fe52100",
-      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v1.0.1",
-      "hash": "sha256-8nf2q6SGupoOqaf97TdD37lSCj7cMNfYGwX+42mWz1k="
+      "version": "v1.2.0",
+      "revision": "e288a18c04452fd26192f59132e5324a8bb6924d",
+      "url": "https://api.github.com/repos/rtk-ai/rtk/tarball/refs/tags/v1.2.0",
+      "hash": "sha256-dkMae+wh/W0qytr5AyRbibmrGMtIous88Asq13FLnjI="
     },
     "skills": {
       "type": "Git",
@@ -267,9 +267,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "0949856f69bd4532c08f32fd55f52d14704f6524",
-      "url": "https://github.com/camunda/skills/archive/0949856f69bd4532c08f32fd55f52d14704f6524.tar.gz",
-      "hash": "sha256-/OJO+yTqbkDS3l/3uNqr7gY8sGSp75x1NpI5mmxYbOU="
+      "revision": "aa0f1cb7a42fb5f04ec9b36b149dd9b627ec70ac",
+      "url": "https://github.com/camunda/skills/archive/aa0f1cb7a42fb5f04ec9b36b149dd9b627ec70ac.tar.gz",
+      "hash": "sha256-eRoQ8kJodZe/zJN2Y//dK2JZ34Sq9MKKfeLltaw2stU="
     },
     "vetinari": {
       "type": "Git",
