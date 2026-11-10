@@ -10,6 +10,8 @@
     # which fails for servers with self-signed certs lacking proper SAN/CN
     # (e.g. SECT TU Berlin's CN=GhidraServer). Disable RMI hostname verification.
     "-Djdk.rmi.ssl.client.enableEndpointIdentification=false"
+    # Self-signed server cert, added on top of the OS trust store (ghidra.cacerts would replace it).
+    "-Dghidra.unix.default.cacerts=${./ghidra-sect.pem}"
   ];
 in {
   home.packages = [
