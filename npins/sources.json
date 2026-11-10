@@ -57,9 +57,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "40b45a9da3c682b7cdac633fa129610f03b955c5",
-      "url": "https://github.com/bpmn-io/bpmnlint/archive/40b45a9da3c682b7cdac633fa129610f03b955c5.tar.gz",
-      "hash": "sha256-DrqVPi5+NINGsklGvFioOXS25zej1j9jBl8bki3gxjQ="
+      "revision": "d0075e2a03168e41020e7ff407545bde1a632133",
+      "url": "https://github.com/bpmn-io/bpmnlint/archive/d0075e2a03168e41020e7ff407545bde1a632133.tar.gz",
+      "hash": "sha256-JWKFjjWOIgDhoWdLGE3laWYHjh0uxYM/ZrgqUJOFL9U="
     },
     "bpmnlint-aitools": {
       "type": "Git",
