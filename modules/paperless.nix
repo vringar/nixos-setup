@@ -43,6 +43,12 @@ in {
   services.paperless = {
     enable = true;
 
+    # nixpkgs pins paperless-ngx 3.4.2 to torch<2.15 but ships torch 2.15.0, so
+    # pythonRuntimeDepsCheck fails. Drop once nixpkgs bumps paperless-ngx.
+    package = pkgs.paperless-ngx.overrideAttrs (old: {
+      pythonRelaxDeps = (old.pythonRelaxDeps or []) ++ ["torch"];
+    });
+
     # Bound to every interface and then fenced off by the interface-scoped
     # firewall rule below — the same shape as nix-serve in hive.nix, and for
     # the same reason: openFirewall would also open it on wg-sect.

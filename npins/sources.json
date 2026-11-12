@@ -57,9 +57,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "b413c8880bbc64728341e3a362a4ca9e40d1aef6",
-      "url": "https://github.com/bpmn-io/bpmnlint/archive/b413c8880bbc64728341e3a362a4ca9e40d1aef6.tar.gz",
-      "hash": "sha256-hBRqnTQHmY8hKqGLL2/Dn3vaoDs+KCuEJKW3zfp+D9Q="
+      "revision": "aaddf16e5a71b01be76617678b800d07dfa9e021",
+      "url": "https://github.com/bpmn-io/bpmnlint/archive/aaddf16e5a71b01be76617678b800d07dfa9e021.tar.gz",
+      "hash": "sha256-3B0n5v3Ag5PEsZzBoVxab6Fha82LoIKWSobaPTajcJk="
     },
     "bpmnlint-aitools": {
       "type": "Git",
@@ -136,9 +136,9 @@
       },
       "branch": "master",
       "submodules": false,
-      "revision": "82ce401aa350502897c3f2e85f384d61cd3b0b6d",
-      "url": "https://github.com/nix-community/home-manager/archive/82ce401aa350502897c3f2e85f384d61cd3b0b6d.tar.gz",
-      "hash": "sha256-rkrJwLgLSHBnXfgoSKIDa+2LLGdTqynsV3GAxOTGhUU="
+      "revision": "a1293da7dd8e497e08d26173f97e2976b36a31ea",
+      "url": "https://github.com/nix-community/home-manager/archive/a1293da7dd8e497e08d26173f97e2976b36a31ea.tar.gz",
+      "hash": "sha256-awkBBs5ctFKgEYjpNGpi3t/VqF589n5EWfdinRb2gNI="
     },
     "htmx": {
       "type": "GitRelease",
@@ -180,9 +180,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "36fcfeae3c4fd3f59b1b49e35dafd1630e3b281b",
-      "url": "https://git.lix.systems/lix-project/lix/archive/36fcfeae3c4fd3f59b1b49e35dafd1630e3b281b.tar.gz",
-      "hash": "sha256-EiQvI3CcMTzGsqUdhRc3vjTKZK+/kLuvTSnkXAe6PI0="
+      "revision": "d435bc5e6549f92a55386c4f37908c5515206e4c",
+      "url": "https://git.lix.systems/lix-project/lix/archive/d435bc5e6549f92a55386c4f37908c5515206e4c.tar.gz",
+      "hash": "sha256-DVUPRZT7rKpGUwWb81Vriu+8dTKbNeJPQ+6bbMM4/a8="
     },
     "mcp": {
       "type": "Git",
@@ -213,8 +213,8 @@
       "type": "Channel",
       "name": "nixos-unstable",
       "artifact": "nixexprs.tar.xz",
-      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1117658.d4f25a3e5620/nixexprs.tar.xz",
-      "hash": "sha256-W60urNAgQVS8bhNWH0bQsYoiagds8m38oTDUjEOM9FE="
+      "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1119549.d5cc68339997/nixexprs.tar.xz",
+      "hash": "sha256-bTKSclXJAmo9qdxPedTBHUGr8awPr4BrbOoOutJsYIc="
     },
     "nucleus": {
       "type": "Git",
