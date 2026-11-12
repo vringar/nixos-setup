@@ -14,6 +14,16 @@
   fileSystems."/" = {
     device = "/dev/disk/by-label/NIXOS_SD";
     fsType = "ext4";
+    options = ["noatime"];
+  };
+
+  # SD-card wear: keep churny writes in RAM. Journal is lost on reboot; the
+  # card is the scarce resource, not the logs.
+  boot.tmp.useTmpfs = true;
+  boot.tmp.tmpfsSize = "256M";
+  services.journald.settings.Journal = {
+    Storage = "volatile";
+    RuntimeMaxUse = "64M";
   };
 
   fileSystems."/boot/firmware" = {
