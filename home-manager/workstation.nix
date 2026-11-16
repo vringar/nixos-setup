@@ -17,6 +17,26 @@
 
   programs.obsidian.enable = true;
 
+  # Librarian vault server (AMD/NDA-derived pages): must stay on localhost.
+  # The checkout lives on sz1 only, so the unit skips itself elsewhere. Started
+  # at login and restarted on failure, which the lane used to do by hand after
+  # every shutdown.
+  systemd.user.services.librarian-vault = {
+    Unit = {
+      Description = "Librarian vault HTTP server (localhost only)";
+      ConditionPathExists = "%h/projects/AMD-PSP/projects/Librarian";
+    };
+    Install.WantedBy = ["default.target"];
+    Service = {
+      Type = "simple";
+      WorkingDirectory = "%h/projects/AMD-PSP/projects/Librarian";
+      Environment = ["PATH=${lib.makeBinPath [pkgs.nix pkgs.bash pkgs.coreutils pkgs.git]}"];
+      ExecStart = ''${pkgs.nix}/bin/nix-shell --run "python -m librarian.vaultserver --port 8861"'';
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
+  };
+
   # Make alacritty KDE's default terminal (Open Terminal Here, Ctrl+Alt+T, etc.).
   programs.plasma = {
     enable = true;
