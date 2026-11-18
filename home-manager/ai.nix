@@ -129,6 +129,7 @@
   # Private repos — only forced when my.work.enable = true
   feel-mcp-server = import ../apps/feel-mcp-server {inherit pkgs sources;};
   c8ctl-plugin-model = import ../apps/c8ctl-plugin-model {inherit pkgs sources;};
+  c8ctl-plugin-process-os = import ../apps/c8ctl-plugin-process-os {inherit pkgs;};
   dmnlint = import ../apps/dmnlint {inherit pkgs sources;};
   camundaSkills = sources.skills;
 
@@ -256,6 +257,7 @@ in {
         dmnlint
         feel-mcp-server
         c8ctl-plugin-model
+        c8ctl-plugin-process-os
       ];
 
     home.file.".claude/hooks/rtk-rewrite.sh" = {
@@ -466,7 +468,7 @@ in {
           lib.concatStrings (lib.mapAttrsToList addServer workMcpServers)
       )
     );
-    # Register c8ctl-plugin-model in the c8ctl global plugin registry.
+    # Register c8ctl plugins (model, process-os) in the c8ctl global plugin registry.
     # Plugin dir: ~/.config/c8ctl/plugins/node_modules/
     # Registry:   ~/.config/c8ctl/plugins.json
     home.activation.c8ctlPlugins = lib.mkIf config.my.work.enable (
@@ -474,7 +476,7 @@ in {
         _c8ctl_plugins_dir="''${XDG_CONFIG_HOME:-$HOME/.config}/c8ctl/plugins/node_modules"
         _c8ctl_plugins_json="''${XDG_CONFIG_HOME:-$HOME/.config}/c8ctl/plugins.json"
 
-        mkdir -p "$_c8ctl_plugins_dir"
+        mkdir -p "$_c8ctl_plugins_dir/@camunda8"
 
         rm -f "$_c8ctl_plugins_dir/c8ctl-plugin-model"
         ln -s "${c8ctl-plugin-model}/lib/node_modules/c8ctl-plugin-model" \
@@ -491,6 +493,17 @@ in {
             '(.plugins // []) |= map(select(.name != "c8ctl-plugin-model"))
              | .plugins += [{"name":"c8ctl-plugin-model","source":$src,"installedAt":"1970-01-01T00:00:00.000Z"}]' \
           > "$_c8ctl_plugins_json"
+
+        rm -f "$_c8ctl_plugins_dir/@camunda8/c8ctl-plugin-process-os"
+        ln -s "${c8ctl-plugin-process-os}/lib/node_modules/@camunda8/c8ctl-plugin-process-os" \
+          "$_c8ctl_plugins_dir/@camunda8/c8ctl-plugin-process-os"
+
+        _tmp=$(mktemp)
+        ${pkgs.jq}/bin/jq \
+          --arg src "file://${c8ctl-plugin-process-os}/lib/node_modules/@camunda8/c8ctl-plugin-process-os" \
+          '(.plugins // []) |= map(select(.name != "@camunda8/c8ctl-plugin-process-os"))
+           | .plugins += [{"name":"@camunda8/c8ctl-plugin-process-os","source":$src,"installedAt":"1970-01-01T00:00:00.000Z"}]' \
+          "$_c8ctl_plugins_json" > "$_tmp" && mv "$_tmp" "$_c8ctl_plugins_json"
       ''
     );
   }; # config
